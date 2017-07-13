@@ -75,7 +75,8 @@ class Case:
     def __init__(self, domain, geom):
         self.domain = domain
         self.geom = geom
-        self._matrices = defaultdict(lambda: defaultdict(list))
+        self._integrands = defaultdict(lambda: defaultdict(list))
+        self._computed = defaultdict(lambda: defaultdict(list))
 
     def get(self, *args):
         return [self.__dict__[arg] for arg in args]
@@ -89,14 +90,18 @@ class Case:
             scale = lambda mu: 1.0
         if symmetric:
             integrand = integrand + integrand.T
-        self._matrices[name][domain].append((integrand, scale))
+        self._integrands[name][domain].append((integrand, scale))
 
     def integrate(self, name, mu):
         ret_matrix = 0
-        for dom, contents in self._matrices[name].items():
-            domain = self.domain[dom] if dom else self.domain
+        for dom, contents in self._integrands[name].items():
             integrands, scales = zip(*contents)
-            matrices = domain.integrate(integrands, geometry=self.geom, ischeme='gauss9')
+            if self._computed[name][dom]:
+                matrices = self._computed[name][dom]
+            else:
+                domain = self.domain[dom] if dom else self.domain
+                matrices = domain.integrate(integrands, geometry=self.geom, ischeme='gauss9')
+                self._computed[name][dom] = matrices
             ret_matrix += sum(mm * scl(mu) for mm, scl in zip(matrices, scales))
         return ret_matrix
 
