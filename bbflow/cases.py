@@ -105,6 +105,13 @@ class Case:
             ret_matrix += sum(mm * scl(mu) for mm, scl in zip(matrices, scales))
         return ret_matrix
 
+    def integrand(self, name, mu):
+        ret_integrand = 0
+        for dom, contents in self._integrands[name].items():
+            indicator = self._indicator(dom)
+            ret_integrand += sum(scl(mu) * itg for itg, scl in contents) * indicator
+        return ret_integrand
+
     def _domain(self, dom):
         if dom is None:
             return self.domain
@@ -112,6 +119,14 @@ class Case:
             dom = (dom,)
         dom_str = ','.join('patch' + str(d) for d in dom)
         return self.domain[dom_str]
+
+    def _indicator(self, dom):
+        if dom is None:
+            return 1
+        if isinstance(dom, int):
+            dom = (dom,)
+        patches = self.domain.basis_patch()
+        return patches.dot([1 if i in dom else 0 for i in range(len(patches))])
 
 
 class backstep(Case):

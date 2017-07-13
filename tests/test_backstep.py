@@ -20,8 +20,12 @@ def test_divergence_matrix(case, mu):
 
     itg = - fn.outer(vbasis.div(geom), pbasis)
     phys_mx = domain.integrate(itg + itg.T, geometry=geom, ischeme='gauss9')
-    test_mx = case.integrate('divergence', mu)
 
+    test_mx = case.integrate('divergence', mu)
+    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+
+    itg = case.integrand('divergence', mu)
+    test_mx = domain.integrate(itg, geometry=case.geom, ischeme='gauss9')
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
 
 
@@ -29,10 +33,14 @@ def test_laplacian_matrix(case, mu):
     domain, vbasis, pbasis = case.get('domain', 'vbasis', 'pbasis')
     geom = case.phys_geom(mu)
 
-    itg = fn.outer(vbasis.grad(geom)).sum([-1, -2])
+    itg = fn.outer(vbasis.grad(geom)).sum([-1, -2]) / mu[0]
     phys_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
-    test_mx = case.integrate('laplacian', mu)
 
+    test_mx = case.integrate('laplacian', mu)
+    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+
+    itg = case.integrand('laplacian', mu)
+    test_mx = domain.integrate(itg, geometry=case.geom, ischeme='gauss9')
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
 
 
@@ -42,6 +50,10 @@ def test_convective_tensor(case, mu):
 
     itg = (vbasis[:,_,_,:,_] * vbasis[_,:,_,_,:] * vbasis[_,_,:,:].grad(geom)).sum([-1, -2])
     phys_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
-    test_mx = case.integrate('convection', mu)
 
+    test_mx = case.integrate('convection', mu)
+    np.testing.assert_almost_equal(phys_mx, test_mx)
+
+    itg = case.integrand('convection', mu)
+    test_mx = domain.integrate(itg, geometry=case.geom, ischeme='gauss9')
     np.testing.assert_almost_equal(phys_mx, test_mx)
