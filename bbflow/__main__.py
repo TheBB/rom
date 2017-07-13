@@ -7,7 +7,6 @@ import pickle
 
 import bbflow.cases as cases
 import bbflow.solvers as solvers
-import bbflow.mesh as mesh
 
 
 def parse_extra_args(func):
