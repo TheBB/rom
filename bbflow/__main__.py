@@ -41,7 +41,7 @@ def parse_extra_args(func):
 
 @click.group()
 @click.pass_context
-@click.option('--case', '-c', type=click.Choice(cases.__all__), required=True)
+@click.option('--case', '-c', type=click.Choice(cases.__dict__), required=True)
 @click.option('--solver', '-s', type=click.Choice(solvers.__all__), required=True)
 def main(ctx, case, solver):
     ctx.obj = {
