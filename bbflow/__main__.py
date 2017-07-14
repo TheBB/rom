@@ -69,6 +69,7 @@ def command(name=None):
 def single(ctx, **kwargs):
     case = ctx.obj['case'](**kwargs)
     lhs = ctx.obj['solver'](case, **kwargs)
+    solvers.metrics(case, lhs, **kwargs)
     solvers.plots(case, lhs, **kwargs)
 
 
@@ -77,10 +78,45 @@ def single(ctx, **kwargs):
 @click.option('--imethod', type=click.Choice(['full', 'sparse']), default='full')
 @parse_extra_args
 @log.title
-def make_ensemble(ctx, method, imethod, ipts=None, **kwargs):
+def make_ensemble(ctx, method, imethod, ipts=None, error=0.01, **kwargs):
     case = ctx.obj['case'](**kwargs)
+
     scheme = list(getattr(quadrature, imethod)(case.mu, ipts))
-    log.info('Generating ensemble of {} snapshots'.format(len(scheme)))
+    nsnapshots = len(scheme)
+    log.info('Generating ensemble of {} snapshots'.format(nsnapshots))
+
+    ensemble = []
+    for mu, weight in log.iter('snapshot', scheme):
+        ensemble.append(weight * ctx.obj['solver'](case, mu=mu, **kwargs))
+    ensemble = np.array(ensemble).T
+
+    for field in case.fields:
+        mass = case.mass(field)
+        corr = ensemble.T.dot(mass.dot(ensemble))
+
+        eigvals, eigvecs = np.linalg.eigh(corr)
+        eigvals = eigvals[::-1]
+        eigvecs = eigvecs[:,::-1]
+
+        threshold = (1 - error ** 2) * sum(eigvals)
+        try:
+            nmodes = min(np.where(np.cumsum(eigvals) > threshold)[0]) + 1
+        except ValueError:
+            nmodes = nsnapshots
+
+        actual_error = np.sqrt(np.sum(eigvals[nmodes:]) / sum(eigvals))
+        log.info('{} modes suffice for {:.2e} error (threshold {:.2e})'.format(
+            nmodes, actual_error, error,
+        ))
+
+        if nmodes == nsnapshots:
+            log.warning('All DoFs used, ensemble is probably too small')
+
+        reduced = ensemble.dot(eigvecs[:,:nmodes]) / np.sqrt(eigvals[:nmodes])
+        indices = case.basis_indices(field)
+        mask = np.ones(reduced.shape[0], dtype=np.bool)
+        mask[indices] = 0
+        reduced[mask] = 0
 
 
 if __name__ == '__main__':

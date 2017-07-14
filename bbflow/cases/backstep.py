@@ -11,6 +11,7 @@ class backstep(Case):
         (9, 12),                # channel length
         (0.3, 2),               # step height
     ]
+    fields = ['v', 'p']
 
     def __init__(self,
                  nel_length=100, nel_height=10, nel_width=None, nel_up=None,
@@ -35,17 +36,18 @@ class backstep(Case):
                 [1, -1], [1, 0], [1, 1]
             ],
         )
-        super().__init__(domain, geom)
 
         # Bases
-        vxbasis, vybasis, pbasis = fn.chain([
+        bases = [
             domain.basis('spline', degree=(degree, degree-1)),
             domain.basis('spline', degree=(degree-1, degree)),
-            domain.basis('spline', degree=degree-1)
-        ])
+            domain.basis('spline', degree=degree-1),
+        ]
+        vxbasis, vybasis, pbasis = fn.chain(bases)
         vbasis = vxbasis[:,_] * (1,0) + vybasis[:,_] * (0,1)
-        self.vbasis = vbasis
-        self.pbasis = pbasis
+
+        basis_lengths = [len(bases[0]) + len(bases[1]), len(bases[2])]
+        super().__init__(domain, geom, [vbasis, pbasis], basis_lengths)
 
         vgrad = vbasis.grad(geom)
 

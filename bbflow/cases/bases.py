@@ -2,6 +2,8 @@ from collections import defaultdict
 from contextlib import contextmanager
 from functools import partial
 from math import ceil
+import numpy as np
+from nutils import function as fn
 from operator import itemgetter
 
 
@@ -67,11 +69,18 @@ def num_elems(length, meshwidth, prescribed=None):
 
 class Case:
 
-    def __init__(self, domain, geom):
+    def __init__(self, domain, geom, bases, basis_lengths=None):
         self.domain = domain
         self.geom = geom
         self._integrands = defaultdict(lambda: defaultdict(list))
         self._computed = defaultdict(lambda: defaultdict(list))
+
+        for field, basis in zip(self.fields, bases):
+            setattr(self, field + 'basis', basis)
+        if basis_lengths is None:
+            assert len(bases) == 1
+            basis_lengths = [bases[0].shape[0]]
+        self.basis_lengths = basis_lengths
 
     def get(self, *args):
         return [self.__dict__[arg] for arg in args]
@@ -106,6 +115,25 @@ class Case:
             indicator = self._indicator(dom)
             ret_integrand += sum(scl(mu) * itg for itg, scl in contents) * indicator
         return ret_integrand
+
+    def mass(self, field):
+        integrand = fn.outer(self.basis(field))
+        while len(integrand.shape) > 2:
+            integrand = integrand.sum(-1)
+        return self.domain.integrate(integrand, geometry=self.geom, ischeme='gauss9').core
+
+    def basis(self, name):
+        assert name in self.fields
+        return getattr(self, name + 'basis')
+
+    def basis_indices(self, name):
+        start = 0
+        for field, length in zip(self.fields, self.basis_lengths):
+            if field != name:
+                start += length
+            else:
+                break
+        return np.arange(start, start + length, dtype=np.int)
 
     def _domain(self, dom):
         if dom is None:

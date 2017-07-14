@@ -17,7 +17,7 @@ def _stokes(case, mu, **kwargs):
     return lhs
 
 
-def _metrics(case, lhs, mu, **kwargs):
+def metrics(case, lhs, mu, **kwargs):
     domain = case.domain
     geom = case.phys_geom(mu)
     vsol = case.vbasis.dot(lhs + case.lift)
@@ -46,6 +46,4 @@ def plots(case, lhs, mu, plot_name='solution', index=0, colorbar=False,
 
 @log.title
 def stokes(case, **kwargs):
-    lhs = _stokes(case, **kwargs)
-    _metrics(case, lhs, **kwargs)
-    return lhs
+    return _stokes(case, **kwargs)
