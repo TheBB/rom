@@ -6,6 +6,7 @@ from nutils import plot, log, function as fn, _
 import pickle
 
 import bbflow.cases as cases
+import bbflow.quadrature as quadrature
 import bbflow.solvers as solvers
 
 
@@ -49,17 +50,37 @@ def main(ctx, case, solver):
         'solver': getattr(solvers, solver),
     }
 
+def command(name=None):
+    def decorator(func):
+        func = click.pass_context(func)
+        func = main.command(
+            name,
+            context_settings=dict(
+                ignore_unknown_options=True,
+                allow_extra_args=True,
+            )
+        )(func)
+        return func
+    return decorator
 
-@main.command(context_settings=dict(
-    ignore_unknown_options=True,
-    allow_extra_args=True,
-))
-@click.pass_context
+
+@command()
 @parse_extra_args
 def single(ctx, **kwargs):
     case = ctx.obj['case'](**kwargs)
     lhs = ctx.obj['solver'](case, **kwargs)
     solvers.plots(case, lhs, **kwargs)
+
+
+@command('make-ensemble')
+@click.option('--method', type=click.Choice(['pod']), default='pod')
+@click.option('--imethod', type=click.Choice(['full', 'sparse']), default='full')
+@parse_extra_args
+@log.title
+def make_ensemble(ctx, method, imethod, ipts=None, **kwargs):
+    case = ctx.obj['case'](**kwargs)
+    scheme = list(getattr(quadrature, imethod)(case.mu, ipts))
+    log.info('Generating ensemble of {} snapshots'.format(len(scheme)))
 
 
 if __name__ == '__main__':
