@@ -90,9 +90,13 @@ class AbstractCase:
         return {
             'args': self._constructor_args,
             'computed': self._computed,
+            'constraints': self.constraints,
+            'lift': self.lift,
         }
 
     def __setstate__(self, state):
+        self.constraints = state['constraints']
+        self.lift = state['lift']
         self.__init__(**state['args'])
         self._computed = state['computed']
 

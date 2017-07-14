@@ -76,19 +76,21 @@ class backstep(Case):
             add(itg, mu[1], domain=(1,2))
 
         # Dirichlet boundary constraints
-        boundary = domain.boundary[','.join([
-            'patch0-bottom', 'patch0-top', 'patch0-left',
-            'patch1-top', 'patch2-bottom', 'patch2-left',
-        ])]
-        constraints = boundary.project((0, 0), onto=vbasis, geometry=geom, ischeme='gauss9')
-        self.constraints = constraints
+        if not hasattr(self, 'constraints'):
+            boundary = domain.boundary[','.join([
+                'patch0-bottom', 'patch0-top', 'patch0-left',
+                'patch1-top', 'patch2-bottom', 'patch2-left',
+            ])]
+            constraints = boundary.project((0, 0), onto=vbasis, geometry=geom, ischeme='gauss9')
+            self.constraints = constraints
 
         # Lifting function
-        x, y = geom
-        profile = fn.max(0, y*(1-y) * 4 * velocity)[_] * (1, 0)
-        lift = domain.project(profile, onto=vbasis, geometry=geom, ischeme='gauss9')
-        lift[np.where(np.isnan(lift))] = 0.0
-        self.lift = lift
+        if not hasattr(self, 'lift'):
+            x, y = geom
+            profile = fn.max(0, y*(1-y) * 4 * velocity)[_] * (1, 0)
+            lift = domain.project(profile, onto=vbasis, geometry=geom, ischeme='gauss9')
+            lift[np.where(np.isnan(lift))] = 0.0
+            self.lift = lift
 
     def phys_geom(self, p):
         x, y = self.geom
