@@ -67,13 +67,17 @@ def num_elems(length, meshwidth, prescribed=None):
     return int(ceil(length / meshwidth))
 
 
-class Case:
+def defaultdict_list():
+    return defaultdict(list)
+
+
+class AbstractCase:
 
     def __init__(self, domain, geom, bases, basis_lengths=None):
         self.domain = domain
         self.geom = geom
-        self._integrands = defaultdict(lambda: defaultdict(list))
-        self._computed = defaultdict(lambda: defaultdict(list))
+        self._integrands = defaultdict(defaultdict_list)
+        self._computed = defaultdict(defaultdict_list)
 
         for field, basis in zip(self.fields, bases):
             setattr(self, field + 'basis', basis)
@@ -81,6 +85,16 @@ class Case:
             assert len(bases) == 1
             basis_lengths = [bases[0].shape[0]]
         self.basis_lengths = basis_lengths
+
+    def __getstate__(self):
+        return {
+            'args': self._constructor_args,
+            'computed': self._computed,
+        }
+
+    def __setstate__(self, state):
+        self.__init__(**state['args'])
+        self._computed = state['computed']
 
     def get(self, *args):
         return [self.__dict__[arg] for arg in args]
@@ -150,3 +164,18 @@ class Case:
             dom = (dom,)
         patches = self.domain.basis_patch()
         return patches.dot([1 if i in dom else 0 for i in range(len(patches))])
+
+
+class MetaCase(type):
+
+    def __new__(cls, name, bases, attrs):
+        if '__init__' in attrs:
+            old_init = attrs['__init__']
+            def new_init(self, **kwargs):
+                old_init(self, **kwargs)
+                self._constructor_args = kwargs
+            attrs['__init__'] = new_init
+        return type.__new__(cls, name, bases, attrs)
+
+class Case(AbstractCase, metaclass=MetaCase):
+    pass

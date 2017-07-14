@@ -1,5 +1,6 @@
 import numpy as np
 from nutils import mesh, function as fn, log, _
+import pickle
 import pytest
 
 import bbflow.cases as cases
@@ -57,3 +58,17 @@ def test_convective_tensor(case, mu):
     itg = case.integrand('convection', mu)
     test_mx = domain.integrate(itg, geometry=case.geom, ischeme='gauss9')
     np.testing.assert_almost_equal(phys_mx, test_mx)
+
+
+def test_pickle(case, mu):
+    ncase = pickle.loads(pickle.dumps(case))
+
+    old_mx = case.integrate('divergence', mu)
+    new_mx = ncase.integrate('divergence', mu)
+    np.testing.assert_almost_equal(old_mx.toarray(), new_mx.toarray())
+
+    tcase = pickle.loads(pickle.dumps(case))
+    for name, contents in ncase._computed.items():
+        for dom, mxlist in contents.items():
+            for mxa, mxb in zip(mxlist, tcase._computed[name][dom]):
+                np.testing.assert_almost_equal(mxa.toarray(), mxb.toarray())
