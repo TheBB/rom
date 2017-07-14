@@ -3,9 +3,11 @@ from functools import wraps
 from itertools import count, product
 import numpy as np
 from nutils import plot, log, function as fn, _
+from os.path import isfile
 import pickle
 
 import bbflow.cases as cases
+from bbflow.cases.bases import Case
 import bbflow.quadrature as quadrature
 import bbflow.solvers as solvers
 
@@ -40,13 +42,28 @@ def parse_extra_args(func):
     return inner
 
 
+class CaseType(click.ParamType):
+    name = 'case'
+
+    def convert(self, value, param, ctx):
+        if isinstance(value, Case):
+            return value
+        elif value in cases.__dict__:
+            return getattr(cases, value)
+        elif isfile(value):
+            with open(value, 'rb') as f:
+                case = pickle.load(f)
+            return lambda *args, **kwargs: case
+        self.fail('Unknown case: {}'.format(value))
+
+
 @click.group()
 @click.pass_context
-@click.option('--case', '-c', type=click.Choice(cases.__dict__), required=True)
-@click.option('--solver', '-s', type=click.Choice(solvers.__all__), required=True)
+@click.option('--case', '-c', type=CaseType(), required=True)
+@click.option('--solver', '-s', type=click.Choice(solvers.__all__), required=False)
 def main(ctx, case, solver):
     ctx.obj = {
-        'case': getattr(cases, case),
+        'case': case,
         'solver': getattr(solvers, solver),
     }
 
