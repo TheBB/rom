@@ -58,7 +58,8 @@ def main(ctx, case, solver):
 @parse_extra_args
 def single(ctx, **kwargs):
     case = ctx.obj['case'](**kwargs)
-    ctx.obj['solver'](case, **kwargs)
+    lhs = ctx.obj['solver'](case, **kwargs)
+    solvers.plots(case, lhs, **kwargs)
 
 
 if __name__ == '__main__':
