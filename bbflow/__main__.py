@@ -73,12 +73,13 @@ def single(ctx, **kwargs):
     solvers.plots(case, lhs, **kwargs)
 
 
-@command('make-ensemble')
+@command()
 @click.option('--method', type=click.Choice(['pod']), default='pod')
 @click.option('--imethod', type=click.Choice(['full', 'sparse']), default='full')
+@click.option('--out', '-o', type=click.File(mode='wb'), required=True)
 @parse_extra_args
 @log.title
-def make_ensemble(ctx, method, imethod, ipts=None, error=0.01, **kwargs):
+def reduce(ctx, out, method, imethod, ipts=None, error=0.01, **kwargs):
     case = ctx.obj['case'](**kwargs)
 
     scheme = list(getattr(quadrature, imethod)(case.mu, ipts))
@@ -90,6 +91,7 @@ def make_ensemble(ctx, method, imethod, ipts=None, error=0.01, **kwargs):
         ensemble.append(weight * ctx.obj['solver'](case, mu=mu, **kwargs))
     ensemble = np.array(ensemble).T
 
+    projection = []
     for field in case.fields:
         mass = case.mass(field)
         corr = ensemble.T.dot(mass.dot(ensemble))
@@ -117,6 +119,12 @@ def make_ensemble(ctx, method, imethod, ipts=None, error=0.01, **kwargs):
         mask = np.ones(reduced.shape[0], dtype=np.bool)
         mask[indices] = 0
         reduced[mask] = 0
+
+        projection.append(reduced)
+
+    projection = np.concatenate(projection, axis=1)
+    case.project(projection)
+    pickle.dump(case, out)
 
 
 if __name__ == '__main__':

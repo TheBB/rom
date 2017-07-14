@@ -76,6 +76,7 @@ class AbstractCase:
     def __init__(self, domain, geom, bases, basis_lengths=None):
         self.domain = domain
         self.geom = geom
+        self._projection = None
         self._integrands = defaultdict(defaultdict_list)
         self._computed = defaultdict(defaultdict_list)
 
@@ -92,6 +93,7 @@ class AbstractCase:
             'computed': self._computed,
             'constraints': self.constraints,
             'lift': self.lift,
+            'projection': self._projection
         }
 
     def __setstate__(self, state):
@@ -99,6 +101,7 @@ class AbstractCase:
         self.lift = state['lift']
         self.__init__(**state['args'])
         self._computed = state['computed']
+        self._projection = state['projection']
 
     def get(self, *args):
         return [self.__dict__[arg] for arg in args]
@@ -121,6 +124,7 @@ class AbstractCase:
             if self._computed[name][dom]:
                 matrices = self._computed[name][dom]
             else:
+                assert not self._projection
                 domain = self._domain(dom)
                 matrices = domain.integrate(integrands, geometry=self.geom, ischeme='gauss9')
                 self._computed[name][dom] = matrices
@@ -152,6 +156,25 @@ class AbstractCase:
             else:
                 break
         return np.arange(start, start + length, dtype=np.int)
+
+    def solution(self, lhs):
+        if self._projection:
+            lhs = self._projection.dot(lhs)
+        lhs = lhs + self.lift
+        return [self.basis(field).dot(lhs) for field in self.fields]
+
+    def project(self, projection):
+        self._computed = {
+            part: {
+                dom: [
+                    projection.T.dot(mx.core.dot(projection))
+                    for mx in matrices
+                ]
+                for dom, matrices in contents.items()
+            }
+            for part, contents in self._computed.items()
+        }
+        self._projection = projection
 
     def _domain(self, dom):
         if dom is None:

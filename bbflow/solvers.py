@@ -20,7 +20,7 @@ def _stokes(case, mu, **kwargs):
 def metrics(case, lhs, mu, **kwargs):
     domain = case.domain
     geom = case.phys_geom(mu)
-    vsol = case.vbasis.dot(lhs + case.lift)
+    vsol, __ = case.solution(lhs)
 
     area, div_norm = domain.integrate([1, vsol.div(geom) ** 2], geometry=geom, ischeme='gauss9')
     div_norm = np.sqrt(div_norm / area)
@@ -33,8 +33,7 @@ def plots(case, lhs, mu, plot_name='solution', index=0, colorbar=False,
           **kwargs):
     domain = case.domain
     geom = case.phys_geom(mu)
-    vsol = case.vbasis.dot(lhs + case.lift)
-    psol = case.pbasis.dot(lhs + case.lift)
+    vsol, psol = case.solution(lhs)
 
     points, vel, press = domain.elem_eval([geom, vsol, psol], ischeme='bezier9', separate=True)
     with plot.PyPlot(plot_name, index=index, figsize=figsize) as plt:
