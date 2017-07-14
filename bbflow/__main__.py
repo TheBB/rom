@@ -109,7 +109,7 @@ def reduce(ctx, out, method, imethod, ipts=None, error=0.01, **kwargs):
     ensemble = np.array(ensemble).T
 
     projection = []
-    for field in case.fields:
+    for field in log.iter('field', case.fields, length=False):
         mass = case.mass(field)
         corr = ensemble.T.dot(mass.dot(ensemble))
 
