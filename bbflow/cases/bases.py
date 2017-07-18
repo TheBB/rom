@@ -93,7 +93,9 @@ class AbstractCase:
             'computed': self._computed,
             'constraints': self.constraints,
             'lift': self.lift,
-            'projection': self._projection
+            'projection': self._projection,
+            'fields': self.fields,
+            'lengths': self.basis_lengths,
         }
 
     def __setstate__(self, state):
@@ -102,6 +104,8 @@ class AbstractCase:
         self.__init__(**state['args'])
         self._computed = state['computed']
         self._projection = state['projection']
+        self.fields = state['fields']
+        self.basis_lengths = state['lengths']
 
     def get(self, *args):
         return [self.__dict__[arg] for arg in args]
@@ -163,7 +167,7 @@ class AbstractCase:
         lhs = lhs + self.lift
         return [self.basis(field).dot(lhs) for field in self.fields]
 
-    def project(self, projection):
+    def project(self, projection, fields, lengths):
         self._computed = {
             part: {
                 dom: [
@@ -175,6 +179,8 @@ class AbstractCase:
             for part, contents in self._computed.items()
         }
         self._projection = projection
+        self.basis_lengths = lengths
+        self.fields = fields
 
     def _domain(self, dom):
         if dom is None:

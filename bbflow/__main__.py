@@ -93,10 +93,11 @@ def single(ctx, **kwargs):
 @command()
 @click.option('--method', type=click.Choice(['pod']), default='pod')
 @click.option('--imethod', type=click.Choice(['full', 'sparse']), default='full')
+@click.option('--field', '-f', 'fields', type=str, multiple=True)
 @click.option('--out', '-o', type=click.File(mode='wb'), required=True)
 @parse_extra_args
 @log.title
-def reduce(ctx, out, method, imethod, ipts=None, error=0.01, **kwargs):
+def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, **kwargs):
     case = ctx.obj['case'](**kwargs)
 
     scheme = list(getattr(quadrature, imethod)(case.mu, ipts))
@@ -108,8 +109,11 @@ def reduce(ctx, out, method, imethod, ipts=None, error=0.01, **kwargs):
         ensemble.append(weight * ctx.obj['solver'](case, mu=mu, **kwargs))
     ensemble = np.array(ensemble).T
 
-    projection = []
-    for field in log.iter('field', case.fields, length=False):
+    if not fields:
+        fields = case.fields
+
+    projection, lengths = [], []
+    for field in log.iter('field', fields, length=False):
         mass = case.mass(field)
         corr = ensemble.T.dot(mass.dot(ensemble))
 
@@ -138,9 +142,10 @@ def reduce(ctx, out, method, imethod, ipts=None, error=0.01, **kwargs):
         reduced[mask] = 0
 
         projection.append(reduced)
+        lengths.append(nmodes)
 
     projection = np.concatenate(projection, axis=1)
-    case.project(projection)
+    case.project(projection, fields, lengths)
     pickle.dump(case, out)
 
 
