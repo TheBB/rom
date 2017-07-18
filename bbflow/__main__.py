@@ -64,7 +64,7 @@ class CaseType(click.ParamType):
 def main(ctx, case, solver):
     ctx.obj = {
         'case': case,
-        'solver': getattr(solvers, solver),
+        'solver': getattr(solvers, solver) if solver else None,
     }
 
 def command(name=None):
@@ -145,8 +145,8 @@ def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, **kwargs):
         lengths.append(nmodes)
 
     projection = np.concatenate(projection, axis=1)
-    case.project(projection, fields, lengths)
-    pickle.dump(case, out)
+    proj_case = cases.ProjectedCase(case, projection, fields, lengths)
+    pickle.dump(proj_case, out)
 
 
 if __name__ == '__main__':
