@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from functools import partial
 from math import ceil
 import numpy as np
-from nutils import function as fn
+from nutils import function as fn, matrix
 from operator import itemgetter
 
 
@@ -84,12 +84,11 @@ def defaultdict_list():
     return defaultdict(list)
 
 
-class AbstractCase:
+class Case:
 
     def __init__(self, domain, geom, bases, basis_lengths=None):
         self.domain = domain
         self.geom = geom
-        self._projection = None
         self._integrands = defaultdict(defaultdict_list)
         self._computed = defaultdict(defaultdict_list)
 
@@ -121,7 +120,6 @@ class AbstractCase:
             if self._computed[name][dom]:
                 matrices = self._computed[name][dom]
             else:
-                assert not self._projection
                 domain = self._domain(dom)
                 matrices = domain.integrate(integrands, geometry=self.geom, ischeme='gauss9')
                 self._computed[name][dom] = matrices
@@ -154,26 +152,10 @@ class AbstractCase:
                 break
         return np.arange(start, start + length, dtype=np.int)
 
-    def solution(self, lhs):
-        if self._projection:
-            lhs = self._projection.dot(lhs)
-        lhs = lhs + self.lift
+    def solution(self, lhs, lift=True):
+        if lift:
+            lhs = lhs + self.lift
         return [self.basis(field).dot(lhs) for field in self.fields]
-
-    def project(self, projection, fields, lengths):
-        self._computed = {
-            part: {
-                dom: [
-                    projection.T.dot(mx.core.dot(projection))
-                    for mx in matrices
-                ]
-                for dom, matrices in contents.items()
-            }
-            for part, contents in self._computed.items()
-        }
-        self._projection = projection
-        self.basis_lengths = lengths
-        self.fields = fields
 
     def _domain(self, dom):
         if dom is None:
@@ -192,16 +174,35 @@ class AbstractCase:
         return patches.dot([1 if i in dom else 0 for i in range(len(patches))])
 
 
-class MetaCase(type):
 
-    def __new__(cls, name, bases, attrs):
-        if '__init__' in attrs:
-            old_init = attrs['__init__']
-            def new_init(self, **kwargs):
-                old_init(self, **kwargs)
-                self._constructor_args = kwargs
-            attrs['__init__'] = new_init
-        return type.__new__(cls, name, bases, attrs)
+def _project_tensor(tensor, projection):
+    if isinstance(tensor, (matrix.ScipyMatrix, matrix.NumpyMatrix)):
+        return projection.T.dot(tensor.core.dot(projection))
+    else:
+        for ax in range(tensor.ndim):
+            tensor = np.tensordot(tensor, projection, (0, 0))
+        return tensor
 
-class Case(AbstractCase, metaclass=MetaCase):
-    pass
+
+class ProjectedCase(Case):
+
+    def __init__(self, case, projection, fields, lengths):
+        self.case = case
+        self.projection = projection
+        self.fields = fields
+        self.basis_lengths = lengths
+
+        self._computed = {}
+        for part, domains in case._computed.items():
+            proj_contents = []
+            for dom, matrices in domains.items():
+                __, scales = zip(*case._integrands[part][dom])
+                proj_matrices = [
+                    _project_tensor(matrix, projection)
+                    for matrix in matrices
+                ]
+                proj_contents.extend(zip(proj_matrices, scales))
+            self._computed[part] = proj_contents
+
+    def integrate(self, name, mu):
+        return sum(mm * scl(mu) for mm, scl in self._computed[name])

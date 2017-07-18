@@ -72,3 +72,32 @@ def test_pickle(case, mu):
         for dom, mxlist in contents.items():
             for mxa, mxb in zip(mxlist, tcase._computed[name][dom]):
                 np.testing.assert_almost_equal(mxa.toarray(), mxb.toarray())
+
+
+def test_project(case, mu):
+    dmx = case.integrate('divergence', mu).toarray()
+    lmx = case.integrate('laplacian', mu).toarray()
+    cmx = case.integrate('convection', mu)
+
+    proj = np.ones((case.vbasis.shape[0], 1))
+    pcase = cases.ProjectedCase(case, proj, ['v'], [1])
+
+    np.testing.assert_almost_equal(np.sum(dmx), pcase.integrate('divergence', mu))
+    np.testing.assert_almost_equal(np.sum(lmx), pcase.integrate('laplacian', mu))
+    np.testing.assert_almost_equal(np.sum(cmx), pcase.integrate('convection', mu))
+
+    mu = [2.0, 12.0, 1.0]
+    dmx = case.integrate('divergence', mu).toarray()
+    lmx = case.integrate('laplacian', mu).toarray()
+    cmx = case.integrate('convection', mu)
+
+    proj = np.random.rand(case.vbasis.shape[0], 2)
+    pcase = cases.ProjectedCase(case, proj, ['v'], 1)
+
+    np.testing.assert_almost_equal(proj.T.dot(dmx.dot(proj)), pcase.integrate('divergence', mu))
+    np.testing.assert_almost_equal(proj.T.dot(lmx.dot(proj)), pcase.integrate('laplacian', mu))
+
+    cmx = np.sum(
+        cmx[:,_,:,_,:,_] * proj[:,:,_,_,_,_] * proj[_,_,:,:,_,_] * proj[_,_,_,_,:,:], (0, 2, 4)
+    )
+    np.testing.assert_almost_equal(cmx, pcase.integrate('convection', mu))
