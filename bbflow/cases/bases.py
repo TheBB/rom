@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from functools import partial
 from math import ceil
 import numpy as np
-from nutils import function as fn, matrix
+from nutils import function as fn, matrix, _
 from operator import itemgetter
 
 
@@ -103,15 +103,18 @@ class Case:
         return [self.__dict__[arg] for arg in args]
 
     @contextmanager
-    def add_integrands(self, name):
-        yield partial(self.add_integrand, name)
+    def add_integrands(self, name, rhs=False):
+        yield partial(self.add_integrand, name, rhs)
 
-    def add_integrand(self, name, integrand, scale=None, domain=None, symmetric=False):
+    def add_integrand(self, name, rhs, integrand, scale=None, domain=None, symmetric=False):
         if scale is None:
             scale = mu(1.0)
         if symmetric:
             integrand = integrand + integrand.T
         self._integrands[name][domain].append((integrand, scale))
+        if rhs:
+            lift_integrand = -(integrand * self.lift[_, :]).sum(1)
+            self._integrands['lift-' + name][domain].append((lift_integrand, scale))
 
     def integrate(self, name, mu):
         ret_matrix = 0
@@ -182,7 +185,6 @@ def _project_tensor(tensor, projection):
         for ax in range(tensor.ndim):
             tensor = np.tensordot(tensor, projection, (0, 0))
         return tensor
-
 
 class ProjectedCase(Case):
 

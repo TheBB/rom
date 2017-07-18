@@ -60,6 +60,14 @@ def test_convective_tensor(case, mu):
     np.testing.assert_almost_equal(phys_mx, test_mx)
 
 
+def test_lift(case, mu):
+    dmx = case.integrate('divergence', mu)
+    np.testing.assert_almost_equal(-dmx.matvec(case.lift), case.integrate('lift-divergence', mu))
+
+    lmx = case.integrate('laplacian', mu)
+    np.testing.assert_almost_equal(-lmx.matvec(case.lift), case.integrate('lift-laplacian', mu))
+
+
 def test_pickle(case, mu):
     ncase = pickle.loads(pickle.dumps(case))
 

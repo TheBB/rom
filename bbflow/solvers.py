@@ -12,7 +12,8 @@ def _stokes(case, mu, **kwargs):
     )
 
     matrix = case.integrate('divergence', mu) + case.integrate('laplacian', mu)
-    lhs = matrix.solve(-matrix.matvec(lift), constrain=cons)
+    rhs = case.integrate('lift-divergence', mu) + case.integrate('lift-laplacian', mu)
+    lhs = matrix.solve(rhs, constrain=cons)
 
     return lhs
 

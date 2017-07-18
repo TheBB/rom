@@ -51,30 +51,6 @@ class backstep(Case):
 
         vgrad = vbasis.grad(geom)
 
-        # Stokes divergence term
-        with self.add_integrands('divergence') as add:
-            add(-fn.outer(vbasis.div(geom), pbasis), symmetric=True)
-            add(-fn.outer(vgrad[:,0,0], pbasis), mu[2] - 1, domain=2, symmetric=True)
-            add(-fn.outer(vgrad[:,1,1], pbasis), mu[1] - 1, domain=(1,2), symmetric=True)
-
-        # Stokes laplacian term
-        with self.add_integrands('laplacian') as add:
-            add(fn.outer(vgrad).sum([-1, -2]), 1 / mu[0], domain=0)
-            add(fn.outer(vgrad[:,:,0]).sum(-1), 1 / mu[0] / mu[1], domain=1)
-            add(fn.outer(vgrad[:,:,1]).sum(-1), mu[1] / mu[0], domain=1)
-            add(fn.outer(vgrad[:,:,0]).sum(-1), mu[2] / mu[0] / mu[1], domain=2)
-            add(fn.outer(vgrad[:,:,1]).sum(-1), mu[1] / mu[0] / mu[2], domain=2)
-
-        # Navier-stokes convective term
-        with self.add_integrands('convection') as add:
-            itg = (vbasis[:,_,_,:,_] * vbasis[_,:,_,_,:] * vgrad[_,_,:,:,:]).sum([-1, -2])
-            add(itg, domain=0)
-            itg = (vbasis[:,_,_,:] * vbasis[_,:,_,_,0] * vgrad[_,_,:,:,0]).sum(-1)
-            add(itg, domain=1)
-            add(itg, mu[2], domain=2)
-            itg = (vbasis[:,_,_,:] * vbasis[_,:,_,_,1] * vgrad[_,_,:,:,1]).sum(-1)
-            add(itg, mu[1], domain=(1,2))
-
         # Dirichlet boundary constraints
         if not hasattr(self, 'constraints'):
             boundary = domain.boundary[','.join([
@@ -91,6 +67,30 @@ class backstep(Case):
             lift = domain.project(profile, onto=vbasis, geometry=geom, ischeme='gauss9')
             lift[np.where(np.isnan(lift))] = 0.0
             self.lift = lift
+
+        # Stokes divergence term
+        with self.add_integrands('divergence', rhs=True) as add:
+            add(-fn.outer(vbasis.div(geom), pbasis), symmetric=True)
+            add(-fn.outer(vgrad[:,0,0], pbasis), mu[2] - 1, domain=2, symmetric=True)
+            add(-fn.outer(vgrad[:,1,1], pbasis), mu[1] - 1, domain=(1,2), symmetric=True)
+
+        # Stokes laplacian term
+        with self.add_integrands('laplacian', rhs=True) as add:
+            add(fn.outer(vgrad).sum([-1, -2]), 1 / mu[0], domain=0)
+            add(fn.outer(vgrad[:,:,0]).sum(-1), 1 / mu[0] / mu[1], domain=1)
+            add(fn.outer(vgrad[:,:,1]).sum(-1), mu[1] / mu[0], domain=1)
+            add(fn.outer(vgrad[:,:,0]).sum(-1), mu[2] / mu[0] / mu[1], domain=2)
+            add(fn.outer(vgrad[:,:,1]).sum(-1), mu[1] / mu[0] / mu[2], domain=2)
+
+        # Navier-stokes convective term
+        with self.add_integrands('convection') as add:
+            itg = (vbasis[:,_,_,:,_] * vbasis[_,:,_,_,:] * vgrad[_,_,:,:,:]).sum([-1, -2])
+            add(itg, domain=0)
+            itg = (vbasis[:,_,_,:] * vbasis[_,:,_,_,0] * vgrad[_,_,:,:,0]).sum(-1)
+            add(itg, domain=1)
+            add(itg, mu[2], domain=2)
+            itg = (vbasis[:,_,_,:] * vbasis[_,:,_,_,1] * vgrad[_,_,:,:,1]).sum(-1)
+            add(itg, mu[1], domain=(1,2))
 
     def phys_geom(self, p):
         x, y = self.geom
