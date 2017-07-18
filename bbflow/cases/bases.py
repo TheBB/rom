@@ -20,45 +20,58 @@ class mu(metaclass=MetaMu):
             return func(*args)
         return ret
 
-    def __init__(self, func):
-        self.func = func
+    def __init__(self, *args):
+        if len(args) == 1:
+            self.func = args[0]
+            return
+        self.oper, self.op1, self.op2 = args
 
     def __call__(self, p):
+        if hasattr(self, 'oper'):
+            if self.oper == '+':
+                return self.op1(p) + self.op2(p)
+            if self.oper == '-':
+                return self.op1(p) - self.op2(p)
+            if self.oper == '*':
+                return self.op1(p) * self.op2(p)
+            if self.oper == '/':
+                return self.op1(p) / self.op2(p)
+            raise ValueError(self.oper)
         if callable(self.func):
             return self.func(p)
         return self.func
 
     @_wrap
     def __add__(self, other):
-        return mu(lambda p: self(p) + other(p))
+        return mu('+', self, other)
 
     @_wrap
     def __radd__(self, other):
-        return mu(lambda p: other(p) + self(p))
+        return mu('+', other, self)
 
     @_wrap
     def __sub__(self, other):
-        return mu(lambda p: self(p) - other(p))
+        return mu('-', self, other)
 
     @_wrap
     def __rsub__(self, other):
-        return mu(lambda p: other(p) - self(p))
+        return mu('-', other, self)
 
     @_wrap
     def __mul__(self, other):
-        return mu(lambda p: self(p) * other(p))
+        return mu('*', self, other)
 
     @_wrap
     def __rmul__(self, other):
-        return mu(lambda p: other(p) * self(p))
+        return mu('*', other, self)
 
     @_wrap
     def __truediv__(self, other):
-        return mu(lambda p: self(p) / other(p))
+        return mu('/', self, other)
 
     @_wrap
     def __rtruediv__(self, other):
-        return mu(lambda p: other(p) / self(p))
+        return mu('/', other, self)
 
 
 def num_elems(length, meshwidth, prescribed=None):
@@ -87,26 +100,6 @@ class AbstractCase:
             basis_lengths = [bases[0].shape[0]]
         self.basis_lengths = basis_lengths
 
-    def __getstate__(self):
-        return {
-            'args': self._constructor_args,
-            'computed': self._computed,
-            'constraints': self.constraints,
-            'lift': self.lift,
-            'projection': self._projection,
-            'fields': self.fields,
-            'lengths': self.basis_lengths,
-        }
-
-    def __setstate__(self, state):
-        self.constraints = state['constraints']
-        self.lift = state['lift']
-        self.__init__(**state['args'])
-        self._computed = state['computed']
-        self._projection = state['projection']
-        self.fields = state['fields']
-        self.basis_lengths = state['lengths']
-
     def get(self, *args):
         return [self.__dict__[arg] for arg in args]
 
@@ -116,7 +109,7 @@ class AbstractCase:
 
     def add_integrand(self, name, integrand, scale=None, domain=None, symmetric=False):
         if scale is None:
-            scale = lambda mu: 1.0
+            scale = mu(1.0)
         if symmetric:
             integrand = integrand + integrand.T
         self._integrands[name][domain].append((integrand, scale))
