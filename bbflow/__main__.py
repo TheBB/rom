@@ -184,5 +184,39 @@ def plot_basis(ctx, mu, figsize=(10,10), colorbar=False, **kwargs):
                 plt.streamplot(points, velocity, 0.1)
 
 
+@command('analyze-error')
+@parse_extra_args
+@log.title
+@click.option('--imethod', type=click.Choice(['full', 'sparse']), default='full')
+def analyze_error(ctx, imethod, ipts=None, **kwargs):
+    rcase = ctx.obj['case'](**kwargs)
+    ocase = rcase.case
+    solver = ctx.obj['solver']
+
+    scheme = list(getattr(quadrature, imethod)(rcase.mu, ipts))
+    ntrials = len(scheme)
+    log.info('Sampling error in {} points'.format(ntrials))
+
+    vmass = ocase.mass('v')
+
+    max_error, total_error, total_weight = 0.0, 0.0, 0.0
+    for mu, weight in log.iter('point', scheme):
+        log.info('mu = {}'.format(mu))
+
+        rlhs = rcase.solution_vector(solver(rcase, mu=mu, **kwargs))
+        olhs = ocase.solution_vector(solver(ocase, mu=mu, **kwargs))
+        diff = rlhs - olhs
+        error = np.sqrt(vmass.dot(diff).dot(diff))
+        log.info('Error = {:.2e}'.format(error))
+
+        total_error += weight * error
+        total_weight += weight
+        max_error = max(max_error, error)
+
+    total_error /= total_weight
+    log.info('Mean error = {:.2e}'.format(total_error))
+    log.info('Maximal error = {:.2e}'.format(max_error))
+
+
 if __name__ == '__main__':
     main()

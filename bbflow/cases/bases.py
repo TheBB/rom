@@ -156,9 +156,11 @@ class Case:
                 break
         return np.arange(start, start + length, dtype=np.int)
 
+    def solution_vector(self, lhs, lift=True):
+        return lhs + self.lift if lift else lhs
+
     def solution(self, lhs, fields, lift=True):
-        if lift:
-            lhs = lhs + self.lift
+        lhs = self.solution_vector(lhs, lift)
         multiple = True
         if isinstance(fields, str):
             fields = [fields]
@@ -226,8 +228,16 @@ class ProjectedCase(Case):
     def domain(self):
         return self.case.domain
 
+    @property
+    def mu(self):
+        return self.case.mu
+
     def phys_geom(self, *args, **kwargs):
         return self.case.phys_geom(*args, **kwargs)
+
+    def solution_vector(self, lhs, lift=True):
+        lhs = self.projection.dot(lhs)
+        return self.case.solution_vector(lhs, lift)
 
     def solution(self, lhs, *args, **kwargs):
         lhs = self.projection.dot(lhs)
