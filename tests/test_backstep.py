@@ -90,8 +90,8 @@ def test_project(case, mu):
     proj = np.ones((case.vbasis.shape[0], 1))
     pcase = cases.ProjectedCase(case, proj, ['v'], [1])
 
-    np.testing.assert_almost_equal(np.sum(dmx), pcase.integrate('divergence', mu))
-    np.testing.assert_almost_equal(np.sum(lmx), pcase.integrate('laplacian', mu))
+    np.testing.assert_almost_equal(np.sum(dmx), pcase.integrate('divergence', mu).toarray())
+    np.testing.assert_almost_equal(np.sum(lmx), pcase.integrate('laplacian', mu).toarray())
     np.testing.assert_almost_equal(np.sum(cmx), pcase.integrate('convection', mu))
 
     mu = [2.0, 12.0, 1.0]
@@ -102,8 +102,8 @@ def test_project(case, mu):
     proj = np.random.rand(case.vbasis.shape[0], 2)
     pcase = cases.ProjectedCase(case, proj, ['v'], 1)
 
-    np.testing.assert_almost_equal(proj.T.dot(dmx.dot(proj)), pcase.integrate('divergence', mu))
-    np.testing.assert_almost_equal(proj.T.dot(lmx.dot(proj)), pcase.integrate('laplacian', mu))
+    np.testing.assert_almost_equal(proj.T.dot(dmx.dot(proj)), pcase.integrate('divergence', mu).toarray())
+    np.testing.assert_almost_equal(proj.T.dot(lmx.dot(proj)), pcase.integrate('laplacian', mu).toarray())
 
     cmx = np.sum(
         cmx[:,_,:,_,:,_] * proj[:,:,_,_,_,_] * proj[_,_,:,:,_,_] * proj[_,_,_,_,:,:], (0, 2, 4)
