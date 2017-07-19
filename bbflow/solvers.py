@@ -7,13 +7,9 @@ __all__ = ['stokes']
 
 
 def _stokes(case, mu, **kwargs):
-    domain, vbasis, pbasis, cons, lift = case.get(
-        'domain', 'vbasis', 'pbasis', 'constraints', 'lift',
-    )
-
     matrix = case.integrate('divergence', mu) + case.integrate('laplacian', mu)
     rhs = case.integrate('lift-divergence', mu) + case.integrate('lift-laplacian', mu)
-    lhs = matrix.solve(rhs, constrain=cons)
+    lhs = matrix.solve(rhs, constrain=case.constraints)
 
     return lhs
 
@@ -21,7 +17,7 @@ def _stokes(case, mu, **kwargs):
 def metrics(case, lhs, mu, **kwargs):
     domain = case.domain
     geom = case.phys_geom(mu)
-    vsol, __ = case.solution(lhs)
+    vsol = case.solution(lhs, 'v')
 
     area, div_norm = domain.integrate([1, vsol.div(geom) ** 2], geometry=geom, ischeme='gauss9')
     div_norm = np.sqrt(div_norm / area)
@@ -34,14 +30,16 @@ def plots(case, lhs, mu, plot_name='solution', index=0, colorbar=False,
           **kwargs):
     domain = case.domain
     geom = case.phys_geom(mu)
-    vsol, psol = case.solution(lhs)
+    vsol = case.solution(lhs, 'v')
 
-    points, vel, press = domain.elem_eval([geom, vsol, psol], ischeme='bezier9', separate=True)
+    points, velocity, speed = domain.elem_eval(
+        [geom, vsol, fn.sqrt(fn.norm2(vsol))],
+        ischeme='bezier9', separate=True
+    )
     with plot.PyPlot(plot_name, index=index, figsize=figsize) as plt:
-        plt.mesh(points)
-        plt.streamplot(points, vel, spacing=0.1)
-        if colorbar:
-            plt.colorbar()
+        plt.mesh(points, speed)
+        plt.colorbar()
+        plt.streamplot(points, velocity, spacing=0.1)
 
 
 @log.title

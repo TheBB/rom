@@ -92,7 +92,7 @@ class backstep(Case):
             itg = (vbasis[:,_,_,:] * vbasis[_,:,_,_,1] * vgrad[_,_,:,:,1]).sum(-1)
             add(itg, mu[1], domain=(1,2))
 
-    def phys_geom(self, p):
+    def phys_geom(self, p=(1, 10, 1)):
         x, y = self.geom
         xscale = 1.0 + (p[1] - 1) * fn.heaviside(x)
         yscale = 1.0 + (p[2] - 1) * fn.heaviside(-y)

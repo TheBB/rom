@@ -140,7 +140,8 @@ class Case:
         integrand = fn.outer(self.basis(field))
         while len(integrand.shape) > 2:
             integrand = integrand.sum(-1)
-        return self.domain.integrate(integrand, geometry=self.geom, ischeme='gauss9').core
+        geom = self.phys_geom()
+        return self.domain.integrate(integrand, geometry=geom, ischeme='gauss9').core
 
     def basis(self, name):
         assert name in self.fields
@@ -155,10 +156,17 @@ class Case:
                 break
         return np.arange(start, start + length, dtype=np.int)
 
-    def solution(self, lhs, lift=True):
+    def solution(self, lhs, fields, lift=True):
         if lift:
             lhs = lhs + self.lift
-        return [self.basis(field).dot(lhs) for field in self.fields]
+        multiple = True
+        if isinstance(fields, str):
+            fields = [fields]
+            multiple = False
+        solutions = [self.basis(field).dot(lhs) for field in fields]
+        if not multiple:
+            return solutions[0]
+        return solutions
 
     def _domain(self, dom):
         if dom is None:
@@ -175,7 +183,6 @@ class Case:
             dom = (dom,)
         patches = self.domain.basis_patch()
         return patches.dot([1 if i in dom else 0 for i in range(len(patches))])
-
 
 
 def _project_tensor(tensor, projection):
@@ -206,5 +213,26 @@ class ProjectedCase(Case):
                 proj_contents.extend(zip(proj_matrices, scales))
             self._computed[part] = proj_contents
 
+        self.constraints = np.empty((projection.shape[1],))
+        self.constraints[:] = np.nan
+
     def integrate(self, name, mu):
-        return sum(mm * scl(mu) for mm, scl in self._computed[name])
+        retval = sum(mm * scl(mu) for mm, scl in self._computed[name])
+        if retval.ndim == 2:
+            return matrix.NumpyMatrix(retval)
+        return retval
+
+    @property
+    def domain(self):
+        return self.case.domain
+
+    def phys_geom(self, *args, **kwargs):
+        return self.case.phys_geom(*args, **kwargs)
+
+    def solution(self, lhs, *args, **kwargs):
+        lhs = self.projection.dot(lhs)
+        return self.case.solution(lhs, *args, **kwargs)
+
+    def basis(self, name):
+        basis = self.case.basis(name)
+        return fn.matmat(self.projection.T, basis)

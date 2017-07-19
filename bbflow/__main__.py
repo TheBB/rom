@@ -97,20 +97,23 @@ def single(ctx, **kwargs):
 @click.option('--out', '-o', type=click.File(mode='wb'), required=True)
 @parse_extra_args
 @log.title
-def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, **kwargs):
+def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, min_modes=None, **kwargs):
     case = ctx.obj['case'](**kwargs)
 
     scheme = list(getattr(quadrature, imethod)(case.mu, ipts))
     nsnapshots = len(scheme)
     log.info('Generating ensemble of {} snapshots'.format(nsnapshots))
 
+    if min_modes == -1:
+        min_modes = nsnapshots
+
     ensemble = []
     for mu, weight in log.iter('snapshot', scheme):
+        log.info('mu = {}'.format(mu))
         ensemble.append(weight * ctx.obj['solver'](case, mu=mu, **kwargs))
     ensemble = np.array(ensemble).T
 
-    if not fields:
-        fields = case.fields
+    fields = fields or case.fields
 
     projection, lengths = [], []
     for field in log.iter('field', fields, length=False):
@@ -124,6 +127,8 @@ def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, **kwargs):
         threshold = (1 - error ** 2) * sum(eigvals)
         try:
             nmodes = min(np.where(np.cumsum(eigvals) > threshold)[0]) + 1
+            if min_modes:
+                nmodes = max(nmodes, min_modes)
         except ValueError:
             nmodes = nsnapshots
 
@@ -132,7 +137,7 @@ def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, **kwargs):
             nmodes, actual_error, error,
         ))
 
-        if nmodes == nsnapshots:
+        if nmodes == nsnapshots and min_modes != nsnapshots:
             log.warning('All DoFs used, ensemble is probably too small')
 
         reduced = ensemble.dot(eigvecs[:,:nmodes]) / np.sqrt(eigvals[:nmodes])
@@ -147,6 +152,36 @@ def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, **kwargs):
     projection = np.concatenate(projection, axis=1)
     proj_case = cases.ProjectedCase(case, projection, fields, lengths)
     pickle.dump(proj_case, out)
+
+
+@command('plot-basis')
+@parse_extra_args
+@log.title
+def plot_basis(ctx, mu, figsize=(10,10), **kwargs):
+    case = ctx.obj['case'](**kwargs)
+    for field in case.fields:
+        if field not in ['v', 'p']:
+            continue
+        basis = case.basis(field)
+
+        bfuns = []
+        for ind in case.basis_indices(field):
+            coeffs = np.zeros((basis.shape[0],))
+            coeffs[ind] = 1
+            bfun = basis.dot(coeffs)
+            bfuns.append(bfun)
+            bfuns.append(fn.sqrt(fn.norm2(bfun)))
+
+        geom = case.phys_geom(mu)
+        points, *bfuns = case.domain.elem_eval([geom] + bfuns, ischeme='bezier9', separate=True)
+        for num in log.count('bfun', start=1):
+            if not bfuns:
+                break
+            velocity, speed, *bfuns = bfuns
+            with plot.PyPlot(name='bfun_{}_'.format(field), index=num, figsize=figsize) as plt:
+                plt.mesh(points, speed)
+                plt.colorbar()
+                plt.streamplot(points, velocity, 0.1)
 
 
 if __name__ == '__main__':
