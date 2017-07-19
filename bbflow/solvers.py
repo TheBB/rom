@@ -33,13 +33,14 @@ def plots(case, lhs, mu, plot_name='solution', index=0, colorbar=False,
     vsol = case.solution(lhs, 'v')
 
     points, velocity, speed = domain.elem_eval(
-        [geom, vsol, fn.sqrt(fn.norm2(vsol))],
+        [geom, vsol, fn.norm2(vsol)],
         ischeme='bezier9', separate=True
     )
     with plot.PyPlot(plot_name, index=index, figsize=figsize) as plt:
         plt.mesh(points, speed)
-        plt.colorbar()
-        plt.streamplot(points, velocity, spacing=0.1)
+        if colorbar:
+            plt.colorbar()
+        plt.streamplot(points, velocity, spacing=0.2, color='black')
 
 
 @log.title

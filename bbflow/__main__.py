@@ -157,7 +157,7 @@ def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, min_modes=N
 @command('plot-basis')
 @parse_extra_args
 @log.title
-def plot_basis(ctx, mu, figsize=(10,10), **kwargs):
+def plot_basis(ctx, mu, figsize=(10,10), colorbar=False, **kwargs):
     case = ctx.obj['case'](**kwargs)
     for field in case.fields:
         if field not in ['v', 'p']:
@@ -169,8 +169,7 @@ def plot_basis(ctx, mu, figsize=(10,10), **kwargs):
             coeffs = np.zeros((basis.shape[0],))
             coeffs[ind] = 1
             bfun = basis.dot(coeffs)
-            bfuns.append(bfun)
-            bfuns.append(fn.sqrt(fn.norm2(bfun)))
+            bfuns.extend([bfun, fn.norm2(bfun)])
 
         geom = case.phys_geom(mu)
         points, *bfuns = case.domain.elem_eval([geom] + bfuns, ischeme='bezier9', separate=True)
@@ -180,7 +179,8 @@ def plot_basis(ctx, mu, figsize=(10,10), **kwargs):
             velocity, speed, *bfuns = bfuns
             with plot.PyPlot(name='bfun_{}_'.format(field), index=num, figsize=figsize) as plt:
                 plt.mesh(points, speed)
-                plt.colorbar()
+                if colorbar:
+                    plt.colorbar()
                 plt.streamplot(points, velocity, 0.1)
 
 
