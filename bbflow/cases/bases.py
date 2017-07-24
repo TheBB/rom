@@ -114,7 +114,7 @@ class Case:
             integrand = integrand + integrand.T
         self._integrands[name][domain].append((integrand, scale))
         if rhs is True:
-            lift_integrand = -(integrand * self.lift[_, :]).sum(1)
+            lift_integrand = (integrand * self.lift[_, :]).sum(1)
             self._integrands['lift-' + name][domain].append((lift_integrand, scale))
         elif rhs:
             for length in range(1, len(rhs) + 1):
@@ -124,7 +124,7 @@ class Case:
                         index = (_,) * axis + (slice(None),) + (_,) * (len(lift_integrand.shape) - axis - 1)
                         lift_integrand = (lift_integrand * self.lift[index]).sum(axis)
                     tname = 'lift-' + name + '-' + ','.join(str(a) for a in axes)
-                    self._integrands[tname][domain].append((-lift_integrand, scale))
+                    self._integrands[tname][domain].append((lift_integrand, scale))
 
     def integrate(self, name, mu):
         ret_matrix = 0

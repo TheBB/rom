@@ -23,7 +23,7 @@ def _time(func):
 def _stokes(case, mu, **kwargs):
     matrix = case.integrate('divergence', mu) + case.integrate('laplacian', mu)
     rhs = case.integrate('lift-divergence', mu) + case.integrate('lift-laplacian', mu)
-    lhs = matrix.solve(rhs, constrain=case.constraints)
+    lhs = matrix.solve(-rhs, constrain=case.constraints)
 
     return lhs
 
