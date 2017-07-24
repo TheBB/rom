@@ -1,11 +1,25 @@
+from functools import wraps
 from itertools import count
 import numpy as np
 from nutils import function as fn, log, plot, _
+import time
 
 
 __all__ = ['stokes']
 
 
+def _time(func):
+    @wraps(func)
+    def ret(*args, **kwargs):
+        start = time.time()
+        retval = func(*args, **kwargs)
+        end = time.time()
+        log.info('Took {:.2e} seconds'.format(end - start))
+        return retval
+    return ret
+
+
+@_time
 def _stokes(case, mu, **kwargs):
     matrix = case.integrate('divergence', mu) + case.integrate('laplacian', mu)
     rhs = case.integrate('lift-divergence', mu) + case.integrate('lift-laplacian', mu)
