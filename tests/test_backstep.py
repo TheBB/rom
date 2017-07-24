@@ -67,6 +67,14 @@ def test_lift(case, mu):
     lmx = case.integrate('laplacian', mu)
     np.testing.assert_almost_equal(-lmx.matvec(case.lift), case.integrate('lift-laplacian', mu))
 
+    cmx = case.integrate('convection', mu)
+    comp = (cmx * case.lift[_,:,_]).sum(1)
+    np.testing.assert_almost_equal(-comp, case.integrate('lift-convection-1', mu).toarray())
+    comp = (cmx * case.lift[_,_,:]).sum(2)
+    np.testing.assert_almost_equal(-comp, case.integrate('lift-convection-2', mu).toarray())
+    comp = np.sum(cmx * case.lift[_,:,_] * case.lift[_,_,:], (1, 2))
+    np.testing.assert_almost_equal(-comp, case.integrate('lift-convection-1,2', mu))
+
 
 def test_pickle(case, mu):
     ncase = pickle.loads(pickle.dumps(case))

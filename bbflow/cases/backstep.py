@@ -83,7 +83,7 @@ class backstep(Case):
             add(fn.outer(vgrad[:,:,1]).sum(-1), mu[1] / mu[0] / mu[2], domain=2)
 
         # Navier-stokes convective term
-        with self.add_integrands('convection') as add:
+        with self.add_integrands('convection', rhs=(1,2)) as add:
             itg = (vbasis[:,_,_,:,_] * vbasis[_,:,_,_,:] * vgrad[_,_,:,:,:]).sum([-1, -2])
             add(itg, domain=0)
             itg = (vbasis[:,_,_,:] * vbasis[_,:,_,_,0] * vgrad[_,_,:,:,0]).sum(-1)

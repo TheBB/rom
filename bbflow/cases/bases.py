@@ -1,6 +1,7 @@
 from collections import defaultdict
 from contextlib import contextmanager
 from functools import partial
+from itertools import combinations
 from math import ceil
 import numpy as np
 from nutils import function as fn, matrix, _
@@ -112,9 +113,18 @@ class Case:
         if symmetric:
             integrand = integrand + integrand.T
         self._integrands[name][domain].append((integrand, scale))
-        if rhs:
+        if rhs is True:
             lift_integrand = -(integrand * self.lift[_, :]).sum(1)
             self._integrands['lift-' + name][domain].append((lift_integrand, scale))
+        elif rhs:
+            for length in range(1, len(rhs) + 1):
+                for axes in combinations(sorted(rhs), length):
+                    lift_integrand = integrand
+                    for axis in axes[::-1]:
+                        index = (_,) * axis + (slice(None),) + (_,) * (len(lift_integrand.shape) - axis - 1)
+                        lift_integrand = (lift_integrand * self.lift[index]).sum(axis)
+                    tname = 'lift-' + name + '-' + ','.join(str(a) for a in axes)
+                    self._integrands[tname][domain].append((-lift_integrand, scale))
 
     def integrate(self, name, mu):
         ret_matrix = 0
