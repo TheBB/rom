@@ -39,12 +39,11 @@ def _navierstokes(case, mu, newton_tol=1e-6, **kwargs):
 
     vmass = case.mass('v')
 
-    def lhs_conv_1(vsol):
-        conv = (case.vbasis[:,_,:] * vsol.grad(geom)[_,:,:]).sum(-1)
-        return domain.integrate(fn.outer(case.vbasis, conv).sum(-1), geometry=geom, ischeme='gauss9')
-
-    def lhs_conv_2(vsol):
-        conv = (vsol[_,_,:] * case.vbasis.grad(geom)).sum(-1)
+    def lhs_conv(vsol):
+        conv = (
+            case.vbasis[:,_,:] * vsol.grad(geom)[_,:,:] +
+            vsol[_,_,:] * case.vbasis.grad(geom)
+        ).sum(-1)
         return domain.integrate(fn.outer(case.vbasis, conv).sum(-1), geometry=geom, ischeme='gauss9')
 
     def rhs_conv(vsol):
@@ -54,7 +53,7 @@ def _navierstokes(case, mu, newton_tol=1e-6, **kwargs):
     while True:
         vsol = case.solution(lhs, mu, 'v')
         rhs = - stokes_rhs - stokes_mat.matvec(lhs) - rhs_conv(vsol)
-        ns_mat = stokes_mat + lhs_conv_1(vsol) + lhs_conv_2(vsol)
+        ns_mat = stokes_mat + lhs_conv(vsol)
 
         update = ns_mat.solve(rhs, constrain=case.constraints)
         lhs += update
