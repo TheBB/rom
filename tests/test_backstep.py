@@ -12,7 +12,7 @@ def case():
 
 @pytest.fixture
 def mu():
-    return [1.0, 10.0, 1.5]
+    return [1.0, 10.0, 1.5, 1.0]
 
 
 def test_divergence_matrix(case, mu):
@@ -174,7 +174,7 @@ def test_project(case, mu):
     np.testing.assert_almost_equal(np.sum(lmx), pcase.integrate('laplacian', mu).toarray())
     np.testing.assert_almost_equal(np.sum(cmx), pcase.integrate('convection', mu))
 
-    mu = [2.0, 12.0, 1.0]
+    mu = [2.0, 12.0, 1.0, 1.0]
     dmx = case.integrate('divergence', mu).toarray()
     lmx = case.integrate('laplacian', mu).toarray()
     cmx = case.integrate('convection', mu)
