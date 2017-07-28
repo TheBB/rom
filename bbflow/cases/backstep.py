@@ -10,14 +10,14 @@ class backstep(Case):
         (20, 50),               # inverse of viscosity
         (9, 12),                # channel length
         (0.3, 2),               # step height
+        (0.5, 1.2),             # inlet velocity
     ]
-    _std_mu = (1, 10, 1)
+    _std_mu = (1.0, 10.0, 1.0, 1.0)
     fields = ['v', 'p']
 
     def __init__(self,
                  nel_length=100, nel_height=10, nel_width=None, nel_up=None,
-                 meshwidth=0.1, degree=3, velocity=0.2,
-                 **kwargs):
+                 meshwidth=0.1, degree=3, **kwargs):
 
         nel_width = num_elems(1.0, meshwidth, nel_width)
         nel_up = num_elems(1.0, meshwidth, nel_up)
@@ -64,9 +64,9 @@ class backstep(Case):
         # Lifting function
         with self.add_lift() as add:
             x, y = geom
-            profile = fn.max(0, y*(1-y) * 4 * velocity)[_] * (1, 0)
+            profile = fn.max(0, y*(1-y) * 4)[_] * (1, 0)
             lift = domain.project(profile, onto=vbasis, geometry=geom, ischeme='gauss9')
-            add(lift)
+            add(lift, scale=mu[3])
 
         # Stokes divergence term
         with self.add_matrix('divergence', rhs=True) as add:
