@@ -11,6 +11,7 @@ class backstep(Case):
         (9, 12),                # channel length
         (0.3, 2),               # step height
     ]
+    _std_mu = (1, 10, 1)
     fields = ['v', 'p']
 
     def __init__(self,
@@ -91,7 +92,9 @@ class backstep(Case):
             itg = (vbasis[:,_,_,:] * vbasis[_,:,_,_,1] * vgrad[_,_,:,:,1]).sum(-1)
             add(itg, mu[1], domain=(1,2))
 
-    def phys_geom(self, p=(1, 10, 1)):
+    def phys_geom(self, p=None):
+        if p is None:
+            p = self.std_mu()
         x, y = self.geom
         xscale = 1.0 + (p[1] - 1) * fn.heaviside(x)
         yscale = 1.0 + (p[2] - 1) * fn.heaviside(-y)

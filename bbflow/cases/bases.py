@@ -112,6 +112,16 @@ class Case:
             for p in self._padding
         )
 
+    def std_mu(self):
+        if hasattr(self, '_std_mu'):
+            std = self._std_mu
+        else:
+            std = [(a+b)/2 for a, b in self.mu]
+        return tuple(
+            p if p is not None else q
+            for p, q in zip(self._padding, std)
+        )
+
     @contextmanager
     def add_matrix(self, name, rhs=False):
         yield partial(self._add_integrand, name, rhs, False)
