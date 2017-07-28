@@ -131,7 +131,7 @@ def test_convection(case, mu):
 
 
 def test_lift(case, mu):
-    lift = case.lift(mu)
+    lift = case._lift(mu)
 
     dmx = case.integrate('divergence', mu)
     np.testing.assert_almost_equal(dmx.matvec(lift), case.integrate('lift-divergence', mu))

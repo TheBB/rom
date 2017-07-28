@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 from contextlib import contextmanager
 from functools import partial
 from itertools import combinations
@@ -93,6 +93,7 @@ class Case:
         self._integrands = defaultdict(defaultdict_list)
         self._computed = defaultdict(defaultdict_list)
         self._lifts = []
+        self._padding = [None] * len(self.mu)
 
         for field, basis in zip(self.fields, bases):
             setattr(self, field + 'basis', basis)
@@ -103,6 +104,13 @@ class Case:
 
     def get(self, *args):
         return [self.__dict__[arg] for arg in args]
+
+    def _pad(self, mu):
+        mu = deque(mu)
+        return tuple(
+            p if p is not None else mu.popleft()
+            for p in self._padding
+        )
 
     @contextmanager
     def add_matrix(self, name, rhs=False):
@@ -159,14 +167,14 @@ class Case:
                 domain = self._domain(dom)
                 matrices = domain.integrate(integrands, geometry=self.geom, ischeme='gauss9')
                 self._computed[name][dom] = matrices
-            ret_matrix += sum(mm * scl(mu) for mm, scl in zip(matrices, scales))
+            ret_matrix += sum(mm * scl(self._pad(mu)) for mm, scl in zip(matrices, scales))
         return ret_matrix
 
     def integrand(self, name, mu):
         ret_integrand = 0
         for dom, contents in self._integrands[name].items():
             indicator = self._indicator(dom)
-            ret_integrand += sum(scl(mu) * itg for itg, scl in contents) * indicator
+            ret_integrand += sum(scl(self._pad(mu)) * itg for itg, scl in contents) * indicator
         return ret_integrand
 
     def mass(self, field):
@@ -189,11 +197,11 @@ class Case:
                 break
         return np.arange(start, start + length, dtype=np.int)
 
-    def lift(self, mu):
-        return sum(lift * scl(mu) for lift, scl in self._lifts)
+    def _lift(self, mu):
+        return sum(lift * scl(self._pad(mu)) for lift, scl in self._lifts)
 
     def solution_vector(self, lhs, mu, lift=True):
-        return lhs + self.lift(mu) if lift else lhs
+        return lhs + self._lift(mu) if lift else lhs
 
     def solution(self, lhs, mu, fields, lift=True):
         lhs = self.solution_vector(lhs, mu, lift)
@@ -255,7 +263,7 @@ class ProjectedCase(Case):
         self.constraints[:] = np.nan
 
     def integrate(self, name, mu):
-        retval = sum(mm * scl(mu) for mm, scl in self._computed[name])
+        retval = sum(mm * scl(self.case._pad(mu)) for mm, scl in self._computed[name])
         if retval.ndim == 2:
             return matrix.NumpyMatrix(retval)
         return retval
