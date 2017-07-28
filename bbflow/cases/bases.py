@@ -252,6 +252,7 @@ def _project_tensor(tensor, projection):
 class ProjectedCase(Case):
 
     def __init__(self, case, projection, fields, lengths):
+        assert not isinstance(case, ProjectedCase)
         self.case = case
         self.projection = projection
         self.fields = fields
