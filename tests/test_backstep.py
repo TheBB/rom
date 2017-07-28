@@ -68,8 +68,8 @@ def test_convection(case, mu):
     mask = np.invert(np.isnan(case.constraints))
     lhs[mask] = case.constraints[mask]
 
-    lfunc = case.solution(np.zeros(lhs.shape), 'v')
-    vfunc = case.solution(lhs, 'v', lift=False)
+    lfunc = case.solution(np.zeros(lhs.shape), mu, 'v')
+    vfunc = case.solution(lhs, mu, 'v', lift=False)
 
     cmx = case.integrate('convection', mu)
     cmx1 = case.integrate('lift-convection-1', mu).toarray()
@@ -131,18 +131,20 @@ def test_convection(case, mu):
 
 
 def test_lift(case, mu):
+    lift = case.lift(mu)
+
     dmx = case.integrate('divergence', mu)
-    np.testing.assert_almost_equal(dmx.matvec(case.lift), case.integrate('lift-divergence', mu))
+    np.testing.assert_almost_equal(dmx.matvec(lift), case.integrate('lift-divergence', mu))
 
     lmx = case.integrate('laplacian', mu)
-    np.testing.assert_almost_equal(lmx.matvec(case.lift), case.integrate('lift-laplacian', mu))
+    np.testing.assert_almost_equal(lmx.matvec(lift), case.integrate('lift-laplacian', mu))
 
     cmx = case.integrate('convection', mu)
-    comp = (cmx * case.lift[_,:,_]).sum(1)
+    comp = (cmx * lift[_,:,_]).sum(1)
     np.testing.assert_almost_equal(comp, case.integrate('lift-convection-1', mu).toarray())
-    comp = (cmx * case.lift[_,_,:]).sum(2)
+    comp = (cmx * lift[_,_,:]).sum(2)
     np.testing.assert_almost_equal(comp, case.integrate('lift-convection-2', mu).toarray())
-    comp = (cmx * case.lift[_,:,_] * case.lift[_,_,:]).sum((1, 2))
+    comp = (cmx * lift[_,:,_] * lift[_,_,:]).sum((1, 2))
     np.testing.assert_almost_equal(comp, case.integrate('lift-convection-1,2', mu))
 
 

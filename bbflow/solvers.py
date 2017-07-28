@@ -52,7 +52,7 @@ def _navierstokes(case, mu, newton_tol=1e-6, **kwargs):
         return domain.integrate((case.vbasis * conv[_,:]).sum(-1), geometry=geom, ischeme='gauss9')
 
     while True:
-        vsol = case.solution(lhs, 'v')
+        vsol = case.solution(lhs, mu, 'v')
         rhs = - stokes_rhs - stokes_mat.matvec(lhs) - rhs_conv(vsol)
         ns_mat = stokes_mat + lhs_conv_1(vsol) + lhs_conv_2(vsol)
 
@@ -70,7 +70,7 @@ def _navierstokes(case, mu, newton_tol=1e-6, **kwargs):
 def metrics(case, lhs, mu, **kwargs):
     domain = case.domain
     geom = case.phys_geom(mu)
-    vsol = case.solution(lhs, 'v')
+    vsol = case.solution(lhs, mu, 'v')
 
     area, div_norm = domain.integrate([1, vsol.div(geom) ** 2], geometry=geom, ischeme='gauss9')
     div_norm = np.sqrt(div_norm / area)
@@ -83,7 +83,7 @@ def plots(case, lhs, mu, plot_name='solution', index=0, colorbar=False,
           **kwargs):
     domain = case.domain
     geom = case.phys_geom(mu)
-    vsol = case.solution(lhs, 'v')
+    vsol = case.solution(lhs, mu, 'v')
 
     points, velocity, speed = domain.elem_eval(
         [geom, vsol, fn.norm2(vsol)],

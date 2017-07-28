@@ -61,21 +61,20 @@ class backstep(Case):
             self.constraints = constraints
 
         # Lifting function
-        if not hasattr(self, 'lift'):
+        with self.add_lift() as add:
             x, y = geom
             profile = fn.max(0, y*(1-y) * 4 * velocity)[_] * (1, 0)
             lift = domain.project(profile, onto=vbasis, geometry=geom, ischeme='gauss9')
-            lift[np.where(np.isnan(lift))] = 0.0
-            self.lift = lift
+            add(lift)
 
         # Stokes divergence term
-        with self.add_integrands('divergence', rhs=True) as add:
+        with self.add_matrix('divergence', rhs=True) as add:
             add(-fn.outer(vbasis.div(geom), pbasis), symmetric=True)
             add(-fn.outer(vgrad[:,0,0], pbasis), mu[2] - 1, domain=2, symmetric=True)
             add(-fn.outer(vgrad[:,1,1], pbasis), mu[1] - 1, domain=(1,2), symmetric=True)
 
         # Stokes laplacian term
-        with self.add_integrands('laplacian', rhs=True) as add:
+        with self.add_matrix('laplacian', rhs=True) as add:
             add(fn.outer(vgrad).sum([-1, -2]), 1 / mu[0], domain=0)
             add(fn.outer(vgrad[:,:,0]).sum(-1), 1 / mu[0] / mu[1], domain=1)
             add(fn.outer(vgrad[:,:,1]).sum(-1), mu[1] / mu[0], domain=1)
@@ -83,7 +82,7 @@ class backstep(Case):
             add(fn.outer(vgrad[:,:,1]).sum(-1), mu[1] / mu[0] / mu[2], domain=2)
 
         # Navier-stokes convective term
-        with self.add_integrands('convection', rhs=(1,2)) as add:
+        with self.add_matrix('convection', rhs=(1,2)) as add:
             itg = (vbasis[:,_,_,:,_] * vbasis[_,:,_,_,:] * vgrad[_,_,:,:,:]).sum([-1, -2])
             add(itg, domain=0)
             itg = (vbasis[:,_,_,:] * vbasis[_,:,_,_,0] * vgrad[_,_,:,:,0]).sum(-1)

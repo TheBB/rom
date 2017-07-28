@@ -92,6 +92,7 @@ class Case:
         self.geom = geom
         self._integrands = defaultdict(defaultdict_list)
         self._computed = defaultdict(defaultdict_list)
+        self._lifts = []
 
         for field, basis in zip(self.fields, bases):
             setattr(self, field + 'basis', basis)
@@ -104,27 +105,49 @@ class Case:
         return [self.__dict__[arg] for arg in args]
 
     @contextmanager
-    def add_integrands(self, name, rhs=False):
-        yield partial(self.add_integrand, name, rhs)
+    def add_matrix(self, name, rhs=False):
+        yield partial(self._add_integrand, name, rhs, False)
 
-    def add_integrand(self, name, rhs, integrand, scale=None, domain=None, symmetric=False):
+    @contextmanager
+    def add_lift(self):
+        yield partial(self._add_integrand, 'lift', False, True)
+
+    def _add_integrand(self, name, rhs, lift, integrand,
+                      scale=None, domain=None, symmetric=False):
         if scale is None:
             scale = mu(1.0)
+        if lift:
+            integrand[np.where(np.isnan(integrand))] = 0.0
+            self._lifts.append((integrand, scale))
+            return
         if symmetric:
             integrand = integrand + integrand.T
         self._integrands[name][domain].append((integrand, scale))
+        if rhs:
+            self._add_lift_combinations(name, rhs, integrand, scale, domain)
+
+    def _add_lift_combinations(self, name, rhs, integrand, scale, domain):
         if rhs is True:
-            lift_integrand = (integrand * self.lift[_, :]).sum(1)
-            self._integrands['lift-' + name][domain].append((lift_integrand, scale))
-        elif rhs:
-            for length in range(1, len(rhs) + 1):
-                for axes in combinations(sorted(rhs), length):
-                    lift_integrand = integrand
-                    for axis in axes[::-1]:
-                        index = (_,) * axis + (slice(None),) + (_,) * (len(lift_integrand.shape) - axis - 1)
-                        lift_integrand = (lift_integrand * self.lift[index]).sum(axis)
-                    tname = 'lift-' + name + '-' + ','.join(str(a) for a in axes)
-                    self._integrands[tname][domain].append((lift_integrand, scale))
+            for lift, lift_scale in self._lifts:
+                lift_integrand = (integrand * lift[_, :]).sum(1)
+                self._integrands['lift-' + name][domain].append(
+                    (lift_integrand, scale * lift_scale)
+                )
+            return
+
+        combs = (
+            (length, axes, lift, lift_scale)
+            for length in range(1, len(rhs) + 1)
+            for axes in combinations(sorted(rhs), length)
+            for lift, lift_scale in self._lifts
+        )
+        for length, axes, lift, lift_scale in combs:
+            lift_integrand = integrand
+            for axis in axes[::-1]:
+                index = (_,) * axis + (slice(None),) + (_,) * (len(lift_integrand.shape) - axis - 1)
+                lift_integrand = (lift_integrand * lift[index]).sum(axis)
+            tname = 'lift-' + name + '-' + ','.join(str(a) for a in axes)
+            self._integrands[tname][domain].append((lift_integrand, scale * lift_scale))
 
     def integrate(self, name, mu):
         ret_matrix = 0
@@ -166,11 +189,14 @@ class Case:
                 break
         return np.arange(start, start + length, dtype=np.int)
 
-    def solution_vector(self, lhs, lift=True):
-        return lhs + self.lift if lift else lhs
+    def lift(self, mu):
+        return sum(lift * scl(mu) for lift, scl in self._lifts)
 
-    def solution(self, lhs, fields, lift=True):
-        lhs = self.solution_vector(lhs, lift)
+    def solution_vector(self, lhs, mu, lift=True):
+        return lhs + self.lift(mu) if lift else lhs
+
+    def solution(self, lhs, mu, fields, lift=True):
+        lhs = self.solution_vector(lhs, mu, lift)
         multiple = True
         if isinstance(fields, str):
             fields = [fields]
@@ -245,9 +271,9 @@ class ProjectedCase(Case):
     def phys_geom(self, *args, **kwargs):
         return self.case.phys_geom(*args, **kwargs)
 
-    def solution_vector(self, lhs, lift=True):
+    def solution_vector(self, lhs, *args, **kwargs):
         lhs = self.projection.dot(lhs)
-        return self.case.solution_vector(lhs, lift)
+        return self.case.solution_vector(lhs, *args, **kwargs)
 
     def solution(self, lhs, *args, **kwargs):
         lhs = self.projection.dot(lhs)
