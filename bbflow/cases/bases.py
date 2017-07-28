@@ -102,6 +102,11 @@ class Case:
             basis_lengths = [bases[0].shape[0]]
         self.basis_lengths = basis_lengths
 
+    def restrict(self, mu):
+        assert len(mu) == len(self.mu)
+        self._pad = mu
+        self.mu = [p for p, r in zip(self.mu, mu) if r is None]
+
     def get(self, *args):
         return [self.__dict__[arg] for arg in args]
 

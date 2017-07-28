@@ -99,3 +99,15 @@ class backstep(Case):
         xscale = 1.0 + (p[1] - 1) * fn.heaviside(x)
         yscale = 1.0 + (p[2] - 1) * fn.heaviside(-y)
         return self.geom * (xscale, yscale)
+
+
+def backstep_len(*args, **kwargs):
+    case = backstep(*args, **kwargs)
+    case.restrict((None, None, None, 0.2))
+    return case
+
+
+def backstep_inlet(*args, **kwargs):
+    case = backstep(*args, **kwargs)
+    case.restrict((None, 10.0, None, None))
+    return case
