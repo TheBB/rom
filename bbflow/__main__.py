@@ -150,7 +150,14 @@ def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, min_modes=N
         lengths.append(nmodes)
 
     projection = np.concatenate(projection, axis=1)
-    proj_case = cases.ProjectedCase(case, projection, fields, lengths)
+
+    tensors = False
+    if hasattr(ctx.obj['solver'], 'needs_tensors'):
+        tensors = ctx.obj['solver'].needs_tensors
+
+    proj_case = cases.ProjectedCase(case, projection, fields, lengths, tensors=tensors)
+    for k, v in proj_case._computed.items():
+        print(k, [vv.shape for vv, __ in v])
     pickle.dump(proj_case, out)
 
 

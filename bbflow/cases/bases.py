@@ -92,6 +92,7 @@ class Case:
         self.geom = geom
         self._integrands = defaultdict(defaultdict_list)
         self._computed = defaultdict(defaultdict_list)
+        self._tensor_integrands = defaultdict(defaultdict_list)
         self._lifts = []
         self._padding = [None] * len(self.mu)
 
@@ -104,7 +105,7 @@ class Case:
 
     def restrict(self, mu):
         assert len(mu) == len(self.mu)
-        self._pad = mu
+        self._padding = mu
         self.mu = [p for p, r in zip(self.mu, mu) if r is None]
 
     def get(self, *args):
@@ -129,23 +130,28 @@ class Case:
 
     @contextmanager
     def add_matrix(self, name, rhs=False):
-        yield partial(self._add_integrand, name, rhs, False)
+        yield partial(self._add_integrand, name, rhs, 'matrix')
 
     @contextmanager
     def add_lift(self):
-        yield partial(self._add_integrand, 'lift', False, True)
+        yield partial(self._add_integrand, 'lift', False, 'lift')
 
-    def _add_integrand(self, name, rhs, lift, integrand,
-                      scale=None, domain=None, symmetric=False):
+    @contextmanager
+    def add_tensor(self, name, rhs=False):
+        yield partial(self._add_integrand, name, rhs, 'tensor')
+
+    def _add_integrand(self, name, rhs, type_, integrand,
+                       scale=None, domain=None, symmetric=False):
         if scale is None:
             scale = mu(1.0)
-        if lift:
+        if type_ == 'lift':
             integrand[np.where(np.isnan(integrand))] = 0.0
             self._lifts.append((integrand, scale))
             return
         if symmetric:
             integrand = integrand + integrand.T
-        self._integrands[name][domain].append((integrand, scale))
+        tgt = self._tensor_integrands if type_ == 'tensor' else self._integrands
+        tgt[name][domain].append((integrand, scale))
         if rhs:
             self._add_lift_combinations(name, rhs, integrand, scale, domain)
 
@@ -249,14 +255,24 @@ class Case:
 def _project_tensor(tensor, projection):
     if isinstance(tensor, (matrix.ScipyMatrix, matrix.NumpyMatrix)):
         return projection.T.dot(tensor.core.dot(projection))
-    else:
+    elif isinstance(tensor, np.ndarray):
         for ax in range(tensor.ndim):
             tensor = np.tensordot(tensor, projection, (0, 0))
         return tensor
+    elif tensor.ndim == 3:
+        # Multiplication order is important!
+        # Starting with the integrand ensures that the multiplication is lazy
+        reduced = (
+            tensor[:,_,:,_,:,_] * projection[:,:,_,_,_,_] *
+            projection[_,_,:,:,_,_] * projection[_,_,_,_,:,:]
+        )
+        reduced = reduced.sum((0, 2, 4))
+        return reduced
+
 
 class ProjectedCase(Case):
 
-    def __init__(self, case, projection, fields, lengths):
+    def __init__(self, case, projection, fields, lengths, tensors=False):
         assert not isinstance(case, ProjectedCase)
         self.case = case
         self.projection = projection
@@ -264,6 +280,13 @@ class ProjectedCase(Case):
         self.basis_lengths = lengths
 
         self._computed = {}
+
+        # Force integration of all vector and matrix integrands
+        test_mu = [a[0] for a in case.mu]
+        for part in case._integrands:
+            case.integrate(part, test_mu)
+
+        # Project all vector and matrix integrands
         for part, domains in case._computed.items():
             proj_contents = []
             for dom, matrices in domains.items():
@@ -274,6 +297,19 @@ class ProjectedCase(Case):
                 ]
                 proj_contents.extend(zip(proj_matrices, scales))
             self._computed[part] = proj_contents
+
+        # Integrate and project all tensor integrands
+        self.fast_tensors = False
+        if tensors:
+            self.fast_tensors = True
+            for part, domains in case._tensor_integrands.items():
+                proj_contents = []
+                for dom, integrands in domains.items():
+                    integrands, scales = zip(*integrands)
+                    integrands = [_project_tensor(intg, projection) for intg in integrands]
+                    tensors = case.domain.integrate(integrands, geometry=case.geom, ischeme='gauss9')
+                    proj_contents.extend(zip(tensors, scales))
+                self._computed[part] = proj_contents
 
         self.constraints = np.empty((projection.shape[1],))
         self.constraints[:] = np.nan

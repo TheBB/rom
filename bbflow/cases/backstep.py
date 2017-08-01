@@ -83,7 +83,7 @@ class backstep(Case):
             add(fn.outer(vgrad[:,:,1]).sum(-1), mu[1] / mu[0] / mu[2], domain=2)
 
         # Navier-stokes convective term
-        with self.add_matrix('convection', rhs=(1,2)) as add:
+        with self.add_tensor('convection', rhs=(1,2)) as add:
             itg = (vbasis[:,_,_,:,_] * vbasis[_,:,_,_,:] * vgrad[_,_,:,:,:]).sum([-1, -2])
             add(itg, domain=0)
             itg = (vbasis[:,_,_,:] * vbasis[_,:,_,_,0] * vgrad[_,_,:,:,0]).sum(-1)
@@ -95,6 +95,8 @@ class backstep(Case):
     def phys_geom(self, p=None):
         if p is None:
             p = self.std_mu()
+        else:
+            p = self._pad(p)
         x, y = self.geom
         xscale = 1.0 + (p[1] - 1) * fn.heaviside(x)
         yscale = 1.0 + (p[2] - 1) * fn.heaviside(-y)
@@ -110,4 +112,10 @@ def backstep_len(*args, **kwargs):
 def backstep_inlet(*args, **kwargs):
     case = backstep(*args, **kwargs)
     case.restrict((None, 10.0, None, None))
+    return case
+
+
+def backstep_test(*args, **kwargs):
+    case = backstep(*args, **kwargs)
+    case.restrict((20.0, 10.0, None, None))
     return case

@@ -19,6 +19,11 @@ def _time(func):
     return ret
 
 
+def needs_tensors(func):
+    func.needs_tensors = True
+    return func
+
+
 @_time
 def _stokes(case, mu, **kwargs):
     matrix = case.integrate('divergence', mu) + case.integrate('laplacian', mu)
@@ -100,6 +105,7 @@ def stokes(case, **kwargs):
     return _stokes(case, **kwargs)
 
 
+@needs_tensors
 @log.title
 def navierstokes(case, **kwargs):
     return _navierstokes(case, **kwargs)
