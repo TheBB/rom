@@ -178,32 +178,41 @@ class Case:
             tname = 'lift-' + name + '-' + ','.join(str(a) for a in axes)
             self._integrands[tname][domain].append((lift_integrand, scale * lift_scale))
 
-    def integrate(self, name, mu):
+    def integrate(self, name, mu, tgt='integrands'):
         ret_matrix = 0
-        for dom, contents in self._integrands[name].items():
+        store = tgt == 'integrands'
+        tgt = getattr(self, '_' + tgt)
+        for dom, contents in tgt[name].items():
             integrands, scales = zip(*contents)
-            if self._computed[name][dom]:
+            if name in self._computed and self._computed[name][dom]:
                 matrices = self._computed[name][dom]
             else:
                 domain = self._domain(dom)
                 matrices = domain.integrate(integrands, geometry=self.geom, ischeme='gauss9')
-                self._computed[name][dom] = matrices
+                if store:
+                    self._computed[name][dom] = matrices
             ret_matrix += sum(mm * scl(self._pad(mu)) for mm, scl in zip(matrices, scales))
         return ret_matrix
 
-    def integrand(self, name, mu):
+    def integrand(self, name, mu, tgt='integrands'):
+        tgt = getattr(self, '_' + tgt)
         ret_integrand = 0
-        for dom, contents in self._integrands[name].items():
+        for dom, contents in tgt[name].items():
             indicator = self._indicator(dom)
             ret_integrand += sum(scl(self._pad(mu)) * itg for itg, scl in contents) * indicator
         return ret_integrand
 
-    def mass(self, field):
+    def mass(self, field, mu=None):
+        if mu is None:
+            mu = self.std_mu()
+        intname = field + 'mass'
+        if intname in self._integrands:
+            return self.integrate(intname, mu)
         integrand = fn.outer(self.basis(field))
         while len(integrand.shape) > 2:
             integrand = integrand.sum(-1)
-        geom = self.phys_geom()
-        return self.domain.integrate(integrand, geometry=geom, ischeme='gauss9').core
+        geom = self.phys_geom(mu)
+        return self.domain.integrate(integrand, geometry=geom, ischeme='gauss9')
 
     def basis(self, name):
         assert name in self.fields
@@ -307,14 +316,15 @@ class ProjectedCase(Case):
                 for dom, integrands in domains.items():
                     integrands, scales = zip(*integrands)
                     integrands = [_project_tensor(intg, projection) for intg in integrands]
-                    tensors = case.domain.integrate(integrands, geometry=case.geom, ischeme='gauss9')
+                    domain = case._domain(dom)
+                    tensors = domain.integrate(integrands, geometry=case.geom, ischeme='gauss9')
                     proj_contents.extend(zip(tensors, scales))
                 self._computed[part] = proj_contents
 
         self.constraints = np.empty((projection.shape[1],))
         self.constraints[:] = np.nan
 
-    def integrate(self, name, mu):
+    def integrate(self, name, mu, tgt=None):
         retval = sum(mm * scl(self.case._pad(mu)) for mm, scl in self._computed[name])
         if retval.ndim == 2:
             return matrix.NumpyMatrix(retval)

@@ -92,6 +92,18 @@ class backstep(Case):
             itg = (vbasis[:,_,_,:] * vbasis[_,:,_,_,1] * vgrad[_,_,:,:,1]).sum(-1)
             add(itg, mu[1], domain=(1,2))
 
+        # Mass matrices
+        with self.add_matrix('vmass') as add:
+            add(fn.outer(vbasis, vbasis).sum(-1), domain=0)
+            add(fn.outer(vbasis, vbasis).sum(-1), mu[1], domain=1)
+            add(fn.outer(vbasis, vbasis).sum(-1), mu[1] * mu[2], domain=2)
+
+        # Mass matrices
+        with self.add_matrix('pmass') as add:
+            add(fn.outer(pbasis, pbasis), domain=0)
+            add(fn.outer(pbasis, pbasis), mu[1], domain=1)
+            add(fn.outer(pbasis, pbasis), mu[1] * mu[2], domain=2)
+
     def phys_geom(self, p=None):
         if p is None:
             p = self.std_mu()

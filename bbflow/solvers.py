@@ -42,28 +42,31 @@ def _navierstokes(case, mu, newton_tol=1e-6, **kwargs):
     stokes_rhs = case.integrate('lift-divergence', mu) + case.integrate('lift-laplacian', mu)
     lhs = stokes_mat.solve(-stokes_rhs, constrain=case.constraints)
 
-    vmass = case.mass('v')
+    stokes_mat += case.integrate('lift-convection-1', mu) + case.integrate('lift-convection-2', mu)
+    stokes_rhs += case.integrate('lift-convection-1,2', mu)
 
-    def lhs_conv(vsol):
+    vmass = case.mass('v', mu)
+
+    def lhs_conv(vsolt):
         conv = (
-            case.vbasis[:,_,:] * vsol.grad(geom)[_,:,:] +
-            vsol[_,_,:] * case.vbasis.grad(geom)
+            case.vbasis[:,_,:] * vsolt.grad(geom)[_,:,:] +
+            vsolt[_,_,:] * case.vbasis.grad(geom)
         ).sum(-1)
         return domain.integrate(fn.outer(case.vbasis, conv).sum(-1), geometry=geom, ischeme='gauss9')
 
-    def rhs_conv(vsol):
-        conv = (vsol[_,:] * vsol.grad(geom)).sum(-1)
+    def rhs_conv(vsolt):
+        conv = (vsolt[_,:] * vsolt.grad(geom)).sum(-1)
         return domain.integrate((case.vbasis * conv[_,:]).sum(-1), geometry=geom, ischeme='gauss9')
 
     while True:
-        vsol = case.solution(lhs, mu, 'v')
-        rhs = - stokes_rhs - stokes_mat.matvec(lhs) - rhs_conv(vsol)
-        ns_mat = stokes_mat + lhs_conv(vsol)
+        vsolt = case.solution(lhs, mu, 'v', lift=False)
+        rhs = - stokes_rhs - stokes_mat.matvec(lhs) - rhs_conv(vsolt)
+        ns_mat = stokes_mat + lhs_conv(vsolt)
 
         update = ns_mat.solve(rhs, constrain=case.constraints)
         lhs += update
 
-        update_norm = np.sqrt(vmass.dot(update).dot(update))
+        update_norm = np.sqrt(vmass.matvec(update).dot(update))
         log.info('Update: {:.2e}'.format(update_norm))
         if update_norm < newton_tol:
             break
