@@ -1,7 +1,7 @@
 from functools import wraps
 from itertools import count
 import numpy as np
-from nutils import function as fn, log, plot, _
+from nutils import function as fn, log, plot, _, matrix
 import time
 
 
@@ -47,21 +47,30 @@ def _navierstokes(case, mu, newton_tol=1e-6, **kwargs):
 
     vmass = case.mass('v', mu)
 
-    def lhs_conv(vsolt):
-        conv = (
-            case.vbasis[:,_,:] * vsolt.grad(geom)[_,:,:] +
-            vsolt[_,_,:] * case.vbasis.grad(geom)
-        ).sum(-1)
-        return domain.integrate(fn.outer(case.vbasis, conv).sum(-1), geometry=geom, ischeme='gauss9')
-
-    def rhs_conv(vsolt):
-        conv = (vsolt[_,:] * vsolt.grad(geom)).sum(-1)
-        return domain.integrate((case.vbasis * conv[_,:]).sum(-1), geometry=geom, ischeme='gauss9')
+    if hasattr(case, 'fast_tensors') and case.fast_tensors:
+        conv_tens = case.integrate('convection', mu)
+        def lhs_conv(lhs):
+            return matrix.NumpyMatrix(
+                (conv_tens * lhs[_,:,_]).sum(1) + (conv_tens * lhs[_,_,:]).sum(2)
+            )
+        def rhs_conv(lhs):
+            return (conv_tens * lhs[_,:,_] * lhs[_,_,:]).sum((1, 2))
+    else:
+        def lhs_conv(lhs):
+            vsolt = case.solution(lhs, mu, 'v', lift=False)
+            conv = (
+                case.vbasis[:,_,:] * vsolt.grad(geom)[_,:,:] +
+                vsolt[_,_,:] * case.vbasis.grad(geom)
+            ).sum(-1)
+            return domain.integrate(fn.outer(case.vbasis, conv).sum(-1), geometry=geom, ischeme='gauss9')
+        def rhs_conv(lhs):
+            vsolt = case.solution(lhs, mu, 'v', lift=False)
+            conv = (vsolt[_,:] * vsolt.grad(geom)).sum(-1)
+            return domain.integrate((case.vbasis * conv[_,:]).sum(-1), geometry=geom, ischeme='gauss9')
 
     while True:
-        vsolt = case.solution(lhs, mu, 'v', lift=False)
-        rhs = - stokes_rhs - stokes_mat.matvec(lhs) - rhs_conv(vsolt)
-        ns_mat = stokes_mat + lhs_conv(vsolt)
+        rhs = - stokes_rhs - stokes_mat.matvec(lhs) - rhs_conv(lhs)
+        ns_mat = stokes_mat + lhs_conv(lhs)
 
         update = ns_mat.solve(rhs, constrain=case.constraints)
         lhs += update

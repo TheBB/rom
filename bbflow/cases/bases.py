@@ -206,7 +206,9 @@ class Case:
         if mu is None:
             mu = self.std_mu()
         intname = field + 'mass'
-        if intname in self._integrands:
+        if hasattr(self, '_integrands') and intname in self._integrands:
+            return self.integrate(intname, mu)
+        elif hasattr(self, '_computed') and intname in self._computed:
             return self.integrate(intname, mu)
         integrand = fn.outer(self.basis(field))
         while len(integrand.shape) > 2:

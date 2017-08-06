@@ -118,11 +118,13 @@ def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, min_modes=N
     projection, lengths = [], []
     for field in log.iter('field', fields, length=False):
         mass = case.mass(field)
-        corr = ensemble.T.dot(mass.dot(ensemble))
+        corr = ensemble.T.dot(mass.core.dot(ensemble))
 
         eigvals, eigvecs = np.linalg.eigh(corr)
         eigvals = eigvals[::-1]
         eigvecs = eigvecs[:,::-1]
+
+        log.info(eigvecs)
 
         threshold = (1 - error ** 2) * sum(eigvals)
         try:
