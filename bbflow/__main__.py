@@ -137,7 +137,7 @@ def _reduction(case, ensemble, eigpairs, fields, num_modes):
 
 @command()
 @click.option('--method', type=click.Choice(['pod']), default='pod')
-@click.option('--imethod', type=click.Choice(['full', 'sparse']), default='full')
+@click.option('--imethod', type=click.Choice(['full', 'sparse', 'uniform']), default='full')
 @click.option('--field', '-f', 'fields', type=str, multiple=True)
 @click.option('--out', '-o', type=click.File(mode='wb'), required=True)
 @parse_extra_args
@@ -183,7 +183,7 @@ def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, min_modes=N
 
 @command('reduce-many')
 @click.option('--method', type=click.Choice(['pod']), default='pod')
-@click.option('--imethod', type=click.Choice(['full', 'sparse']), default='full')
+@click.option('--imethod', type=click.Choice(['full', 'sparse', 'uniform']), default='full')
 @click.option('--field', '-f', 'fields', type=str, multiple=True)
 @click.option('--out', '-o', required=True)
 @parse_extra_args
@@ -256,10 +256,26 @@ def plot_basis(ctx, mu, figsize=(10,10), colorbar=False, **kwargs):
                 plt.streamplot(points, velocity, 0.1)
 
 
+def _errors(rcase, solver, mass, scheme, orig_slns, **kwargs):
+    red_slns = [solver(rcase, mu=mu, **kwargs) for mu, __ in log.iter('reduced', scheme)]
+
+    abs_err, rel_err = 0.0, 0.0
+    for olhs, rlhs, (mu, weight) in zip(orig_slns, red_slns, scheme):
+        rlhs = rcase.solution_vector(rlhs, mu=mu)
+        diff = rlhs - olhs
+        err = np.sqrt(mass.matvec(diff).dot(diff))
+        abs_err += weight * err
+        rel_err += weight * err / np.sqrt(mass.matvec(olhs).dot(olhs))
+
+    abs_err /= sum(w for __, w in scheme)
+    rel_err /= sum(w for __, w in scheme)
+    return abs_err, rel_err
+
+
 @command('analyze-error')
 @parse_extra_args
 @log.title
-@click.option('--imethod', type=click.Choice(['full', 'sparse']), default='full')
+@click.option('--imethod', type=click.Choice(['full', 'sparse', 'uniform']), default='full')
 def analyze_error(ctx, imethod, ipts=None, **kwargs):
     rcase = ctx.obj['case'](**kwargs)
     ocase = rcase.case
@@ -271,23 +287,14 @@ def analyze_error(ctx, imethod, ipts=None, **kwargs):
 
     vmass = ocase.mass('v')
 
-    max_error, total_error, total_weight = 0.0, 0.0, 0.0
-    for mu, weight in log.iter('point', scheme):
-        log.info('mu = {}'.format(mu))
+    orig_slns = [
+        ocase.solution_vector(solver(ocase, mu=mu, **kwargs), mu=mu)
+        for mu, __ in log.iter('high fidelity', scheme)
+    ]
+    abs_err, rel_err = _errors(rcase, solver, vmass, scheme, orig_slns, **kwargs)
 
-        rlhs = rcase.solution_vector(solver(rcase, mu=mu, **kwargs))
-        olhs = ocase.solution_vector(solver(ocase, mu=mu, **kwargs))
-        diff = rlhs - olhs
-        error = np.sqrt(vmass.dot(diff).dot(diff))
-        log.info('Error = {:.2e}'.format(error))
-
-        total_error += weight * error
-        total_weight += weight
-        max_error = max(max_error, error)
-
-    total_error /= total_weight
-    log.info('Mean error = {:.2e}'.format(total_error))
-    log.info('Maximal error = {:.2e}'.format(max_error))
+    log.info('Mean absolute error: {:.2e}'.format(abs_err))
+    log.info('Mean relative error: {:.2e}'.format(rel_err))
 
 
 if __name__ == '__main__':
