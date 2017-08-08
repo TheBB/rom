@@ -1,9 +1,10 @@
 import click
 from functools import wraps
-from itertools import count, product
+from itertools import count, product, repeat
 import numpy as np
 from nutils import plot, log, function as fn, _
-from os.path import isfile
+from operator import itemgetter
+from os.path import isfile, splitext
 import pickle
 
 import bbflow.cases as cases
@@ -90,58 +91,38 @@ def single(ctx, **kwargs):
     solvers.plots(case, lhs, **kwargs)
 
 
-@command()
-@click.option('--method', type=click.Choice(['pod']), default='pod')
-@click.option('--imethod', type=click.Choice(['full', 'sparse']), default='full')
-@click.option('--field', '-f', 'fields', type=str, multiple=True)
-@click.option('--out', '-o', type=click.File(mode='wb'), required=True)
-@parse_extra_args
-@log.title
-def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, min_modes=None, **kwargs):
-    case = ctx.obj['case'](**kwargs)
-
+def _make_ensemble(case, solver, imethod, ipts, **kwargs):
     scheme = list(getattr(quadrature, imethod)(case.mu, ipts))
     nsnapshots = len(scheme)
     log.info('Generating ensemble of {} snapshots'.format(nsnapshots))
 
-    if min_modes == -1:
-        min_modes = nsnapshots
-
-    ensemble = []
+    ensemble, params = [], []
     for mu, weight in log.iter('snapshot', scheme):
         log.info('mu = {}'.format(mu))
-        ensemble.append(weight * ctx.obj['solver'](case, mu=mu, **kwargs))
+        ensemble.append(weight * solver(case, mu=mu, **kwargs))
+        params.append(mu)
     ensemble = np.array(ensemble).T
 
-    fields = fields or case.fields
+    return ensemble, params
 
-    projection, lengths = [], []
+
+def _eigen(case, ensemble, fields):
+    ret = {}
     for field in log.iter('field', fields, length=False):
         mass = case.mass(field)
         corr = ensemble.T.dot(mass.core.dot(ensemble))
-
         eigvals, eigvecs = np.linalg.eigh(corr)
-        eigvals = eigvals[::-1]
+        eigvals = eigvals[::-1] / sum(eigvals)
         eigvecs = eigvecs[:,::-1]
+        ret[field] = (eigvals, eigvecs)
 
-        log.info(eigvecs)
+    return ret
 
-        threshold = (1 - error ** 2) * sum(eigvals)
-        try:
-            nmodes = min(np.where(np.cumsum(eigvals) > threshold)[0]) + 1
-            if min_modes:
-                nmodes = max(nmodes, min_modes)
-        except ValueError:
-            nmodes = nsnapshots
 
-        actual_error = np.sqrt(np.sum(eigvals[nmodes:]) / sum(eigvals))
-        log.info('{} modes suffice for {:.2e} error (threshold {:.2e})'.format(
-            nmodes, actual_error, error,
-        ))
-
-        if nmodes == nsnapshots and min_modes != nsnapshots:
-            log.warning('All DoFs used, ensemble is probably too small')
-
+def _reduction(case, ensemble, eigpairs, fields, num_modes):
+    projection, lengths = [], []
+    for field, nmodes in zip(fields, num_modes):
+        eigvals, eigvecs = eigpairs[field]
         reduced = ensemble.dot(eigvecs[:,:nmodes]) / np.sqrt(eigvals[:nmodes])
         indices = case.basis_indices(field)
         mask = np.ones(reduced.shape[0], dtype=np.bool)
@@ -151,16 +132,98 @@ def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, min_modes=N
         projection.append(reduced)
         lengths.append(nmodes)
 
-    projection = np.concatenate(projection, axis=1)
+    return np.concatenate(projection, axis=1), lengths
+
+
+@command()
+@click.option('--method', type=click.Choice(['pod']), default='pod')
+@click.option('--imethod', type=click.Choice(['full', 'sparse']), default='full')
+@click.option('--field', '-f', 'fields', type=str, multiple=True)
+@click.option('--out', '-o', type=click.File(mode='wb'), required=True)
+@parse_extra_args
+@log.title
+def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, min_modes=None, **kwargs):
+    case = ctx.obj['case'](**kwargs)
+    ensemble, __ = _make_ensemble(case, ctx.obj['solver'], imethod, ipts, **kwargs)
+    nsnapshots = ensemble.shape[1]
+    fields = fields or case.fields
+
+    if min_modes == -1:
+        min_modes = nsnapshots
+
+    eigpairs = _eigen(case, ensemble, fields)
+
+    num_modes = []
+    for field in fields:
+        eigvals, __ = eigpairs[field]
+        threshold = (1 - error ** 2) * sum(eigvals)
+        try:
+            nmodes = min(np.where(np.cumsum(eigvals) > threshold)[0]) + 1
+            if min_modes:
+                nmodes = max(nmodes, min_modes)
+        except ValueError:
+            nmodes = nsnapshots
+        if nmodes == nsnapshots and min_modes != nsnapshots:
+            log.warning('All DoFs used, ensemble is probably too small')
+        actual_error = np.sqrt(np.sum(eigvals[nmodes:]) / sum(eigvals))
+        log.info('{} modes suffice for {:.2e} error (threshold {:.2e})'.format(
+            nmodes, actual_error, error,
+        ))
+        num_modes.append(nmodes)
+
+    projection, lengths = _reduction(case, ensemble, eigpairs, fields, num_modes)
 
     tensors = False
     if hasattr(ctx.obj['solver'], 'needs_tensors'):
         tensors = ctx.obj['solver'].needs_tensors
 
     proj_case = cases.ProjectedCase(case, projection, fields, lengths, tensors=tensors)
-    for k, v in proj_case._computed.items():
-        print(k, [vv.shape for vv, __ in v])
     pickle.dump(proj_case, out)
+
+
+@command('reduce-many')
+@click.option('--method', type=click.Choice(['pod']), default='pod')
+@click.option('--imethod', type=click.Choice(['full', 'sparse']), default='full')
+@click.option('--field', '-f', 'fields', type=str, multiple=True)
+@click.option('--out', '-o', required=True)
+@parse_extra_args
+@log.title
+def reduce_many(ctx, out, fields, method, imethod, ipts=None, max_out=50, **kwargs):
+    case = ctx.obj['case'](**kwargs)
+    ensemble, __ = _make_ensemble(case, ctx.obj['solver'], imethod, ipts, **kwargs)
+    nsnapshots = ensemble.shape[1]
+    fields = fields or case.fields
+
+    projection, lengths = [], []
+    eigpairs = _eigen(case, ensemble, fields)
+    all_eigvals = []
+
+    for fieldid, field in enumerate(fields):
+        eigvals, __ = eigpairs[field]
+        eigvals /= sum(eigvals)
+        all_eigvals.extend(zip(eigvals, repeat(fieldid)))
+
+    all_eigvals = sorted(all_eigvals, key=itemgetter(0), reverse=True)
+    num_modes = [0] * len(fields)
+    errs = [1.0] * len(fields)
+    for i, (ev, fieldid) in enumerate(all_eigvals):
+        if i == max_out:
+            break
+        num_modes[fieldid] += 1
+        errs[fieldid] -= ev
+        if any(n == 0 for n in num_modes):
+            continue
+        projection, lengths = _reduction(case, ensemble, eigpairs, fields, num_modes)
+        tensors = False
+        if hasattr(ctx.obj['solver'], 'needs_tensors'):
+            tensors = ctx.obj['solver'].needs_tensors
+        proj_case = cases.ProjectedCase(case, projection, fields, lengths, tensors=tensors)
+        proj_case.meta_errors = [np.sqrt(max(err,0)) for err in errs]
+        proj_case.meta_nmodes = num_modes
+        fn, ext = splitext(out)
+        filename = '%s-%04d%s' % (fn, i, ext)
+        with open(filename, 'wb') as f:
+            pickle.dump(proj_case, f)
 
 
 @command('plot-basis')

@@ -4,6 +4,21 @@ import numpy as np
 import quadpy
 
 
+def uniform(intervals, npts):
+    ndims = len(intervals)
+    if isinstance(npts, int):
+        npts = (npts,) * ndims
+
+    points, weights = [], []
+    for n, (a, b) in zip(npts, intervals):
+        points.append(np.linspace(a, b, n))
+        weights.append(np.ones((n,)) * (b - a) / n)
+    return zip(
+        product(*points),
+        map(np.product, product(*weights))
+    )
+
+
 def full(intervals, npts):
     ndims = len(intervals)
     if isinstance(npts, int):

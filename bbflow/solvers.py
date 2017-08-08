@@ -34,7 +34,7 @@ def _stokes(case, mu, **kwargs):
 
 
 @_time
-def _navierstokes(case, mu, newton_tol=1e-6, **kwargs):
+def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
     domain = case.domain
     geom = case.phys_geom(mu)
 
