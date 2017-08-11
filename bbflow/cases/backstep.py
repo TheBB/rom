@@ -59,6 +59,9 @@ class backstep(Case):
                 'patch1-top', 'patch2-bottom', 'patch2-left',
             ])]
             constraints = boundary.project((0, 0), onto=vbasis, geometry=geom, ischeme='gauss9')
+            constraints = domain.boundary['patch1-right,patch2-right'].project(
+                0, onto=pbasis, geometry=geom, ischeme='gauss9', constrain=constraints,
+            )
             self.constraints = constraints
 
         # Lifting function

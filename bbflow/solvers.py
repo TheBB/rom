@@ -99,10 +99,10 @@ def plots(case, lhs, mu, plot_name='solution', index=0, colorbar=False,
           **kwargs):
     domain = case.domain
     geom = case.phys_geom(mu)
-    vsol = case.solution(lhs, mu, 'v')
+    vsol, psol = case.solution(lhs, mu, ['v', 'p'])
 
-    points, velocity, speed = domain.elem_eval(
-        [geom, vsol, fn.norm2(vsol)],
+    points, velocity, speed, press = domain.elem_eval(
+        [geom, vsol, fn.norm2(vsol), psol],
         ischeme='bezier9', separate=True
     )
     with plot.PyPlot(plot_name, index=index, figsize=figsize) as plt:
@@ -110,6 +110,11 @@ def plots(case, lhs, mu, plot_name='solution', index=0, colorbar=False,
         if colorbar:
             plt.colorbar()
         plt.streamplot(points, velocity, spacing=0.2, color='black')
+    with plot.PyPlot(plot_name + '-press', index=index, figsize=figsize) as plt:
+        plt.mesh(points, press)
+        plt.clim(-3, 3)
+        if colorbar:
+            plt.colorbar()
 
 
 @log.title

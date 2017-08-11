@@ -60,7 +60,7 @@ class CaseType(click.ParamType):
 
 @click.group()
 @click.pass_context
-@click.option('--case', '-c', type=CaseType(), required=True)
+@click.option('--case', '-c', type=CaseType(), required=False)
 @click.option('--solver', '-s', type=click.Choice(solvers.__all__), required=False)
 def main(ctx, case, solver):
     ctx.obj = {
@@ -205,14 +205,19 @@ def reduce_many(ctx, out, fields, method, imethod, ipts=None, max_out=50, **kwar
 
     all_eigvals = sorted(all_eigvals, key=itemgetter(0), reverse=True)
     num_modes = [0] * len(fields)
+    added = [False] * len(fields)
     errs = [1.0] * len(fields)
     for i, (ev, fieldid) in enumerate(all_eigvals):
         if i == max_out:
             break
         num_modes[fieldid] += 1
-        errs[fieldid] -= ev
-        if any(n == 0 for n in num_modes):
+        errs[fieldid] = sum(v for v, fid in all_eigvals[i+1:] if fid == fieldid)
+        added[fieldid] = True
+        if not all(added):
             continue
+        if num_modes[1] >= num_modes[0]:
+            continue
+        added = [False] * len(fields)
         projection, lengths = _reduction(case, ensemble, eigpairs, fields, num_modes)
         tensors = False
         if hasattr(ctx.obj['solver'], 'needs_tensors'):
@@ -295,6 +300,39 @@ def analyze_error(ctx, imethod, ipts=None, **kwargs):
 
     log.info('Mean absolute error: {:.2e}'.format(abs_err))
     log.info('Mean relative error: {:.2e}'.format(rel_err))
+
+
+@command('analyze-error-many')
+@parse_extra_args
+@log.title
+@click.option('--imethod', type=click.Choice(['full', 'sparse', 'uniform']), default='full')
+@click.option('--ipts', type=int, required=False)
+@click.option('--out', type=str, required=True)
+@click.argument('cases', type=CaseType(), nargs=-1)
+def analyze_error_many(ctx, imethod, cases, out, ipts=None, **kwargs):
+    solver = ctx.obj['solver']
+    ocase = cases[0](**kwargs).case
+
+    scheme = list(getattr(quadrature, imethod)(ocase.mu, ipts))
+    ntrials = len(scheme)
+    log.info('Sampling error in {} points'.format(ntrials))
+
+    vmass = ocase.mass('v')
+
+    orig_slns = [
+        ocase.solution_vector(solver(ocase, mu=mu, **kwargs), mu=mu)
+        for mu, __ in log.iter('high fidelity', scheme)
+    ]
+
+    data = []
+    for rcase in log.iter('case', cases):
+        rcase = rcase(**kwargs)
+        abs_err, rel_err = _errors(rcase, solver, vmass, scheme, orig_slns, **kwargs)
+        data.append([abs_err, rel_err] + rcase.meta_errors + rcase.meta_nmodes)
+
+    with open(out, 'w') as f:
+        for i, row in enumerate(data):
+            f.write('{} {} {} {} {} {} {}\n'.format(i, *row))
 
 
 if __name__ == '__main__':
