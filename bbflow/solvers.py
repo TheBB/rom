@@ -14,21 +14,16 @@ def _time(func):
         start = time.time()
         retval = func(*args, **kwargs)
         end = time.time()
-        log.info('Took {:.2e} seconds'.format(end - start))
+        log.info('took {:.2e} seconds'.format(end - start))
         return retval
     return ret
-
-
-def needs_tensors(func):
-    func.needs_tensors = True
-    return func
 
 
 @_time
 def _stokes(case, mu, **kwargs):
     matrix = case.integrate('divergence', mu) + case.integrate('laplacian', mu)
-    rhs = case.integrate('lift-divergence', mu) + case.integrate('lift-laplacian', mu)
-    lhs = matrix.solve(-rhs, constrain=case.constraints)
+    rhs = case.integrate('divergence', mu, lift=1) + case.integrate('laplacian', mu, lift=1)
+    lhs = matrix.solve(-rhs, constrain=case.cons)
 
     return lhs
 
@@ -36,18 +31,18 @@ def _stokes(case, mu, **kwargs):
 @_time
 def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
     domain = case.domain
-    geom = case.phys_geom(mu)
+    geom = case.physical_geometry(mu)
 
     stokes_mat = case.integrate('divergence', mu) + case.integrate('laplacian', mu)
-    stokes_rhs = case.integrate('lift-divergence', mu) + case.integrate('lift-laplacian', mu)
-    lhs = stokes_mat.solve(-stokes_rhs, constrain=case.constraints)
+    stokes_rhs = case.integrate('divergence', mu, lift=1) + case.integrate('laplacian', mu, lift=1)
+    lhs = stokes_mat.solve(-stokes_rhs, constrain=case.cons)
 
-    stokes_mat += case.integrate('lift-convection-1', mu) + case.integrate('lift-convection-2', mu)
-    stokes_rhs += case.integrate('lift-convection-1,2', mu)
+    stokes_mat += case.integrate('convection', mu, lift=1) + case.integrate('convection', mu, lift=2)
+    stokes_rhs += case.integrate('convection', mu, lift=(1,2))
 
     vmass = case.mass('v', mu)
 
-    if hasattr(case, 'fast_tensors') and case.fast_tensors:
+    if case.fast_tensors:
         conv_tens = case.integrate('convection', mu)
         def lhs_conv(lhs):
             return matrix.NumpyMatrix(
@@ -58,71 +53,78 @@ def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
     else:
         def lhs_conv(lhs):
             vsolt = case.solution(lhs, mu, 'v', lift=False)
+            vbasis = case.basis('v')
             conv = (
-                case.vbasis[:,_,:] * vsolt.grad(geom)[_,:,:] +
-                vsolt[_,_,:] * case.vbasis.grad(geom)
+                vbasis[:,_,:] * vsolt.grad(geom)[_,:,:] +
+                vsolt[_,_,:] * vbasis.grad(geom)
             ).sum(-1)
-            return domain.integrate(fn.outer(case.vbasis, conv).sum(-1), geometry=geom, ischeme='gauss9')
+            return domain.integrate(fn.outer(vbasis, conv).sum(-1), geometry=geom, ischeme='gauss9')
         def rhs_conv(lhs):
             vsolt = case.solution(lhs, mu, 'v', lift=False)
+            vbasis = case.basis('v')
             conv = (vsolt[_,:] * vsolt.grad(geom)).sum(-1)
-            return domain.integrate((case.vbasis * conv[_,:]).sum(-1), geometry=geom, ischeme='gauss9')
+            return domain.integrate((vbasis * conv[_,:]).sum(-1), geometry=geom, ischeme='gauss9')
 
     while True:
         rhs = - stokes_rhs - stokes_mat.matvec(lhs) - rhs_conv(lhs)
         ns_mat = stokes_mat + lhs_conv(lhs)
 
-        update = ns_mat.solve(rhs, constrain=case.constraints)
+        update = ns_mat.solve(rhs, constrain=case.cons)
         lhs += update
 
         update_norm = np.sqrt(vmass.matvec(update).dot(update))
-        log.info('Update: {:.2e}'.format(update_norm))
+        log.info('update: {:.2e}'.format(update_norm))
         if update_norm < newton_tol:
             break
 
     return lhs
 
 
-def metrics(case, lhs, mu, **kwargs):
+def metrics(case, mu, lhs, **kwargs):
     domain = case.domain
-    geom = case.phys_geom(mu)
+    geom = case.physical_geometry(mu)
     vsol = case.solution(lhs, mu, 'v')
 
     area, div_norm = domain.integrate([1, vsol.div(geom) ** 2], geometry=geom, ischeme='gauss9')
     div_norm = np.sqrt(div_norm / area)
 
-    log.info('Velocity divergence: {:e}/area'.format(div_norm))
+    log.user('velocity divergence: {:e}/area'.format(div_norm))
 
 
-def plots(case, lhs, mu, plot_name='solution', index=0, colorbar=False,
+def plots(case, mu, lhs, plot_name='solution', index=0, colorbar=False,
           length=5.0, height=1.0, width=1.0, up=1.0, figsize=(10, 10),
-          **kwargs):
+          show=False, fields='', lift=True, **kwargs):
     domain = case.domain
-    geom = case.phys_geom(mu)
-    vsol, psol = case.solution(lhs, mu, ['v', 'p'])
+    geom = case.physical_geometry(mu)
+    vsol, psol = case.solution(lhs, mu, ['v', 'p'], lift=lift)
 
     points, velocity, speed, press = domain.elem_eval(
         [geom, vsol, fn.norm2(vsol), psol],
         ischeme='bezier9', separate=True
     )
-    with plot.PyPlot(plot_name, index=index, figsize=figsize) as plt:
-        plt.mesh(points, speed)
-        if colorbar:
-            plt.colorbar()
-        plt.streamplot(points, velocity, spacing=0.2, color='black')
-    with plot.PyPlot(plot_name + '-press', index=index, figsize=figsize) as plt:
-        plt.mesh(points, press)
-        plt.clim(-3, 3)
-        if colorbar:
-            plt.colorbar()
+
+    if 'v' in fields:
+        with plot.PyPlot(plot_name + '-v', index=index, figsize=figsize) as plt:
+            plt.mesh(points, speed)
+            if colorbar:
+                plt.colorbar()
+            plt.streamplot(points, velocity, spacing=0.2, color='black', density=0.75)
+            if show:
+                plt.show()
+
+    if 'p' in fields:
+        with plot.PyPlot(plot_name + '-p', index=index, figsize=figsize) as plt:
+            plt.mesh(points, press)
+            plt.clim(-3, 3)
+            if colorbar:
+                plt.colorbar()
+            if show:
+                plt.show()
 
 
-@log.title
-def stokes(case, **kwargs):
-    return _stokes(case, **kwargs)
+def stokes(case, mu, **kwargs):
+    return _stokes(case, mu, **kwargs)
 
 
-@needs_tensors
-@log.title
-def navierstokes(case, **kwargs):
-    return _navierstokes(case, **kwargs)
+def navierstokes(case, mu, **kwargs):
+    return _navierstokes(case, mu, **kwargs)

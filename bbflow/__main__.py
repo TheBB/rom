@@ -2,13 +2,14 @@ import click
 from functools import wraps
 from itertools import count, product, repeat
 import numpy as np
-from nutils import plot, log, function as fn, _
+from nutils import plot, log, function as fn, _, core
 from operator import itemgetter
 from os.path import isfile, splitext
 import pickle
 
 import bbflow.cases as cases
 from bbflow.cases.bases import Case
+from bbflow.ensemble import make_ensemble
 import bbflow.quadrature as quadrature
 import bbflow.solvers as solvers
 
@@ -84,17 +85,29 @@ def command(name=None):
 
 @command()
 @parse_extra_args
-def single(ctx, **kwargs):
+def single(ctx, mu, **kwargs):
     case = ctx.obj['case'](**kwargs)
-    lhs = ctx.obj['solver'](case, **kwargs)
-    solvers.metrics(case, lhs, **kwargs)
-    solvers.plots(case, lhs, **kwargs)
+    mu = case.parameter(*mu)
+    lhs = ctx.obj['solver'](case, mu, **kwargs)
+    solvers.metrics(case, mu, lhs, **kwargs)
+    solvers.plots(case, mu, lhs, fields='v', **kwargs)
+
+
+@command()
+@parse_extra_args
+@click.option('--imethod', type=click.Choice(['full', 'sparse', 'uniform']), default='full')
+@click.option('--ipts', type=int, required=False)
+@click.option('--weights/--no-weights', default=False)
+def ensemble(ctx, imethod, ipts=None, weights=False, **kwargs):
+    case = ctx.obj['case'](**kwargs)
+    scheme = list(getattr(quadrature, imethod)(case.ranges(), ipts))
+    ensemble = make_ensemble(case, ctx.obj['solver'], scheme, weights=weights)
 
 
 def _make_ensemble(case, solver, imethod, ipts, **kwargs):
     scheme = list(getattr(quadrature, imethod)(case.mu, ipts))
     nsnapshots = len(scheme)
-    log.info('Generating ensemble of {} snapshots'.format(nsnapshots))
+    log.user('generating ensemble of {} snapshots'.format(nsnapshots))
 
     ensemble, params = [], []
     for mu, weight in log.iter('snapshot', scheme):
@@ -166,7 +179,7 @@ def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, min_modes=N
         if nmodes == nsnapshots and min_modes != nsnapshots:
             log.warning('All DoFs used, ensemble is probably too small')
         actual_error = np.sqrt(np.sum(eigvals[nmodes:]) / sum(eigvals))
-        log.info('{} modes suffice for {:.2e} error (threshold {:.2e})'.format(
+        log.user('{} modes suffice for {:.2e} error (threshold {:.2e})'.format(
             nmodes, actual_error, error,
         ))
         num_modes.append(nmodes)
@@ -248,7 +261,7 @@ def plot_basis(ctx, mu, figsize=(10,10), colorbar=False, **kwargs):
             bfun = basis.dot(coeffs)
             bfuns.extend([bfun, fn.norm2(bfun)])
 
-        geom = case.phys_geom(mu)
+        geom = case.physical_geometry(mu)
         points, *bfuns = case.domain.elem_eval([geom] + bfuns, ischeme='bezier9', separate=True)
         for num in log.count('bfun', start=1):
             if not bfuns:
@@ -288,7 +301,7 @@ def analyze_error(ctx, imethod, ipts=None, **kwargs):
 
     scheme = list(getattr(quadrature, imethod)(rcase.mu, ipts))
     ntrials = len(scheme)
-    log.info('Sampling error in {} points'.format(ntrials))
+    log.user('sampling error in {} points'.format(ntrials))
 
     vmass = ocase.mass('v')
 
@@ -298,8 +311,8 @@ def analyze_error(ctx, imethod, ipts=None, **kwargs):
     ]
     abs_err, rel_err = _errors(rcase, solver, vmass, scheme, orig_slns, **kwargs)
 
-    log.info('Mean absolute error: {:.2e}'.format(abs_err))
-    log.info('Mean relative error: {:.2e}'.format(rel_err))
+    log.user('mean absolute error: {:.2e}'.format(abs_err))
+    log.user('mean relative error: {:.2e}'.format(rel_err))
 
 
 @command('analyze-error-many')
@@ -315,7 +328,7 @@ def analyze_error_many(ctx, imethod, cases, out, ipts=None, **kwargs):
 
     scheme = list(getattr(quadrature, imethod)(ocase.mu, ipts))
     ntrials = len(scheme)
-    log.info('Sampling error in {} points'.format(ntrials))
+    log.user('sampling error in {} points'.format(ntrials))
 
     vmass = ocase.mass('v')
 

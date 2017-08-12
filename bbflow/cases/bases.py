@@ -1,11 +1,11 @@
-from collections import defaultdict, deque
+from collections import defaultdict, deque, OrderedDict, namedtuple
 from contextlib import contextmanager
 from functools import partial
-from itertools import combinations
+from itertools import combinations, chain
 from math import ceil
 import numpy as np
-from nutils import function as fn, matrix, _
-from operator import itemgetter
+from nutils import function as fn, matrix, _, plot, log
+from operator import itemgetter, attrgetter
 
 
 class MetaMu(type):
@@ -81,156 +81,270 @@ def num_elems(length, meshwidth, prescribed=None):
     return int(ceil(length / meshwidth))
 
 
-def defaultdict_list():
-    return defaultdict(list)
+class Integrable:
+
+    def __init__(self):
+        self._integrands = []
+        self._computed = []
+        self._lifts = defaultdict(Integrable)
+        self.shape = None
+
+    @staticmethod
+    def domain(domain, spec):
+        if spec is None:
+            return domain
+        return domain[','.join('patch' + str(d) for d in spec)]
+
+    @staticmethod
+    def indicator(domain, spec):
+        if spec is None:
+            return 1
+        patches = domain.basis_patch()
+        return patches.dot([1 if i in spec else 0 for i in range(len(patches))])
+
+    def add_integrand(self, integrand, domain=None, scale=None, symmetric=False):
+        if symmetric:
+            integrand = integrand + integrand.T
+        if self.shape is not None:
+            assert self.shape == integrand.shape
+        else:
+            self.shape = integrand.shape
+        if isinstance(domain, int):
+            domain = {domain,}
+        if domain is not None:
+            domain = frozenset(domain)
+        if scale is None:
+            scale = mu(1.0)
+        self._integrands.append((integrand, domain, scale))
+
+    def add_lift(self, lift, lift_scale):
+        ndims = len(self.shape)
+        combs = chain.from_iterable(
+            combinations(range(1, ndims), naxes)
+            for naxes in range(1, ndims)
+        )
+        for axes in combs:
+            for integrand, domain, scale in self._integrands:
+                for axis in axes[::-1]:
+                    index = (_,) * axis + (slice(None),) + (_,) * (len(integrand.shape) - axis - 1)
+                    integrand = (integrand * lift[index]).sum(axis)
+                index = frozenset(axes)
+                self._lifts[frozenset(axes)].add_integrand(
+                    integrand, domain, scale * lift_scale,
+                )
+
+    def cache(self, domain, geom, override=False):
+        for integrable in self._lifts.values():
+            integrable.cache(domain, geom)
+        if self._computed:
+            return
+        if len(self.shape) > 2 and not override:
+            return
+        matrices = []
+        for itg, dom, scl in self._integrands:
+            sub_dom = Integrable.domain(domain, dom)
+            matrix = sub_dom.integrate(itg, geometry=geom, ischeme='gauss9')
+            matrices.append((matrix, scl))
+        self._computed = matrices
+
+    def integrate(self, domain, geom, mu, lift=None, override=False):
+        if lift is not None:
+            integrable = self._lifts[frozenset(lift)]
+            return integrable.integrate(domain, geom, mu, override=override)
+        if not self._computed:
+            self.cache(domain, geom, override=override)
+        return sum(matrix * scl(mu) for matrix, scl in self._computed)
+
+    def integrand(self, domain, mu, lift=None):
+        if lift is not None:
+            integrable = self._lifts[frozenset(lift)]
+            return integrable.integrand(domain, geom, mu)
+        ret_integrand = 0
+        for itg, dom, scl in self._integrands:
+            indicator = Integrable.indicator(domain, dom)
+            ret_integrand += scl(mu) * itg * indicator
+        return ret_integrand
+
+    def project(self, domain, geom, projection):
+        self.cache(domain, geom)
+        if len(self.shape) == 1:
+            computed = [
+                (projection.dot(vec), scl)
+                for vec, scl in self._computed
+            ]
+        elif len(self.shape) == 2:
+            computed = [
+                (matrix.NumpyMatrix(projection.dot(mx.core.dot(projection.T))), scl)
+                for mx, scl in self._computed
+            ]
+        elif len(self.shape) == 3:
+            computed = []
+            for itg, dom, scl in self._integrands:
+                reduced = (
+                    itg[_,:,_,:,_,:] * projection[:,:,_,_,_,_] *
+                    projection[_,_,:,:,_,_] * projection[_,_,_,_,:,:]
+                ).sum((1, 3, 5))
+                sub_dom = Integrable.domain(domain, dom)
+                tensor = sub_dom.integrate(reduced, geometry=geom, ischeme='gauss9')
+                computed.append((tensor, scl))
+
+        retval = Integrable()
+        retval._computed = computed
+        if self._lifts:
+            retval._lifts = OrderedDict([
+                (name, itg.project(domain, geom, projection))
+                for name, itg in self._lifts.items()
+            ])
+        return retval
+
+
+Parameter = namedtuple('Parameter', ['name', 'min', 'max', 'default', 'index'])
 
 
 class Case:
 
-    def __init__(self, domain, geom, bases, basis_lengths=None):
-        self.domain = domain
-        self.geom = geom
-        self._integrands = defaultdict(defaultdict_list)
-        self._computed = defaultdict(defaultdict_list)
-        self._tensor_integrands = defaultdict(defaultdict_list)
+    def __init__(self, domain, geom):
+        self._bases = OrderedDict()
+        self._parameters = OrderedDict()
+        self._fixed_values = {}
+        self._displacements = []
+        self._integrables = defaultdict(Integrable)
         self._lifts = []
-        self._padding = [None] * len(self.mu)
 
-        for field, basis in zip(self.fields, bases):
-            setattr(self, field + 'basis', basis)
-        if basis_lengths is None:
-            assert len(bases) == 1
-            basis_lengths = [bases[0].shape[0]]
-        self.basis_lengths = basis_lengths
+        self.domain = domain
+        self.geometry = geom
+        self.fast_tensors = False
 
-    def restrict(self, mu):
-        assert len(mu) == len(self.mu)
-        self._padding = mu
-        self.mu = [p for p, r in zip(self.mu, mu) if r is None]
+    def add_parameter(self, name, min, max, default=None):
+        if default is None:
+            default = (min + max) / 2
+        self._parameters[name] = Parameter(name, min, max, default, len(self._parameters))
+        self._fixed_values[name] = None
 
-    def get(self, *args):
-        return [self.__dict__[arg] for arg in args]
-
-    def _pad(self, mu):
-        mu = deque(mu)
-        return tuple(
-            p if p is not None else mu.popleft()
-            for p in self._padding
-        )
-
-    def std_mu(self):
-        if hasattr(self, '_std_mu'):
-            std = self._std_mu
-        else:
-            std = [(a+b)/2 for a, b in self.mu]
-        return tuple(
-            p if p is not None else q
-            for p, q in zip(self._padding, std)
-        )
-
-    @contextmanager
-    def add_matrix(self, name, rhs=False):
-        yield partial(self._add_integrand, name, rhs, 'matrix')
-
-    @contextmanager
-    def add_lift(self):
-        yield partial(self._add_integrand, 'lift', False, 'lift')
-
-    @contextmanager
-    def add_tensor(self, name, rhs=False):
-        yield partial(self._add_integrand, name, rhs, 'tensor')
-
-    def _add_integrand(self, name, rhs, type_, integrand,
-                       scale=None, domain=None, symmetric=False):
-        if scale is None:
-            scale = mu(1.0)
-        if type_ == 'lift':
-            integrand[np.where(np.isnan(integrand))] = 0.0
-            self._lifts.append((integrand, scale))
-            return
-        if symmetric:
-            integrand = integrand + integrand.T
-        tgt = self._tensor_integrands if type_ == 'tensor' else self._integrands
-        tgt[name][domain].append((integrand, scale))
-        if rhs:
-            self._add_lift_combinations(name, rhs, integrand, scale, domain)
-
-    def _add_lift_combinations(self, name, rhs, integrand, scale, domain):
-        if rhs is True:
-            for lift, lift_scale in self._lifts:
-                lift_integrand = (integrand * lift[_, :]).sum(1)
-                self._integrands['lift-' + name][domain].append(
-                    (lift_integrand, scale * lift_scale)
-                )
-            return
-
-        combs = (
-            (length, axes, lift, lift_scale)
-            for length in range(1, len(rhs) + 1)
-            for axes in combinations(sorted(rhs), length)
-            for lift, lift_scale in self._lifts
-        )
-        for length, axes, lift, lift_scale in combs:
-            lift_integrand = integrand
-            for axis in axes[::-1]:
-                index = (_,) * axis + (slice(None),) + (_,) * (len(lift_integrand.shape) - axis - 1)
-                lift_integrand = (lift_integrand * lift[index]).sum(axis)
-            tname = 'lift-' + name + '-' + ','.join(str(a) for a in axes)
-            self._integrands[tname][domain].append((lift_integrand, scale * lift_scale))
-
-    def integrate(self, name, mu, tgt='integrands'):
-        ret_matrix = 0
-        store = tgt == 'integrands'
-        tgt = getattr(self, '_' + tgt)
-        for dom, contents in tgt[name].items():
-            integrands, scales = zip(*contents)
-            if name in self._computed and self._computed[name][dom]:
-                matrices = self._computed[name][dom]
+    def parameter(self, *args, **kwargs):
+        mu = []
+        for param in self._parameters.values():
+            fixed = self._fixed_values[param.name]
+            if fixed is not None:
+                mu.append(fixed)
+            elif param.name in kwargs:
+                mu.append(kwargs[param.name])
+            elif param.index < len(args):
+                mu.append(args[param.index])
             else:
-                domain = self._domain(dom)
-                matrices = domain.integrate(integrands, geometry=self.geom, ischeme='gauss9')
-                if store:
-                    self._computed[name][dom] = matrices
-            ret_matrix += sum(mm * scl(self._pad(mu)) for mm, scl in zip(matrices, scales))
-        return ret_matrix
+                mu.append(param.default)
+        retval = dict(enumerate(mu))
+        retval.update({name: value for name, value in zip(self._parameters, mu)})
+        return retval
 
-    def integrand(self, name, mu, tgt='integrands'):
-        tgt = getattr(self, '_' + tgt)
-        ret_integrand = 0
-        for dom, contents in tgt[name].items():
-            indicator = self._indicator(dom)
-            ret_integrand += sum(scl(self._pad(mu)) * itg for itg, scl in contents) * indicator
-        return ret_integrand
+    def ranges(self):
+        return [(p.min, p.max) for p in self._parameters.values()]
 
-    def mass(self, field, mu=None):
+    def restrict(self, **kwargs):
+        for name, value in kwargs.items():
+            self._fixed_values[name] = value
+
+    def plot_domain(self, mu=None, show=False, figsize=(10,10)):
+        geometry = self.geometry
+        if mu is not None:
+            geometry = self.physical_geometry(mu)
+        points, = self.domain.elem_eval([geometry], ischeme='bezier9', separate=True)
+        with plot.PyPlot('domain', figsize=figsize) as plt:
+            plt.mesh(points)
+            if show:
+                plt.show()
+
+    def add_displacement(self, function, scale):
+        self._displacements.append((function, scale))
+
+    def physical_geometry(self, mu=None):
         if mu is None:
-            mu = self.std_mu()
-        intname = field + 'mass'
-        if hasattr(self, '_integrands') and intname in self._integrands:
-            return self.integrate(intname, mu)
-        elif hasattr(self, '_computed') and intname in self._computed:
-            return self.integrate(intname, mu)
-        integrand = fn.outer(self.basis(field))
-        while len(integrand.shape) > 2:
-            integrand = integrand.sum(-1)
-        geom = self.phys_geom(mu)
-        return self.domain.integrate(integrand, geometry=geom, ischeme='gauss9')
+            mu = self.parameter()
+        displacement = [0] * len(self.geometry)
+        for func, scale in self._displacements:
+            displacement = [s + scale(mu) * f for s, f in zip(displacement, func)]
+        return self.geometry + displacement
+
+    def add_basis(self, name, function, length):
+        self._bases[name] = (function, length)
 
     def basis(self, name):
-        assert name in self.fields
-        return getattr(self, name + 'basis')
+        assert name in self._bases
+        return self._bases[name][0]
 
     def basis_indices(self, name):
         start = 0
-        for field, length in zip(self.fields, self.basis_lengths):
+        for field, (__, length) in self._bases.items():
             if field != name:
                 start += length
             else:
                 break
         return np.arange(start, start + length, dtype=np.int)
 
+    def basis_shape(self, name):
+        basis = self.basis(name)
+        if basis.ndim == 1:
+            return ()
+        return basis.shape[1:]
+
+    def constrain(self, basisname, *boundaries):
+        kwargs = {}
+        if hasattr(self, 'cons'):
+            kwargs['constrain'] = self.cons
+        boundary = self.domain.boundary[','.join(boundaries)]
+        basis = self.basis(basisname)
+        zero = np.zeros(self.basis_shape(basisname))
+        self.cons = boundary.project(
+            zero, onto=basis, geometry=self.geometry, ischeme='gauss2', **kwargs
+        )
+
+    def add_lift(self, lift, basis=None, scale=None):
+        if isinstance(lift, fn.Array):
+            basis = self.basis(basis)
+            lift = self.domain.project(lift, onto=basis, geometry=self.geometry, ischeme='gauss9')
+        lift[np.where(np.isnan(lift))] = 0.0
+        self._lifts.append((lift, scale))
+
+    def add_integrand(self, name, integrand, scale=None, domain=None, symmetric=False):
+        self._integrables[name].add_integrand(integrand, domain, scale, symmetric=symmetric)
+
+    def finalize(self):
+        for integrable in self._integrables.values():
+            for lift, scale in self._lifts:
+                integrable.add_lift(lift, scale)
+
+    def cache(self):
+        for integrable in self._integrables.values():
+            integrable.cache(self.domain, self.geometry)
+
+    def integrate(self, name, mu, lift=None, override=False):
+        if isinstance(lift, int):
+            lift = (lift,)
+        assert name in self._integrables
+        return self._integrables[name].integrate(
+            self.domain, self.geometry, mu, lift=lift, override=override
+        )
+
+    def integrand(self, name, mu, lift=None):
+        if isinstance(lift, int):
+            lift = (lift,)
+        assert name in self._integrables
+        return self._integrables[name].integrand(self.domain, mu, lift=lift)
+
+    def mass(self, field, mu=None):
+        if mu is None:
+            mu = self.parameter()
+        intname = field + 'mass'
+        if intname in self._integrables:
+            return self.integrate(intname, mu)
+        integrand = fn.outer(self.basis(field))
+        while len(integrand.shape) > 2:
+            integrand = integrand.sum(-1)
+        geom = self.physical_geometry(mu)
+        return self.domain.integrate(integrand, geometry=geom, ischeme='gauss9')
+
     def _lift(self, mu):
-        return sum(lift * scl(self._pad(mu)) for lift, scl in self._lifts)
+        return sum(lift * scl(mu) for lift, scl in self._lifts)
 
     def solution_vector(self, lhs, mu, lift=True):
         return lhs + self._lift(mu) if lift else lhs
@@ -245,14 +359,6 @@ class Case:
         if not multiple:
             return solutions[0]
         return solutions
-
-    def _domain(self, dom):
-        if dom is None:
-            return self.domain
-        if isinstance(dom, int):
-            dom = (dom,)
-        dom_str = ','.join('patch' + str(d) for d in dom)
-        return self.domain[dom_str]
 
     def _indicator(self, dom):
         if dom is None:
@@ -281,76 +387,68 @@ def _project_tensor(tensor, projection):
         return reduced
 
 
-class ProjectedCase(Case):
+class ProjectedCase:
 
-    def __init__(self, case, projection, fields, lengths, tensors=False):
+    def __init__(self, case, projection, lengths, fields=None):
         assert not isinstance(case, ProjectedCase)
+
+        if fields is None:
+            fields = list(case._bases)
+
         self.case = case
         self.projection = projection
-        self.fields = fields
-        self.basis_lengths = lengths
+        self._bases = OrderedDict(zip(fields, lengths))
+        self.cons = np.empty((projection.shape[0],))
+        self.cons[:] = np.nan
 
-        self._computed = {}
+        self._integrables = OrderedDict([
+            (name, integrable.project(case.domain, case.geometry, projection))
+            for name, integrable in case._integrables.items()
+        ])
 
-        # Force integration of all vector and matrix integrands
-        test_mu = [a[0] for a in case.mu]
-        for part in case._integrands:
-            case.integrate(part, test_mu)
-
-        # Project all vector and matrix integrands
-        for part, domains in case._computed.items():
-            proj_contents = []
-            for dom, matrices in domains.items():
-                __, scales = zip(*case._integrands[part][dom])
-                proj_matrices = [
-                    _project_tensor(matrix, projection)
-                    for matrix in matrices
-                ]
-                proj_contents.extend(zip(proj_matrices, scales))
-            self._computed[part] = proj_contents
-
-        # Integrate and project all tensor integrands
         self.fast_tensors = False
-        if tensors:
-            self.fast_tensors = True
-            for part, domains in case._tensor_integrands.items():
-                proj_contents = []
-                for dom, integrands in domains.items():
-                    integrands, scales = zip(*integrands)
-                    integrands = [_project_tensor(intg, projection) for intg in integrands]
-                    domain = case._domain(dom)
-                    tensors = domain.integrate(integrands, geometry=case.geom, ischeme='gauss9')
-                    proj_contents.extend(zip(tensors, scales))
-                self._computed[part] = proj_contents
 
-        self.constraints = np.empty((projection.shape[1],))
-        self.constraints[:] = np.nan
-
-    def integrate(self, name, mu, tgt=None):
-        retval = sum(mm * scl(self.case._pad(mu)) for mm, scl in self._computed[name])
-        if retval.ndim == 2:
-            return matrix.NumpyMatrix(retval)
-        return retval
+    def integrate(self, name, mu, lift=None, override=False):
+        if isinstance(lift, int):
+            lift = (lift,)
+        assert name in self._integrables
+        return self._integrables[name].integrate(
+            self.case.domain, self.case.geometry, mu, lift=lift, override=override
+        )
 
     @property
     def domain(self):
         return self.case.domain
 
-    @property
-    def mu(self):
-        return self.case.mu
+    def parameter(self, *args, **kwargs):
+        return self.case.parameter(*args, **kwargs)
 
-    def phys_geom(self, *args, **kwargs):
-        return self.case.phys_geom(*args, **kwargs)
+    def ranges(self, *args, **kwargs):
+        return self.case.ranges(*args, **kwargs)
+
+    def physical_geometry(self, *args, **kwargs):
+        return self.case.physical_geometry(*args, **kwargs)
+
+    def plot_domain(self, *args, **kwargs):
+        return self.case.plot_domain(*args, **kwargs)
 
     def solution_vector(self, lhs, *args, **kwargs):
-        lhs = self.projection.dot(lhs)
+        lhs = self.projection.T.dot(lhs)
         return self.case.solution_vector(lhs, *args, **kwargs)
 
     def solution(self, lhs, *args, **kwargs):
-        lhs = self.projection.dot(lhs)
+        lhs = self.projection.T.dot(lhs)
         return self.case.solution(lhs, *args, **kwargs)
 
     def basis(self, name):
         basis = self.case.basis(name)
-        return fn.matmat(self.projection.T, basis)
+        return fn.matmat(self.projection, basis)
+
+    def mass(self, field, mu=None):
+        if mu is None:
+            mu = self.parameter()
+        intname = field + 'mass'
+        if intname in self._integrables:
+            return self.integrate(intname, mu)
+        omass = self.case.mass(field, mu)
+        return self.projection.dot(omass).dot(self.projection.T)
