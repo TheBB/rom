@@ -192,12 +192,19 @@ class Integrable:
         return retval
 
 
+class MetaData:
+
+    def __init__(self):
+        self.meta = {}
+
+
 Parameter = namedtuple('Parameter', ['name', 'min', 'max', 'default', 'index'])
 
 
-class Case:
+class Case(MetaData):
 
     def __init__(self, domain, geom):
+        super().__init__()
         self._bases = OrderedDict()
         self._parameters = OrderedDict()
         self._fixed_values = {}
@@ -234,7 +241,11 @@ class Case:
         return retval
 
     def ranges(self):
-        return [(p.min, p.max) for p in self._parameters.values()]
+        return [
+            (p.min, p.max)
+            for p in self._parameters.values()
+            if self._fixed_values[p.name] is None
+        ]
 
     def restrict(self, **kwargs):
         for name, value in kwargs.items():
@@ -365,10 +376,11 @@ class Case:
         return patches.dot([1 if i in dom else 0 for i in range(len(patches))])
 
 
-class ProjectedCase:
+class ProjectedCase(MetaData):
 
     def __init__(self, case, projection, lengths, fields=None):
         assert not isinstance(case, ProjectedCase)
+        super().__init__()
 
         if fields is None:
             fields = list(case._bases)

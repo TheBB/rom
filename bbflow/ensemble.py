@@ -18,6 +18,7 @@ def make_ensemble(case, solver, quadrule, weights=False):
     quadrule = [(case.parameter(*mu), wt) for mu, wt in quadrule]
     args = zip(repeat(case), repeat(solver), quadrule, repeat(weights))
 
+    log.user('generating ensemble of {} solutions'.format(len(quadrule)))
     pool = Pool()
     solutions = list(log.iter('solution', pool.imap(_solve, args)))
     return np.array(solutions)

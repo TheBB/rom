@@ -1,4 +1,5 @@
 import click
+from collections import namedtuple
 from functools import wraps
 from itertools import count, product, repeat
 import numpy as np
@@ -11,37 +12,44 @@ import bbflow.cases as cases
 from bbflow.cases.bases import Case
 from bbflow.ensemble import make_ensemble
 import bbflow.quadrature as quadrature
+import bbflow.reduction as reduction
 import bbflow.solvers as solvers
 
 
-def parse_extra_args(func):
-    @wraps(func)
-    def inner(ctx, **kwargs):
-        extra_args = {}
-        args = ctx.args
-        while args:
-            key, args = args[0], args[1:]
-            key = key[2:].replace('-', '_')
-            values = ()
-            while args and not args[0].startswith('--'):
-                value, args = args[0], args[1:]
-                for cons in [int, float]:
-                    try:
-                        value = cons(value)
-                        break
-                    except ValueError: pass
-                values += (value,)
-            if len(values) == 0:
-                if key.startswith('no-'):
-                    extra_args[key[3:]] = False
+def parse_extra_args(final_args=[]):
+    def decorator(func):
+        @wraps(func)
+        def inner(ctx, **kwargs):
+            extra_args = {}
+            args = ctx.args
+            if final_args:
+                for (name, type_), arg in zip(final_args, args[-len(final_args):]):
+                    extra_args[name] = type_.convert(arg, None, ctx)
+                args = args[:-len(final_args)]
+            while args:
+                key, args = args[0], args[1:]
+                key = key[2:].replace('-', '_')
+                values = ()
+                while args and not args[0].startswith('--'):
+                    value, args = args[0], args[1:]
+                    for cons in [int, float]:
+                        try:
+                            value = cons(value)
+                            break
+                        except ValueError: pass
+                    values += (value,)
+                if len(values) == 0:
+                    if key.startswith('no-'):
+                        extra_args[key[3:]] = False
+                    else:
+                        extra_args[key] = True
+                elif len(values) == 1:
+                    extra_args[key] = values[0]
                 else:
-                    extra_args[key] = True
-            elif len(values) == 1:
-                extra_args[key] = values[0]
-            else:
-                extra_args[key] = values
-        return func(ctx, **kwargs, **extra_args)
-    return inner
+                    extra_args[key] = values
+            return func(ctx, **kwargs, **extra_args)
+        return inner
+    return decorator
 
 
 class CaseType(click.ParamType):
@@ -59,15 +67,36 @@ class CaseType(click.ParamType):
         self.fail('Unknown case: {}'.format(value))
 
 
+class SolverType(click.ParamType):
+    name = 'solver'
+
+    def convert(self, value, param, ctx):
+        if callable(value):
+            return value
+        elif value in {'stokes', 'navierstokes'}:
+            return getattr(solvers, value)
+        self.fail('Unknown solver: {}'.format(value))
+
+
+class PickledType(click.ParamType):
+    name = 'object'
+
+    def convert(self, value, param, ctx):
+        if not isinstance(value, str):
+            return value
+        elif isfile(value):
+            with open(value, 'rb') as f:
+                return pickle.load(f)
+        self.fail('Unknown object: {}'.format(value))
+
+
 @click.group()
 @click.pass_context
 @click.option('--case', '-c', type=CaseType(), required=False)
 @click.option('--solver', '-s', type=click.Choice(solvers.__all__), required=False)
 def main(ctx, case, solver):
-    ctx.obj = {
-        'case': case,
-        'solver': getattr(solvers, solver) if solver else None,
-    }
+    pass
+
 
 def command(name=None):
     def decorator(func):
@@ -84,114 +113,108 @@ def command(name=None):
 
 
 @command()
-@parse_extra_args
-def single(ctx, mu, **kwargs):
-    case = ctx.obj['case'](**kwargs)
+@click.option('--case', '-c', type=CaseType(), required=True)
+@click.option('--solver', '-s', type=SolverType(), required=True)
+@parse_extra_args()
+def single(ctx, case, solver, mu, **kwargs):
+    case = case(**kwargs)
     mu = case.parameter(*mu)
-    lhs = ctx.obj['solver'](case, mu, **kwargs)
+    lhs = solver(case, mu, **kwargs)
     solvers.metrics(case, mu, lhs, **kwargs)
     solvers.plots(case, mu, lhs, fields='v', **kwargs)
 
 
 @command()
-@parse_extra_args
 @click.option('--imethod', type=click.Choice(['full', 'sparse', 'uniform']), default='full')
-@click.option('--ipts', type=int, required=False)
+@click.option('--ipts', type=int, default=4)
 @click.option('--weights/--no-weights', default=False)
-def ensemble(ctx, imethod, ipts=None, weights=False, **kwargs):
-    case = ctx.obj['case'](**kwargs)
+@parse_extra_args([
+    ('solver', SolverType()),
+    ('case', CaseType()),
+    ('out', click.File(mode='wb', lazy=True)),
+])
+def ensemble(ctx, case, solver, imethod, out, ipts=None, weights=False, **kwargs):
+    case = case(**kwargs)
     scheme = list(getattr(quadrature, imethod)(case.ranges(), ipts))
-    ensemble = make_ensemble(case, ctx.obj['solver'], scheme, weights=weights)
-
-
-def _make_ensemble(case, solver, imethod, ipts, **kwargs):
-    scheme = list(getattr(quadrature, imethod)(case.mu, ipts))
-    nsnapshots = len(scheme)
-    log.user('generating ensemble of {} snapshots'.format(nsnapshots))
-
-    ensemble, params = [], []
-    for mu, weight in log.iter('snapshot', scheme):
-        log.info('mu = {}'.format(mu))
-        ensemble.append(weight * solver(case, mu=mu, **kwargs))
-        params.append(mu)
-    ensemble = np.array(ensemble).T
-
-    return ensemble, params
-
-
-def _eigen(case, ensemble, fields):
-    ret = {}
-    for field in log.iter('field', fields, length=False):
-        mass = case.mass(field)
-        corr = ensemble.T.dot(mass.core.dot(ensemble))
-        eigvals, eigvecs = np.linalg.eigh(corr)
-        eigvals = eigvals[::-1] / sum(eigvals)
-        eigvecs = eigvecs[:,::-1]
-        ret[field] = (eigvals, eigvecs)
-
-    return ret
-
-
-def _reduction(case, ensemble, eigpairs, fields, num_modes):
-    projection, lengths = [], []
-    for field, nmodes in zip(fields, num_modes):
-        eigvals, eigvecs = eigpairs[field]
-        reduced = ensemble.dot(eigvecs[:,:nmodes]) / np.sqrt(eigvals[:nmodes])
-        indices = case.basis_indices(field)
-        mask = np.ones(reduced.shape[0], dtype=np.bool)
-        mask[indices] = 0
-        reduced[mask] = 0
-
-        projection.append(reduced)
-        lengths.append(nmodes)
-
-    return np.concatenate(projection, axis=1), lengths
+    ensemble = make_ensemble(case, solver, scheme, weights=weights)
+    pickle.dump({'case': case, 'scheme': scheme, 'ensemble': ensemble}, out)
 
 
 @command()
-@click.option('--method', type=click.Choice(['pod']), default='pod')
-@click.option('--imethod', type=click.Choice(['full', 'sparse', 'uniform']), default='full')
-@click.option('--field', '-f', 'fields', type=str, multiple=True)
-@click.option('--out', '-o', type=click.File(mode='wb'), required=True)
-@parse_extra_args
-@log.title
-def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, min_modes=None, **kwargs):
-    case = ctx.obj['case'](**kwargs)
-    ensemble, __ = _make_ensemble(case, ctx.obj['solver'], imethod, ipts, **kwargs)
-    nsnapshots = ensemble.shape[1]
-    fields = fields or case.fields
+@parse_extra_args([('ensemble', PickledType())])
+def spectrum(ctx, ensemble, **kwargs):
+    case = ensemble['case']
+    ens = ensemble['ensemble']
+    decomp = reduction.eigen(case, ens, **kwargs)
+    reduction.plot_spectrum(decomp, **kwargs)
 
-    if min_modes == -1:
-        min_modes = nsnapshots
 
-    eigpairs = _eigen(case, ensemble, fields)
+@command()
+@parse_extra_args([
+    ('ensemble', PickledType()),
+    ('out', click.File(mode='wb', lazy=True)),
+])
+def reduce(ctx, ensemble, out, **kwargs):
+    case = ensemble['case']
+    ens = ensemble['ensemble']
+    decomp = reduction.eigen(case, ens, **kwargs)
+    projection, lengths = reduction.reduce(case, ens, decomp, **kwargs)
+    projcase = cases.ProjectedCase(case, projection, lengths)
 
-    num_modes = []
-    for field in fields:
-        eigvals, __ = eigpairs[field]
-        threshold = (1 - error ** 2) * sum(eigvals)
-        try:
-            nmodes = min(np.where(np.cumsum(eigvals) > threshold)[0]) + 1
-            if min_modes:
-                nmodes = max(nmodes, min_modes)
-        except ValueError:
-            nmodes = nsnapshots
-        if nmodes == nsnapshots and min_modes != nsnapshots:
-            log.warning('All DoFs used, ensemble is probably too small')
-        actual_error = np.sqrt(np.sum(eigvals[nmodes:]) / sum(eigvals))
-        log.user('{} modes suffice for {:.2e} error (threshold {:.2e})'.format(
-            nmodes, actual_error, error,
-        ))
-        num_modes.append(nmodes)
+    projcase.meta['nmodes'] = dict(zip(decomp, lengths))
+    errors = {}
+    for name, num in zip(decomp, lengths):
+        evs, __ = decomp[name]
+        errors[name] = np.sqrt(max(0.0, np.sum(evs[num:])))
+    projcase.meta['errors'] = dict(zip(decomp, lengths))
 
-    projection, lengths = _reduction(case, ensemble, eigpairs, fields, num_modes)
+    pickle.dump(projcase, out)
 
-    tensors = False
-    if hasattr(ctx.obj['solver'], 'needs_tensors'):
-        tensors = ctx.obj['solver'].needs_tensors
 
-    proj_case = cases.ProjectedCase(case, projection, fields, lengths, tensors=tensors)
-    pickle.dump(proj_case, out)
+# @command()
+# @click.option('--method', type=click.Choice(['pod']), default='pod')
+# @click.option('--imethod', type=click.Choice(['full', 'sparse', 'uniform']), default='full')
+# @click.option('--field', '-f', 'fields', type=str, multiple=True)
+# @click.option('--out', '-o', type=click.File(mode='wb'), required=True)
+# @parse_extra_args
+# @log.title
+# def reduce(ctx, out, fields, method, imethod, ipts=None, error=0.01, min_modes=None, **kwargs):
+#     case = ctx.obj['case'](**kwargs)
+#     ensemble, __ = _make_ensemble(case, ctx.obj['solver'], imethod, ipts, **kwargs)
+#     nsnapshots = ensemble.shape[1]
+#     fields = fields or case.fields
+
+#     if min_modes == -1:
+#         min_modes = nsnapshots
+
+#     eigpairs = _eigen(case, ensemble, fields)
+
+#     num_modes = []
+#     for field in fields:
+#         eigvals, __ = eigpairs[field]
+#         threshold = (1 - error ** 2) * sum(eigvals)
+#         try:
+#             nmodes = min(np.where(np.cumsum(eigvals) > threshold)[0]) + 1
+#             if min_modes:
+#                 nmodes = max(nmodes, min_modes)
+#         except ValueError:
+#             nmodes = nsnapshots
+#         if nmodes == nsnapshots and min_modes != nsnapshots:
+#             log.warning('All DoFs used, ensemble is probably too small')
+#         actual_error = np.sqrt(np.sum(eigvals[nmodes:]) / sum(eigvals))
+#         log.user('{} modes suffice for {:.2e} error (threshold {:.2e})'.format(
+#             nmodes, actual_error, error,
+#         ))
+#         num_modes.append(nmodes)
+
+#     projection, lengths = _reduction(case, ensemble, eigpairs, fields, num_modes)
+
+#     tensors = False
+#     if hasattr(ctx.obj['solver'], 'needs_tensors'):
+#         tensors = ctx.obj['solver'].needs_tensors
+
+#     proj_case = cases.ProjectedCase(case, projection, fields, lengths, tensors=tensors)
+#     pickle.dump(proj_case, out)
 
 
 @command('reduce-many')

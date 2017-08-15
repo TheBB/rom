@@ -3,7 +3,7 @@ import numpy as np
 from nutils import log, plot
 
 
-def eigen(case, ensemble, fields=None):
+def eigen(case, ensemble, fields=None, **kwargs):
     if fields is None:
         fields = list(case._bases)
     retval = OrderedDict()
@@ -11,16 +11,16 @@ def eigen(case, ensemble, fields=None):
         mass = case.mass(field)
         corr = ensemble.dot(mass.core.dot(ensemble.T))
         eigvals, eigvecs = np.linalg.eigh(corr)
-        eigvals = eigvals[::-1] / sum(eigvals)
+        eigvals = eigvals[::-1]
         eigvecs = eigvecs[:,::-1]
         retval[field] = (eigvals, eigvecs)
     return retval
 
 
-def plot_spectrum(decomp, fields=None, show=False, figsize=(10,10)):
+def plot_spectrum(decomp, fields=None, show=False, figsize=(10,10), plot_name='spectrum', index=0, **kwargs):
     if fields is None:
         fields = list(decomp)
-    with plot.PyPlot('spectrum', index=0, figsize=figsize) as plt:
+    with plot.PyPlot(plot_name, index=index, figsize=figsize) as plt:
         for f in fields:
             evs, __ = decomp[f]
             plt.semilogy(range(1, len(evs) + 1), evs)
@@ -31,7 +31,7 @@ def plot_spectrum(decomp, fields=None, show=False, figsize=(10,10)):
             plt.show()
 
 
-def reduce(case, ensemble, decomp, threshold=None, nmodes=None, min_modes=None):
+def reduce(case, ensemble, decomp, threshold=None, nmodes=None, min_modes=None, **kwargs):
     nsnapshots = ensemble.shape[0]
     if min_modes == -1:
         min_modes = nsnapshots
@@ -42,7 +42,7 @@ def reduce(case, ensemble, decomp, threshold=None, nmodes=None, min_modes=None):
             threshold = (threshold,) * len(decomp)
         nmodes = OrderedDict()
         for error, (field, (evs, __)) in zip(threshold, decomp.items()):
-            limit = (1 - error ** 2)
+            limit = (1 - error ** 2) * np.sum(evs)
             try:
                 num = min(np.where(np.cumsum(evs) > limit)[0]) + 1
                 if min_modes:
@@ -51,7 +51,7 @@ def reduce(case, ensemble, decomp, threshold=None, nmodes=None, min_modes=None):
                 num = nsnapshots
             if num == nsnapshots and min_modes != nsnapshots:
                 log.warning('All DoFs used, ensemble is probably too small')
-            actual_error = np.sqrt(max(0.0, np.sum(evs[num:])))
+            actual_error = np.sqrt(max(0.0, np.sum(evs[num:]) / np.sum(evs)))
             log.user('{}: {} modes suffice for {:.2e} error (threshold {:.2e})'.format(
                 field, num, actual_error, error,
             ))
