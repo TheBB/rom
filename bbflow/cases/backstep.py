@@ -3,7 +3,7 @@ import numpy as np
 from nutils import mesh, function as fn, log, _
 import pickle
 
-from bbflow.cases.bases import mu, Case, num_elems
+from bbflow.cases.bases import mu, Case
 
 
 def backstep(refine=1, degree=3, nel_up=None, nel_length=None, **kwargs):

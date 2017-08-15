@@ -75,12 +75,6 @@ class mu(metaclass=MetaMu):
         return mu('/', other, self)
 
 
-def num_elems(length, meshwidth, prescribed=None):
-    if prescribed is not None:
-        return prescribed
-    return int(ceil(length / meshwidth))
-
-
 class Integrable:
 
     def __init__(self):
@@ -367,24 +361,6 @@ class Case:
             dom = (dom,)
         patches = self.domain.basis_patch()
         return patches.dot([1 if i in dom else 0 for i in range(len(patches))])
-
-
-def _project_tensor(tensor, projection):
-    if isinstance(tensor, (matrix.ScipyMatrix, matrix.NumpyMatrix)):
-        return projection.T.dot(tensor.core.dot(projection))
-    elif isinstance(tensor, np.ndarray):
-        for ax in range(tensor.ndim):
-            tensor = np.tensordot(tensor, projection, (0, 0))
-        return tensor
-    elif tensor.ndim == 3:
-        # Multiplication order is important!
-        # Starting with the integrand ensures that the multiplication is lazy
-        reduced = (
-            tensor[:,_,:,_,:,_] * projection[:,:,_,_,_,_] *
-            projection[_,_,:,:,_,_] * projection[_,_,_,_,:,:]
-        )
-        reduced = reduced.sum((0, 2, 4))
-        return reduced
 
 
 class ProjectedCase:
