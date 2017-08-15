@@ -216,17 +216,19 @@ class Case:
         self._fixed_values[name] = None
 
     def parameter(self, *args, **kwargs):
-        mu = []
+        mu, index = [], 0
         for param in self._parameters.values():
             fixed = self._fixed_values[param.name]
             if fixed is not None:
                 mu.append(fixed)
-            elif param.name in kwargs:
+                continue
+            if param.name in kwargs:
                 mu.append(kwargs[param.name])
-            elif param.index < len(args):
-                mu.append(args[param.index])
+            elif index < len(args):
+                mu.append(args[index])
             else:
                 mu.append(param.default)
+            index += 1
         retval = dict(enumerate(mu))
         retval.update({name: value for name, value in zip(self._parameters, mu)})
         return retval

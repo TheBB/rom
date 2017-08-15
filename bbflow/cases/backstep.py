@@ -113,5 +113,5 @@ def backstep_inlet(*args, **kwargs):
 
 def backstep_test(*args, **kwargs):
     case = backstep(*args, **kwargs)
-    case.restrict((20.0, 10.0, None, None))
+    case.restrict(viscosity=20, length=10)
     return case
