@@ -437,6 +437,16 @@ class ProjectedCase(MetaData):
 
         self.fast_tensors = False
 
+    def __iter__(self):
+        yield from self.case
+
+    def __contains__(self, key):
+        return key in self.case
+
+    def __getitem__(self, key):
+        assert key in self
+        return partial(self.integrate, key)
+
     def integrate(self, name, mu, lift=None, override=False):
         if isinstance(lift, int):
             lift = (lift,)

@@ -30,7 +30,6 @@ def _stokes(case, mu, **kwargs):
     if 'stab-rhs' in case:
         rhs -= case['stab-rhs'](mu)
     lhs = matrix.solve(-rhs, constrain=case.cons)
-    inds = case.basis_indices('p')
 
     return lhs
 
