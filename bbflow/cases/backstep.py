@@ -99,7 +99,7 @@ def backstep(refine=1, degree=3, nel_up=None, nel_length=None, **kwargs):
     return case
 
 
-def backstep_len(*args, **kwargs):
+def backstep_geom(*args, **kwargs):
     case = backstep(*args, **kwargs)
     case.restrict((None, None, None, 0.2))
     return case

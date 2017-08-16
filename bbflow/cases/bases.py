@@ -119,6 +119,8 @@ class Integrable:
         )
         for axes in combs:
             for integrand, domain, scale in self._integrands:
+                if not isinstance(integrand, fn.Array):
+                    integrand = integrand.toarray()
                 for axis in axes[::-1]:
                     index = (_,) * axis + (slice(None),) + (_,) * (len(integrand.shape) - axis - 1)
                     integrand = (integrand * lift[index]).sum(axis)
@@ -136,9 +138,16 @@ class Integrable:
             return
         matrices = []
         for itg, dom, scl in self._integrands:
-            sub_dom = Integrable.domain(domain, dom)
-            matrix = sub_dom.integrate(itg, geometry=geom, ischeme='gauss9')
-            matrices.append((matrix, scl))
+            if isinstance(itg, fn.Array):
+                sub_dom = Integrable.domain(domain, dom)
+                mx = sub_dom.integrate(itg, geometry=geom, ischeme='gauss9')
+                matrices.append((mx, scl))
+            elif itg.ndim != 2:
+                matrices.append((itg, scl))
+            elif isinstance(itg, np.ndarray):
+                matrices.append((matrix.NumpyMatrix(itg), scl))
+            else:
+                matrices.append((matrix.ScipyMatrix(itg), scl))
         self._computed = matrices
 
     def integrate(self, domain, geom, mu, lift=None, override=False):
@@ -211,10 +220,21 @@ class Case(MetaData):
         self._displacements = []
         self._integrables = defaultdict(Integrable)
         self._lifts = []
+        self._exact = defaultdict(list)
 
         self.domain = domain
         self.geometry = geom
         self.fast_tensors = False
+
+    def __iter__(self):
+        yield from self._integrables
+
+    def __contains__(self, key):
+        return key in self._integrables
+
+    def __getitem__(self, key):
+        assert key in self
+        return partial(self.integrate, key)
 
     def add_parameter(self, name, min, max, default=None):
         if default is None:
@@ -250,6 +270,11 @@ class Case(MetaData):
     def restrict(self, **kwargs):
         for name, value in kwargs.items():
             self._fixed_values[name] = value
+
+    def add_exact(self, field, function, scale=None):
+        if scale is None:
+            scale = mu(1.0)
+        self._exact[field].append((function, scale))
 
     def plot_domain(self, mu=None, show=False, figsize=(10,10)):
         geometry = self.geometry
@@ -306,6 +331,8 @@ class Case(MetaData):
         )
 
     def add_lift(self, lift, basis=None, scale=None):
+        if scale is None:
+            scale = mu(1.0)
         if isinstance(lift, fn.Array):
             basis = self.basis(basis)
             lift = self.domain.project(lift, onto=basis, geometry=self.geometry, ischeme='gauss9')
@@ -366,6 +393,18 @@ class Case(MetaData):
         if not multiple:
             return solutions[0]
         return solutions
+
+    def exact(self, mu, fields):
+        multiple = True
+        if isinstance(fields, str):
+            fields = [fields]
+            multiple = False
+        retval = []
+        for field in fields:
+            retval.append(sum(func * scl(mu) for func, scl in self._exact[field]))
+        if not multiple:
+            return retval[0]
+        return retval
 
     def _indicator(self, dom):
         if dom is None:

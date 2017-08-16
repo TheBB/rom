@@ -20,7 +20,7 @@ def parse_extra_args(final_args=[]):
     def decorator(func):
         @wraps(func)
         def inner(ctx, **kwargs):
-            extra_args = {}
+            extra_args = {'mu': ()}
             args = ctx.args
             if final_args:
                 for (name, type_), arg in zip(final_args, args[-len(final_args):]):
@@ -121,7 +121,7 @@ def single(ctx, case, solver, mu, **kwargs):
     mu = case.parameter(*mu)
     lhs = solver(case, mu, **kwargs)
     solvers.metrics(case, mu, lhs, **kwargs)
-    solvers.plots(case, mu, lhs, fields='v', **kwargs)
+    solvers.plots(case, mu, lhs, fields=['v', 'p', 'vp'], **kwargs)
 
 
 @command()

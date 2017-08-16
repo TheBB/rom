@@ -21,9 +21,16 @@ def _time(func):
 
 @_time
 def _stokes(case, mu, **kwargs):
-    matrix = case.integrate('divergence', mu) + case.integrate('laplacian', mu)
-    rhs = case.integrate('divergence', mu, lift=1) + case.integrate('laplacian', mu, lift=1)
+    matrix = case['divergence'](mu) + case['laplacian'](mu)
+    rhs = case['divergence'](mu, lift=1) + case['laplacian'](mu, lift=1)
+    if 'forcing' in case:
+        rhs -= case['forcing'](mu)
+    if 'stab-lhs' in case:
+        matrix += case['stab-lhs'](mu)
+    if 'stab-rhs' in case:
+        rhs -= case['stab-rhs'](mu)
     lhs = matrix.solve(-rhs, constrain=case.cons)
+    inds = case.basis_indices('p')
 
     return lhs
 
@@ -33,17 +40,23 @@ def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
     domain = case.domain
     geom = case.physical_geometry(mu)
 
-    stokes_mat = case.integrate('divergence', mu) + case.integrate('laplacian', mu)
-    stokes_rhs = case.integrate('divergence', mu, lift=1) + case.integrate('laplacian', mu, lift=1)
+    stokes_mat = case['divergence'](mu) + case['laplacian'](mu)
+    stokes_rhs = case['divergence'](mu, lift=1) + case['laplacian'](mu, lift=1)
+    if 'forcing' in case:
+        stokes_rhs -= case['forcing'](mu)
+    if 'stab-lhs' in case:
+        stokes_mat += case['stab-lhs'](mu)
+    if 'stab-rhs' in case:
+        stokes_rhs -= case['stab-rhs'](mu)
     lhs = stokes_mat.solve(-stokes_rhs, constrain=case.cons)
 
-    stokes_mat += case.integrate('convection', mu, lift=1) + case.integrate('convection', mu, lift=2)
-    stokes_rhs += case.integrate('convection', mu, lift=(1,2))
+    stokes_mat += case['convection'](mu, lift=1) + case['convection'](mu, lift=2)
+    stokes_rhs += case['convection'](mu, lift=(1,2))
 
     vmass = case.mass('v', mu)
 
     if case.fast_tensors:
-        conv_tens = case.integrate('convection', mu)
+        conv_tens = case['convection'](mu)
         def lhs_conv(lhs):
             return matrix.NumpyMatrix(
                 (conv_tens * lhs[_,:,_]).sum(1) + (conv_tens * lhs[_,_,:]).sum(2)
@@ -93,7 +106,10 @@ def metrics(case, mu, lhs, **kwargs):
 
 def plots(case, mu, lhs, plot_name='solution', index=0, colorbar=False,
           length=5.0, height=1.0, width=1.0, up=1.0, figsize=(10, 10),
-          show=False, fields='', lift=True, **kwargs):
+          show=False, fields='', lift=True, density=1, **kwargs):
+    if isinstance(fields, str):
+        fields = [fields]
+
     domain = case.domain
     geom = case.physical_geometry(mu)
     vsol, psol = case.solution(lhs, mu, ['v', 'p'], lift=lift)
@@ -108,16 +124,24 @@ def plots(case, mu, lhs, plot_name='solution', index=0, colorbar=False,
             plt.mesh(points, speed)
             if colorbar:
                 plt.colorbar()
-            plt.streamplot(points, velocity, spacing=0.2, color='black', density=0.75)
+            plt.streamplot(points, velocity, spacing=0.1, color='black', density=density)
             if show:
                 plt.show()
 
     if 'p' in fields:
         with plot.PyPlot(plot_name + '-p', index=index, figsize=figsize) as plt:
             plt.mesh(points, press)
-            plt.clim(-3, 3)
             if colorbar:
                 plt.colorbar()
+            if show:
+                plt.show()
+
+    if 'vp' in fields:
+        with plot.PyPlot(plot_name + '-vp', index=index, figsize=figsize) as plt:
+            plt.mesh(points, press)
+            if colorbar:
+                plt.colorbar()
+            plt.streamplot(points, velocity, spacing=0.1, density=density)
             if show:
                 plt.show()
 
