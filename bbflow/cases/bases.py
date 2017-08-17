@@ -353,8 +353,6 @@ class Case(MetaData):
         self._integrables[name].add_integrand(integrand, domain, scale, symmetric=symmetric)
 
     def add_collocate(self, name, equation, points, index=None, scale=None, symmetric=False):
-        if equation.ndim == 0:
-            equation = equation[_]
         if index is None:
             index = self.root
         ncomps = equation.shape[-1]
@@ -370,7 +368,6 @@ class Case(MetaData):
             data = sp.sparse.coo_matrix(data)
             data = sp.sparse.csr_matrix((data.data, (data.row + index, data.col)), shape=(self.size,)*2)
         elif equation.ndim == 1:
-            # data = np.reshape(data, (ncomps * len(points),))
             data = np.hstack([np.zeros((index,)), data.flatten()])
 
         self.add_integrand(name, data, scale=scale, symmetric=symmetric)

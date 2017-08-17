@@ -18,7 +18,7 @@ def channel(refine=1, degree=3, nel=None, **kwargs):
         domain.basis('spline', degree=(degree, degree-1)),  # vx
         domain.basis('spline', degree=(degree-1, degree)),  # vy
         domain.basis('spline', degree=degree-1),            # pressure
-        [0] * 4,                                            # stabilization terms
+        [0] * 2,                                            # stabilization terms
     ]
     basis_lens = [len(b) for b in bases]
     vxbasis, vybasis, pbasis, __ = fn.chain(bases)
@@ -45,9 +45,9 @@ def channel(refine=1, degree=3, nel=None, **kwargs):
     case.add_integrand('convection', itg)
 
     points = [(0, (0,0)), (nel-1, (0,1))]
-    eqn = vbasis.laplace(geom) - pbasis.grad(geom)
+    eqn = (vbasis.laplace(geom) - pbasis.grad(geom))[:,0,_]
     case.add_collocate('stab-lhs', eqn, points, symmetric=True)
-    case.add_collocate('stab-rhs', fn.zeros((2,)), points)
+    case.add_collocate('stab-rhs', fn.zeros((1,)), points)
 
     case.finalize()
 
