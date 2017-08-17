@@ -44,25 +44,10 @@ def channel(refine=1, degree=3, nel=None, **kwargs):
     itg = (vbasis[:,_,_,:,_] * vbasis[_,:,_,_,:] * vbasis.grad(geom)[_,_,:,:,:]).sum([-1, -2])
     case.add_integrand('convection', itg)
 
-    L = sum(basis_lens[:3])
-    N = sum(basis_lens)
-
-    stab_pts = [
-        (domain.elements[0], np.array([[0.0, 0.0]])),
-        (domain.elements[nel-1], np.array([[0.0, 1.0]])),
-    ]
-
+    points = [(0, (0,0)), (nel-1, (0,1))]
     eqn = vbasis.laplace(geom) - pbasis.grad(geom)
-    stab_lhs = np.squeeze(np.array([eqn.eval(elem, pt) for elem, pt in stab_pts]))
-    stab_lhs = np.transpose(stab_lhs, (0, 2, 1))
-    stab_lhs = np.reshape(stab_lhs, (4, N))
-    stab_lhs = sp.sparse.coo_matrix(stab_lhs)
-    stab_lhs = sp.sparse.csr_matrix((stab_lhs.data, (stab_lhs.row + L, stab_lhs.col)), shape=(N, N))
-
-    stab_rhs = np.hstack([np.zeros((L,)), [0.0] * 4])
-
-    case.add_integrand('stab-lhs', stab_lhs, symmetric=True)
-    case.add_integrand('stab-rhs', stab_rhs)
+    case.add_collocate('stab-lhs', eqn, points, symmetric=True)
+    case.add_collocate('stab-rhs', fn.zeros((2,)), points)
 
     case.finalize()
 

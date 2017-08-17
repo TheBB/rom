@@ -4,6 +4,7 @@ from functools import partial
 from itertools import combinations, chain
 from math import ceil
 import numpy as np
+import scipy as sp
 from nutils import function as fn, matrix, _, plot, log
 from operator import itemgetter, attrgetter
 
@@ -236,6 +237,15 @@ class Case(MetaData):
         assert key in self
         return partial(self.integrate, key)
 
+    @property
+    def size(self):
+        basis, __ = next(iter(self._bases.values()))
+        return basis.shape[0]
+
+    @property
+    def root(self):
+        return sum(length for __, length in self._bases.values())
+
     def add_parameter(self, name, min, max, default=None):
         if default is None:
             default = (min + max) / 2
@@ -341,6 +351,29 @@ class Case(MetaData):
 
     def add_integrand(self, name, integrand, scale=None, domain=None, symmetric=False):
         self._integrables[name].add_integrand(integrand, domain, scale, symmetric=symmetric)
+
+    def add_collocate(self, name, equation, points, index=None, scale=None, symmetric=False):
+        if equation.ndim == 0:
+            equation = equation[_]
+        if index is None:
+            index = self.root
+        ncomps = equation.shape[-1]
+
+        data = np.array([
+            equation.eval(self.domain.elements[eid], np.array([pt]))[0]
+            for eid, pt in points
+        ])
+
+        if equation.ndim == 2:
+            data = np.transpose(data, (0, 2, 1))
+            data = np.reshape(data, (ncomps * len(points), data.shape[-1]))
+            data = sp.sparse.coo_matrix(data)
+            data = sp.sparse.csr_matrix((data.data, (data.row + index, data.col)), shape=(self.size,)*2)
+        elif equation.ndim == 1:
+            # data = np.reshape(data, (ncomps * len(points),))
+            data = np.hstack([np.zeros((index,)), data.flatten()])
+
+        self.add_integrand(name, data, scale=scale, symmetric=symmetric)
 
     def finalize(self):
         for integrable in self._integrables.values():

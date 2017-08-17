@@ -30,6 +30,8 @@ def cavity(refine=1, degree=4, nel=None, **kwargs):
 
     case.constrain('v', 'left', 'top', 'bottom', 'right')
 
+    case.add_lift(np.zeros(vbasis.shape[0],))
+
     x, y = geom
     f = 4 * (x - x**2)**2
     g = 4 * (y - y**2)**2
@@ -49,31 +51,18 @@ def cavity(refine=1, degree=4, nel=None, **kwargs):
     case.add_integrand('vmass', fn.outer(vbasis).sum(-1))
     case.add_integrand('pmass', fn.outer(pbasis))
 
-    L = sum(basis_lens[:4])
-    N = sum(basis_lens)
-
-    stab_pts = [
-        (domain.elements[0], np.array([[0.0, 0.0]])),
-        (domain.elements[nel-1], np.array([[0.0, 1.0]])),
-        (domain.elements[nel*(nel-1)], np.array([[1.0, 0.0]])),
-        (domain.elements[nel**2-1], np.array([[1.0, 1.0]])),
-    ]
-
-    eqn = vbasis.laplace(geom) - pbasis.grad(geom)
-    stab_lhs = np.array([eqn.eval(elem, pt) for elem, pt in stab_pts])
-    stab_lhs = np.transpose(stab_lhs, (0, 3, 1, 2))
-    stab_lhs = np.reshape(stab_lhs, (8, N))
-    stab_lhs = sp.sparse.coo_matrix(stab_lhs)
-    stab_lhs = sp.sparse.csr_matrix((stab_lhs.data, (stab_lhs.row + L, stab_lhs.col)), shape=(N, N))
-
-    stab_rhs = np.array([force.eval(elem, pt) for elem, pt in stab_pts]).flatten()
-    stab_rhs = np.hstack([np.zeros((L,)), stab_rhs])
-
     case.add_integrand('stab-lhs', fn.outer(lbasis, pbasis), symmetric=True)
-    case.add_integrand('stab-lhs', stab_lhs, symmetric=True)
-    case.add_integrand('stab-rhs', stab_rhs)
 
-    case.add_lift(np.zeros(vbasis.shape[0],))
+    points = [
+        (0, (0, 0)),
+        (nel-1, (0, 1)),
+        (nel*(nel-1), (1, 0)),
+        (nel**2-1, (1, 1)),
+    ]
+    eqn = vbasis.laplace(geom) - pbasis.grad(geom)
+    case.add_collocate('stab-lhs', eqn, points, index=case.root+1, symmetric=True)
+    case.add_collocate('stab-rhs', force, points, index=case.root+1)
+
     case.finalize()
 
     return case
