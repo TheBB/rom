@@ -21,12 +21,15 @@ def _time(func):
 
 @_time
 def _stokes(case, mu, **kwargs):
+    assert 'divergence' in case
+    assert 'laplacian' in case
     matrix = case['divergence'](mu) + case['laplacian'](mu)
     rhs = case['divergence'](mu, lift=1) + case['laplacian'](mu, lift=1)
     if 'forcing' in case:
         rhs -= case['forcing'](mu)
     if 'stab-lhs' in case:
         matrix += case['stab-lhs'](mu)
+        rhs += case['stab-lhs'](mu, lift=1)
     if 'stab-rhs' in case:
         rhs -= case['stab-rhs'](mu)
     lhs = matrix.solve(-rhs, constrain=case.cons)
