@@ -25,15 +25,15 @@ def _stokes(case, mu, **kwargs):
     assert 'laplacian' in case
 
     matrix = case['divergence'](mu) + case['laplacian'](mu)
-    rhs = case['divergence'](mu, lift=1) + case['laplacian'](mu, lift=1)
+    rhs = - case['divergence'](mu, lift=1) - case['laplacian'](mu, lift=1)
     if 'forcing' in case:
-        rhs -= case['forcing'](mu)
+        rhs += case['forcing'](mu)
     if 'stab-lhs' in case:
         matrix += case['stab-lhs'](mu)
-        rhs += case['stab-lhs'](mu, lift=1)
+        rhs -= case['stab-lhs'](mu, lift=1)
     if 'stab-rhs' in case:
-        rhs -= case['stab-rhs'](mu)
-    lhs = matrix.solve(-rhs, constrain=case.cons)
+        rhs += case['stab-rhs'](mu)
+    lhs = matrix.solve(rhs, constrain=case.cons)
 
     return lhs
 
@@ -48,18 +48,18 @@ def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
     geom = case.physical_geometry(mu)
 
     stokes_mat = case['divergence'](mu) + case['laplacian'](mu)
-    stokes_rhs = case['divergence'](mu, lift=1) + case['laplacian'](mu, lift=1)
+    stokes_rhs = - case['divergence'](mu, lift=1) - case['laplacian'](mu, lift=1)
     if 'forcing' in case:
-        stokes_rhs -= case['forcing'](mu)
+        stokes_rhs += case['forcing'](mu)
     if 'stab-lhs' in case:
         stokes_mat += case['stab-lhs'](mu)
-        stokes_rhs += case['stab-lhs'](mu, lift=1)
+        stokes_rhs -= case['stab-lhs'](mu, lift=1)
     if 'stab-rhs' in case:
-        stokes_rhs -= case['stab-rhs'](mu)
-    lhs = stokes_mat.solve(-stokes_rhs, constrain=case.cons)
+        stokes_rhs += case['stab-rhs'](mu)
+    lhs = stokes_mat.solve(stokes_rhs, constrain=case.cons)
 
     stokes_mat += case['convection'](mu, lift=1) + case['convection'](mu, lift=2)
-    stokes_rhs += case['convection'](mu, lift=(1,2))
+    stokes_rhs -= case['convection'](mu, lift=(1,2))
 
     vmass = case.mass('v', mu)
 
@@ -87,7 +87,7 @@ def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
             return domain.integrate((vbasis * conv[_,:]).sum(-1), geometry=geom, ischeme='gauss9')
 
     while True:
-        rhs = - stokes_rhs - stokes_mat.matvec(lhs) - rhs_conv(lhs)
+        rhs = stokes_rhs - stokes_mat.matvec(lhs) - rhs_conv(lhs)
         ns_mat = stokes_mat + lhs_conv(lhs)
 
         update = ns_mat.solve(rhs, constrain=case.cons)
