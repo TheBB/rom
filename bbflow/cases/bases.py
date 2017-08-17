@@ -38,6 +38,8 @@ class mu(metaclass=MetaMu):
                 return self.op1(p) * self.op2(p)
             if self.oper == '/':
                 return self.op1(p) / self.op2(p)
+            if self.oper == '**':
+                return self.op1(p) ** self.op2(p)
             raise ValueError(self.oper)
         if callable(self.func):
             return self.func(p)
@@ -66,6 +68,10 @@ class mu(metaclass=MetaMu):
     @_wrap
     def __rmul__(self, other):
         return mu('*', other, self)
+
+    @_wrap
+    def __pow__(self, other):
+        return mu('**', self, other)
 
     @_wrap
     def __truediv__(self, other):

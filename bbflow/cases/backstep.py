@@ -46,7 +46,7 @@ def backstep(refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True, *
         domain.basis('spline', degree=degree-1),            # pressure
     ]
     if stabilize:
-        bases.append([0] * 6)
+        bases.append([0] * 4)
     basis_lens = [len(b) for b in bases]
     vxbasis, vybasis, pbasis, *__ = fn.chain(bases)
     vbasis = vxbasis[:,_] * (1,0) + vybasis[:,_] * (0,1)
@@ -99,26 +99,27 @@ def backstep(refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True, *
     add(fn.outer(pbasis, pbasis), mu['length']*mu['height'], domain=2)
 
     if stabilize:
-        L = sum(basis_lens[:3])
-        N = sum(basis_lens)
+        points = [(0, (0, 0)), (nel_up-1, (0, 1))]
+        eqn = vbasis.laplace(geom)[:,0,_]
+        case.add_collocate('stab-lhs', eqn, points, scale=1/mu['viscosity'], symmetric=True)
+        eqn = - pbasis.grad(geom)[:,0,_]
+        case.add_collocate('stab-lhs', eqn, points, symmetric=True)
 
-        stab_pts = [
-            (domain.elements[0], np.array([[0.0, 0.0]])),
-            (domain.elements[nel_up-1], np.array([[0.0, 1.0]])),
-            (domain.elements[nel_up**2 + nel_up*nel_length], np.array([[0.0, 0.0]])),
-        ]
+        points = [(nel_up**2 + nel_up*nel_length, (0, 0))]
+        eqn = vbasis[:,0].grad(geom).grad(geom)
+        scl = 1/mu['viscosity']
+        case.add_collocate('stab-lhs', eqn[:,0,0,_], points, scale=scl/mu['length']**2,
+                           index=case.root+2, symmetric=True)
+        case.add_collocate('stab-lhs', eqn[:,1,1,_], points, scale=scl/mu['height']**2,
+                           index=case.root+2, symmetric=True)
+        eqn = - pbasis.grad(geom)[:,0,_]
+        case.add_collocate('stab-lhs', eqn, points, scale=1/mu['length'], index=case.root+2, symmetric=True)
 
-        eqn = vbasis.laplace(geom) - pbasis.grad(geom)
-        stab_lhs = np.squeeze(np.array([eqn.eval(elem, pt) for elem, pt in stab_pts]))
-        stab_lhs = np.transpose(stab_lhs, (0, 2, 1))
-        stab_lhs = np.reshape(stab_lhs, (6, N))
-        stab_lhs = sp.sparse.coo_matrix(stab_lhs)
-        stab_lhs = sp.sparse.csr_matrix((stab_lhs.data, (stab_lhs.row + L, stab_lhs.col)), shape=(N, N))
-
-        stab_rhs = np.hstack([np.zeros((L,)), [0.0] * 6])
-
-        case.add_integrand('stab-lhs', stab_lhs, symmetric=True)
-        case.add_integrand('stab-rhs', stab_rhs)
+        points = [(nel_up*(nel_up-1), (1, 0))]
+        eqn = vbasis.laplace(geom)[:,0,_]
+        case.add_collocate('stab-lhs', eqn, points, scale=1/mu['viscosity'], symmetric=True, index=case.root+3)
+        eqn = - pbasis.grad(geom)[:,0,_]
+        case.add_collocate('stab-lhs', eqn, points, symmetric=True, index=case.root+3)
 
     case.finalize()
 

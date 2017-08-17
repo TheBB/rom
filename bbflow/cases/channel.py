@@ -47,7 +47,6 @@ def channel(refine=1, degree=3, nel=None, **kwargs):
     points = [(0, (0,0)), (nel-1, (0,1))]
     eqn = (vbasis.laplace(geom) - pbasis.grad(geom))[:,0,_]
     case.add_collocate('stab-lhs', eqn, points, symmetric=True)
-    case.add_collocate('stab-rhs', fn.zeros((1,)), points)
 
     case.finalize()
 
