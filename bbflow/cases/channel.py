@@ -33,6 +33,9 @@ def channel(refine=1, degree=3, nel=None, **kwargs):
     profile = (y * (1 - y))[_] * (1, 0)
     case.add_lift(profile, 'v')
 
+    case.add_exact('v', profile)
+    case.add_exact('p', 4 - 2*x)
+
     case.add_integrand('divergence', -fn.outer(vbasis.div(geom), pbasis), symmetric=True)
     case.add_integrand('laplacian', fn.outer(vbasis.grad(geom)).sum((-1, -2)))
     case.add_integrand('vmass', fn.outer(vbasis).sum(-1))
@@ -59,9 +62,5 @@ def channel(refine=1, degree=3, nel=None, **kwargs):
     case.add_integrand('stab-rhs', stab_rhs)
 
     case.finalize()
-
-    sol = domain.project(profile, onto=vbasis, ischeme='gauss9', geometry=geom)
-    sol = domain.project(4-2*x, onto=pbasis, ischeme='gauss9', geometry=geom, constrain=sol)
-    sol[np.where(np.isnan(sol))] = 0.0
 
     return case
