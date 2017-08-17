@@ -23,6 +23,7 @@ def _time(func):
 def _stokes(case, mu, **kwargs):
     assert 'divergence' in case
     assert 'laplacian' in case
+
     matrix = case['divergence'](mu) + case['laplacian'](mu)
     rhs = case['divergence'](mu, lift=1) + case['laplacian'](mu, lift=1)
     if 'forcing' in case:
@@ -39,6 +40,10 @@ def _stokes(case, mu, **kwargs):
 
 @_time
 def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
+    assert 'divergence' in case
+    assert 'laplacian' in case
+    assert 'convection' in case
+
     domain = case.domain
     geom = case.physical_geometry(mu)
 
@@ -48,6 +53,7 @@ def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
         stokes_rhs -= case['forcing'](mu)
     if 'stab-lhs' in case:
         stokes_mat += case['stab-lhs'](mu)
+        stokes_rhs += case['stab-lhs'](mu, lift=1)
     if 'stab-rhs' in case:
         stokes_rhs -= case['stab-rhs'](mu)
     lhs = stokes_mat.solve(-stokes_rhs, constrain=case.cons)

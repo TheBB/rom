@@ -7,7 +7,7 @@ from bbflow.cases.bases import mu, Case
 
 def channel(refine=1, degree=3, nel=None, **kwargs):
     if nel is None:
-        nel = int(2 * refine)
+        nel = int(10 * refine)
 
     xpts = np.linspace(0, 2, 2*nel + 1)
     ypts = np.linspace(0, 1, nel + 1)
@@ -40,6 +40,9 @@ def channel(refine=1, degree=3, nel=None, **kwargs):
     case.add_integrand('laplacian', fn.outer(vbasis.grad(geom)).sum((-1, -2)))
     case.add_integrand('vmass', fn.outer(vbasis).sum(-1))
     case.add_integrand('pmass', fn.outer(pbasis))
+
+    itg = (vbasis[:,_,_,:,_] * vbasis[_,:,_,_,:] * vbasis.grad(geom)[_,_,:,:,:]).sum([-1, -2])
+    case.add_integrand('convection', itg)
 
     L = sum(basis_lens[:3])
     N = sum(basis_lens)
