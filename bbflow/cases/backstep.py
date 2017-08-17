@@ -1,5 +1,6 @@
 from functools import partial
 import numpy as np
+import scipy as sp
 from nutils import mesh, function as fn, log, _
 import pickle
 
@@ -40,15 +41,17 @@ def backstep(refine=1, degree=3, nel_up=None, nel_length=None, **kwargs):
 
     # Bases
     bases = [
-        domain.basis('spline', degree=(degree, degree-1)),
-        domain.basis('spline', degree=(degree-1, degree)),
-        domain.basis('spline', degree=degree-1),
+        domain.basis('spline', degree=(degree, degree-1)),  # vx
+        domain.basis('spline', degree=(degree-1, degree)),  # vy
+        domain.basis('spline', degree=degree-1),            # pressure
+        [0] * 6                                             # stabilization terms
     ]
-    vxbasis, vybasis, pbasis = fn.chain(bases)
+    basis_lens = [len(b) for b in bases]
+    vxbasis, vybasis, pbasis, __ = fn.chain(bases)
     vbasis = vxbasis[:,_] * (1,0) + vybasis[:,_] * (0,1)
 
-    case.add_basis('v', vbasis, len(bases[0]) + len(bases[1]))
-    case.add_basis('p', pbasis, len(bases[2]))
+    case.add_basis('v', vbasis, sum(basis_lens[:2]))
+    case.add_basis('p', pbasis, basis_lens[2])
 
     case.constrain('v', 'patch0-bottom', 'patch0-top', 'patch0-left', 'patch1-top', 'patch2-bottom', 'patch2-left')
     case.constrain('p', 'patch1-right', 'patch2-right')
@@ -93,6 +96,27 @@ def backstep(refine=1, degree=3, nel_up=None, nel_length=None, **kwargs):
     add(fn.outer(pbasis, pbasis), domain=0)
     add(fn.outer(pbasis, pbasis), mu['length'], domain=1)
     add(fn.outer(pbasis, pbasis), mu['length']*mu['height'], domain=2)
+
+    L = sum(basis_lens[:3])
+    N = sum(basis_lens)
+
+    stab_pts = [
+        (domain.elements[0], np.array([[0.0, 0.0]])),
+        (domain.elements[nel_up-1], np.array([[0.0, 1.0]])),
+        (domain.elements[nel_up**2 + nel_up*nel_length], np.array([[0.0, 0.0]])),
+    ]
+
+    eqn = vbasis.laplace(geom) - pbasis.grad(geom)
+    stab_lhs = np.squeeze(np.array([eqn.eval(elem, pt) for elem, pt in stab_pts]))
+    stab_lhs = np.transpose(stab_lhs, (0, 2, 1))
+    stab_lhs = np.reshape(stab_lhs, (6, N))
+    stab_lhs = sp.sparse.coo_matrix(stab_lhs)
+    stab_lhs = sp.sparse.csr_matrix((stab_lhs.data, (stab_lhs.row + L, stab_lhs.col)), shape=(N, N))
+
+    stab_rhs = np.hstack([np.zeros((L,)), [0.0] * 6])
+
+    case.add_integrand('stab-lhs', stab_lhs, symmetric=True)
+    case.add_integrand('stab-rhs', stab_rhs)
 
     case.finalize()
 
