@@ -39,7 +39,7 @@ def parse_extra_args(final_args=[]):
                         except ValueError: pass
                     values += (value,)
                 if len(values) == 0:
-                    if key.startswith('no-'):
+                    if key.startswith('no_'):
                         extra_args[key[3:]] = False
                     else:
                         extra_args[key] = True
