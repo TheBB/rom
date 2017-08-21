@@ -55,7 +55,6 @@ def backstep(refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True, *
     case.add_basis('p', pbasis, basis_lens[2])
 
     case.constrain('v', 'patch0-bottom', 'patch0-top', 'patch0-left', 'patch1-top', 'patch2-bottom', 'patch2-left')
-    case.constrain('p', 'patch1-right', 'patch2-right')
 
     vgrad = vbasis.grad(geom)
 
