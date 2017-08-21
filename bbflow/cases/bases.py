@@ -530,3 +530,6 @@ class ProjectedCase(MetaData):
             return self.integrate(intname, mu)
         omass = self.case.mass(field, mu)
         return self.projection.dot(omass).dot(self.projection.T)
+
+    def cache(self):
+        pass

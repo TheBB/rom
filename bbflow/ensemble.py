@@ -22,3 +22,19 @@ def make_ensemble(case, solver, quadrule, weights=False):
     pool = Pool()
     solutions = list(log.iter('solution', pool.imap(_solve, args)))
     return np.array(solutions)
+
+
+def errors(locase, mass, hifi, lofi, scheme):
+    abs_err, rel_err = 0.0, 0.0
+    for hilhs, lolhs, (mu, weight) in zip(hifi, lofi, scheme):
+        mu = locase.parameter(*mu)
+        lolhs = locase.solution_vector(lolhs, mu=mu)
+        hilhs = locase.case.solution_vector(hilhs, mu=mu)
+        diff = hilhs - lolhs
+        err = np.sqrt(mass.matvec(diff).dot(diff))
+        abs_err += weight * err
+        rel_err += weight * err / np.sqrt(mass.matvec(hilhs).dot(hilhs))
+
+    abs_err /= sum(w for __, w in scheme)
+    rel_err /= sum(w for __, w in scheme)
+    return abs_err, rel_err
