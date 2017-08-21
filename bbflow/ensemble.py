@@ -13,14 +13,16 @@ def _solve(args):
     return lhs
 
 
-def make_ensemble(case, solver, quadrule, weights=False):
+def make_ensemble(case, solver, quadrule, weights=False, parallel=True):
     case.cache()
     quadrule = [(case.parameter(*mu), wt) for mu, wt in quadrule]
-    args = zip(repeat(case), repeat(solver), quadrule, repeat(weights))
-
     log.user('generating ensemble of {} solutions'.format(len(quadrule)))
-    pool = Pool()
-    solutions = list(log.iter('solution', pool.imap(_solve, args)))
+    if not parallel:
+        solutions = [_solve((case, solver, qpt, weights)) for qpt in quadrule]
+    else:
+        args = zip(repeat(case), repeat(solver), quadrule, repeat(weights))
+        pool = Pool()
+        solutions = list(log.iter('solution', pool.imap(_solve, args)))
     return np.array(solutions)
 
 

@@ -197,7 +197,7 @@ def errors(ctx, ensemble, solver, case, **kwargs):
     hicase = ensemble['case']
     hifi = ensemble['ensemble']
     scheme = ensemble['scheme']
-    lofi = make_ensemble(case, solver, scheme, weights=False)
+    lofi = make_ensemble(case, solver, scheme, weights=False, parallel=False)
 
     abs_err, rel_err = ensemble_errors(case, hicase.mass('v'), hifi, lofi, scheme)
     print('Mean absolute error: {:.2e}'.format(abs_err))
@@ -217,7 +217,7 @@ def errors_many(ctx, out, ensemble, solver, cases):
     data = []
     for i, case in enumerate(cases):
         case = case()
-        lofi = make_ensemble(case, solver, scheme, weights=False)
+        lofi = make_ensemble(case, solver, scheme, weights=False, parallel=False)
         abs_err, rel_err = ensemble_errors(case, hicase.mass('v'), hifi, lofi, scheme)
 
         data.append((
