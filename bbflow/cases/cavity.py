@@ -59,7 +59,7 @@ def cavity(refine=1, degree=4, nel=None, **kwargs):
         (nel*(nel-1), (1, 0)),
         (nel**2-1, (1, 1)),
     ]
-    eqn = (vbasis.laplace(geom) - pbasis.grad(geom))[:,0,_]
+    eqn = (pbasis.grad(geom) - vbasis.laplace(geom))[:,0,_]
     case.add_collocate('stab-lhs', eqn, points, index=case.root+1, symmetric=True)
     case.add_collocate('stab-rhs', force[0,_], points, index=case.root+1)
 
