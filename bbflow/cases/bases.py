@@ -292,6 +292,10 @@ class Case(MetaData):
             scale = mu(1.0)
         self._exact[field].append((function, scale))
 
+    @property
+    def has_exact(self):
+        return bool(self._exact)
+
     def plot_domain(self, mu=None, show=False, figsize=(10,10)):
         geometry = self.geometry
         if mu is not None:
