@@ -3,11 +3,12 @@ import scipy as sp
 from nutils import mesh, function as fn, log, _, plot
 
 from bbflow.cases.bases import mu, Case
+import sys
 
 
 def exact(refine=1, degree=3, nel=None, power=3, **kwargs):
     if nel is None:
-        nel = int(2 * refine)
+        nel = int(10 * refine)
 
     pts = np.linspace(0, 1, nel + 1)
     domain, geom = mesh.rectilinear([pts, pts])
@@ -53,8 +54,20 @@ def exact(refine=1, degree=3, nel=None, power=3, **kwargs):
     case.add_exact('v', - fn.asarray((0, f1*g)), mu['w']**(r-1) * mu['h']**(r-1))
     case.add_exact('p', f1*g1 - 1, mu['w']**(r-1) * mu['h']**(r-1))
 
-    case.add_lift(fn.asarray((f*g1, 0)), 'v', mu['w']**(r-1) * mu['h']**(r-1))
-    case.add_lift(- fn.asarray((0, f1*g)), 'v', mu['w']**(r-1) * mu['h']**(r-1))
+    # Awkward way of computing a solenoidal lift
+    mdom, t = mesh.rectilinear([pts])
+    hbasis = mdom.basis('spline', degree=degree)
+    hcoeffs = mdom.project(t[0]**r, onto=hbasis, geometry=t, ischeme='gauss9')
+    projtderiv = hbasis.dot(hcoeffs).grad(t)[0]
+    zbasis = mdom.basis('spline', degree=degree-1)
+    zcoeffs = mdom.project(projtderiv, onto=zbasis, geometry=t, ischeme='gauss9')
+    q = np.hstack([
+        np.outer(hcoeffs, zcoeffs).flatten(),
+        - np.outer(zcoeffs, hcoeffs).flatten(),
+        np.zeros((sum(basis_lens) - len(hcoeffs) * len(zcoeffs) * 2))
+    ])
+
+    case.add_lift(q, 'v', mu['w']**(r-1) * mu['h']**(r-1))
     case.add_lift(f1*g1 - 1, 'p', mu['w']**(r-1) * mu['h']**(r-1))
 
     case.add_integrand('forcing', vybasis * (f3*g)[_], mu['w']**(r-2) * mu['h']**(r+2))
