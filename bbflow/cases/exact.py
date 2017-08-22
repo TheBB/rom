@@ -49,17 +49,17 @@ def exact(refine=1, degree=3, nel=None, power=3, **kwargs):
     f3 = r*(r-1)*(r-2) * x**(r-3)
     g3 = r*(r-1)*(r-2) * y**(r-3)
 
-    case.add_exact('v', fn.asarray((f*g1, 0)), mu['w']**r * mu['h']**(r-1))
-    case.add_exact('v', - fn.asarray((0, f1*g)), mu['w']**(r-1) * mu['h']**r)
+    case.add_exact('v', fn.asarray((f*g1, 0)), mu['w']**(r-1) * mu['h']**(r-1))
+    case.add_exact('v', - fn.asarray((0, f1*g)), mu['w']**(r-1) * mu['h']**(r-1))
     case.add_exact('p', f1*g1 - 1, mu['w']**(r-1) * mu['h']**(r-1))
 
-    case.add_lift(fn.asarray((f*g1, 0)), 'v', mu['w']**r * mu['h']**(r-1))
-    case.add_lift(- fn.asarray((0, f1*g)), 'v', mu['w']**(r-1) * mu['h']**r)
+    case.add_lift(fn.asarray((f*g1, 0)), 'v', mu['w']**(r-1) * mu['h']**(r-1))
+    case.add_lift(- fn.asarray((0, f1*g)), 'v', mu['w']**(r-1) * mu['h']**(r-1))
     case.add_lift(f1*g1 - 1, 'p', mu['w']**(r-1) * mu['h']**(r-1))
 
-    case.add_integrand('forcing', vybasis * (f3*g)[_], mu['w']**(r-2) * mu['h']**(r+1))
-    case.add_integrand('forcing', 2 * vybasis * (f1*g2)[_], mu['w']**r * mu['h']**(r-1))
-    case.add_integrand('forcing', - vxbasis * (f*g3)[_], mu['w']**(r+1) * mu['h']**(r-2))
+    case.add_integrand('forcing', vybasis * (f3*g)[_], mu['w']**(r-2) * mu['h']**(r+2))
+    case.add_integrand('forcing', 2 * vybasis * (f1*g2)[_], mu['w']**r * mu['h']**(r))
+    case.add_integrand('forcing', - vxbasis * (f*g3)[_], mu['w']**(r+2) * mu['h']**(r-2))
 
     vx_x = vxbasis.grad(geom)[:,0]
     vx_xx = vx_x.grad(geom)[:,0]
@@ -69,16 +69,16 @@ def exact(refine=1, degree=3, nel=None, power=3, **kwargs):
     vy_y = vybasis.grad(geom)[:,1]
     p_x = pbasis.grad(geom)[:,0]
 
-    case.add_integrand('laplacian', fn.outer(vx_x, vx_x), mu['h'] / mu['w'])
-    case.add_integrand('laplacian', fn.outer(vy_x, vy_x), mu['h'] / mu['w'])
-    case.add_integrand('laplacian', fn.outer(vx_y, vx_y), mu['w'] / mu['h'])
-    case.add_integrand('laplacian', fn.outer(vy_y, vy_y), mu['w'] / mu['h'])
+    case.add_integrand('laplacian', fn.outer(vx_x, vx_x), mu['h'] * mu['w'])
+    case.add_integrand('laplacian', fn.outer(vy_x, vy_x), mu['h']**3 / mu['w'])
+    case.add_integrand('laplacian', fn.outer(vx_y, vx_y), mu['w']**3 / mu['h'])
+    case.add_integrand('laplacian', fn.outer(vy_y, vy_y), mu['w'] * mu['h'])
 
-    case.add_integrand('divergence', - fn.outer(vx_x, pbasis), mu['h'], symmetric=True)
-    case.add_integrand('divergence', - fn.outer(vy_y, pbasis), mu['w'], symmetric=True)
+    case.add_integrand('divergence', - fn.outer(vx_x, pbasis), mu['h'] * mu['w'], symmetric=True)
+    case.add_integrand('divergence', - fn.outer(vy_y, pbasis), mu['w'] * mu['h'], symmetric=True)
 
-    case.add_integrand('vmass', fn.outer(vxbasis, vxbasis), mu['h'] * mu['w'])
-    case.add_integrand('vmass', fn.outer(vybasis, vybasis), mu['h'] * mu['w'])
+    case.add_integrand('vmass', fn.outer(vxbasis, vxbasis), mu['h'] * mu['w']**3)
+    case.add_integrand('vmass', fn.outer(vybasis, vybasis), mu['h']**3 * mu['w'])
 
     case.add_integrand('pmass', fn.outer(pbasis, pbasis), mu['h'] * mu['w'])
 
@@ -92,10 +92,13 @@ def exact(refine=1, degree=3, nel=None, power=3, **kwargs):
     ]
 
     case.add_collocate('stab-lhs', p_x[:,_], points, index=case.root+1, scale=1/mu['w'], symmetric=True)
-    case.add_collocate('stab-lhs', - vx_xx[:,_], points, index=case.root+1, scale=1/mu['w']**2, symmetric=True)
-    case.add_collocate('stab-lhs', - vx_yy[:,_], points, index=case.root+1, scale=1/mu['h']**2, symmetric=True)
+    case.add_collocate('stab-lhs', - vx_xx[:,_], points, index=case.root+1, scale=1/mu['w'], symmetric=True)
+    case.add_collocate('stab-lhs', - vx_yy[:,_], points, index=case.root+1, scale=mu['w']/mu['h']**2, symmetric=True)
 
     case.add_collocate('stab-rhs', - f*g3[_], points, index=case.root+1, scale=mu['w']**3 * mu['h']**(r-3))
+
+    case.add_piola('v', fn.asarray(((1, 0), (0, 0))), mu['w'])
+    case.add_piola('v', fn.asarray(((0, 0), (0, 1))), mu['h'])
 
     case.finalize()
 

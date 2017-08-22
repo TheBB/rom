@@ -228,6 +228,7 @@ class Case(MetaData):
         self._integrables = defaultdict(Integrable)
         self._lifts = []
         self._exact = defaultdict(list)
+        self._piola = defaultdict(list)
 
         self.domain = domain
         self.geometry = geom
@@ -295,6 +296,11 @@ class Case(MetaData):
     @property
     def has_exact(self):
         return bool(self._exact)
+
+    def add_piola(self, field, function, scale=None):
+        if scale is None:
+            scale = mu(1.0)
+        self._piola[field].append((function, scale))
 
     def plot_domain(self, mu=None, show=False, figsize=(10,10)):
         geometry = self.geometry
@@ -432,7 +438,13 @@ class Case(MetaData):
         if isinstance(fields, str):
             fields = [fields]
             multiple = False
-        solutions = [self.basis(field).dot(lhs) for field in fields]
+        solutions = []
+        for field in fields:
+            sol = self.basis(field).dot(lhs)
+            if field in self._piola:
+                piola = self._get_piola(mu, field)
+                sol = (piola * sol[_,:]).sum(-1)
+            solutions.append(sol)
         if not multiple:
             return solutions[0]
         return solutions
@@ -444,10 +456,17 @@ class Case(MetaData):
             multiple = False
         retval = []
         for field in fields:
-            retval.append(sum(func * scl(mu) for func, scl in self._exact[field]))
+            sol = sum(func * scl(mu) for func, scl in self._exact[field])
+            if field in self._piola:
+                piola = self._get_piola(mu, field)
+                sol = (piola * sol[_,:]).sum(-1)
+            retval.append(sol)
         if not multiple:
             return retval[0]
         return retval
+
+    def _get_piola(self, mu, field):
+        return sum(func * scl(mu) for func, scl in self._piola[field])
 
     def _indicator(self, dom):
         if dom is None:
