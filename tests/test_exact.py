@@ -1,7 +1,7 @@
 import numpy as np
 from nutils import function as fn
 
-from bbflow.cases import cavity, channel
+from bbflow.cases import cavity, channel, exact
 from bbflow.solvers import stokes, navierstokes
 
 
@@ -34,3 +34,33 @@ def test_channel_navierstokes():
     case = channel(nel=2)
     lhs = stokes(case, ())
     _check_exact(case, (), lhs)
+
+
+def test_exact_stokes():
+    ecase = exact(nel=3, degree=3, power=3)
+    acase = exact(nel=3, degree=3, power=4)
+
+    for mu in [(1, 1), (2, 1.5), (1.14, 1.98)]:
+        mu = ecase.parameter(*mu)
+
+        elhs = stokes(ecase, mu)
+        alhs = stokes(acase, mu)
+        _check_exact(ecase, mu, elhs)
+
+        # Solenoidal in physical coordinates
+        pgeom = ecase.physical_geometry(mu)
+        vdiv = ecase.solution(elhs, mu, 'v').div(pgeom)
+        np.testing.assert_almost_equal(0.0, ecase.domain.integrate(vdiv, geometry=pgeom, ischeme='gauss9'))
+
+        pgeom = acase.physical_geometry(mu)
+        vdiv = acase.solution(alhs, mu, 'v').div(pgeom)
+        np.testing.assert_almost_equal(0.0, acase.domain.integrate(vdiv, geometry=pgeom, ischeme='gauss9'))
+
+        # Solenoidal in reference coordinates
+        rgeom = ecase.geometry
+        vdiv = ecase.basis('v').dot(elhs).div(rgeom)
+        np.testing.assert_almost_equal(0.0, ecase.domain.integrate(vdiv, geometry=rgeom, ischeme='gauss9'))
+
+        rgeom = acase.geometry
+        vdiv = acase.basis('v').dot(alhs).div(rgeom)
+        np.testing.assert_almost_equal(0.0, acase.domain.integrate(vdiv, geometry=rgeom, ischeme='gauss9'))
