@@ -68,7 +68,6 @@ def exact(refine=1, degree=3, nel=None, power=3, **kwargs):
     ])
 
     case.add_lift(q, 'v', mu['w']**(r-1) * mu['h']**(r-1))
-    case.add_lift(f1*g1 - 1, 'p', mu['w']**(r-1) * mu['h']**(r-1))
 
     case.add_integrand('forcing', vybasis * (f3*g)[_], mu['w']**(r-2) * mu['h']**(r+2))
     case.add_integrand('forcing', 2 * vybasis * (f1*g2)[_], mu['w']**r * mu['h']**(r))
