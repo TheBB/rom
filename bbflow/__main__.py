@@ -142,11 +142,16 @@ def ensemble(ctx, case, solver, imethod, out, ipts=None, weights=False, **kwargs
 
 @command()
 @parse_extra_args([('ensemble', PickledType())])
-def spectrum(ctx, ensemble, **kwargs):
+def spectrum(ctx, ensemble, plot_name='spectrum', **kwargs):
     case = ensemble['case']
     ens = ensemble['ensemble']
     decomp = reduction.eigen(case, ens, **kwargs)
-    reduction.plot_spectrum(decomp, **kwargs)
+    reduction.plot_spectrum(decomp, plot_name=plot_name, **kwargs)
+
+    data = np.array([ev for ev, __ in decomp.values()]).T
+    indexes = np.arange(1, len(ens)+1)[:,_]
+    data = np.hstack([indexes, data])
+    np.savetxt('{}.csv'.format(plot_name), data)
 
 
 @command()

@@ -50,17 +50,21 @@ def test_exact_stokes():
         # Solenoidal in physical coordinates
         pgeom = ecase.physical_geometry(mu)
         vdiv = ecase.solution(elhs, mu, 'v').div(pgeom)
-        np.testing.assert_almost_equal(0.0, ecase.domain.integrate(vdiv, geometry=pgeom, ischeme='gauss9'))
+        vdiv = np.sqrt(ecase.domain.integrate(vdiv**2, geometry=pgeom, ischeme='gauss9'))
+        np.testing.assert_almost_equal(0.0, vdiv)
 
         pgeom = acase.physical_geometry(mu)
         vdiv = acase.solution(alhs, mu, 'v').div(pgeom)
-        np.testing.assert_almost_equal(0.0, acase.domain.integrate(vdiv, geometry=pgeom, ischeme='gauss9'))
+        vdiv = np.sqrt(acase.domain.integrate(vdiv**2, geometry=pgeom, ischeme='gauss9'))
+        np.testing.assert_almost_equal(0.0, vdiv)
 
         # Solenoidal in reference coordinates
         rgeom = ecase.geometry
         vdiv = ecase.basis('v').dot(elhs).div(rgeom)
-        np.testing.assert_almost_equal(0.0, ecase.domain.integrate(vdiv, geometry=rgeom, ischeme='gauss9'))
+        vdiv = np.sqrt(ecase.domain.integrate(vdiv**2, geometry=rgeom, ischeme='gauss9'))
+        np.testing.assert_almost_equal(0.0, vdiv)
 
         rgeom = acase.geometry
         vdiv = acase.basis('v').dot(alhs).div(rgeom)
-        np.testing.assert_almost_equal(0.0, acase.domain.integrate(vdiv, geometry=rgeom, ischeme='gauss9'))
+        vdiv = np.sqrt(acase.domain.integrate(vdiv**2, geometry=rgeom, ischeme='gauss9'))
+        np.testing.assert_almost_equal(0.0, vdiv)

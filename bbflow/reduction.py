@@ -22,16 +22,14 @@ def eigen(case, ensemble, fields=None, **kwargs):
     return retval
 
 
-def plot_spectrum(decomp, fields=None, show=False, figsize=(10,10), plot_name='spectrum', index=0, **kwargs):
-    if fields is None:
-        fields = list(decomp)
+def plot_spectrum(decomp, show=False, figsize=(10,10), plot_name='spectrum', index=0, **kwargs):
     with plot.PyPlot(plot_name, index=index, figsize=figsize) as plt:
-        for f in fields:
+        for f, (evs, __) in decomp.items():
             evs, __ = decomp[f]
             plt.semilogy(range(1, len(evs) + 1), evs)
         plt.grid()
         plt.xlim(0, len(evs) + 1)
-        plt.legend(list(fields))
+        plt.legend(list(decomp))
         if show:
             plt.show()
 
@@ -89,7 +87,8 @@ def reduce(case, ensemble, decomp, threshold=None, nmodes=None, min_modes=None, 
                 field, num, actual_error, error,
             ))
             nmodes[field] = num
-        nmodes['v'] = max(nmodes['v'], nmodes['p'] + 1)
+        if 'v' in nmodes and 'p' in nmodes:
+            nmodes['v'] = max(nmodes['v'], nmodes['p'] + 1)
         nmodes = list(nmodes.values())
 
     if isinstance(nmodes, int):
@@ -111,7 +110,7 @@ def reduce(case, ensemble, decomp, threshold=None, nmodes=None, min_modes=None, 
 
 def make_reduced(case, ensemble, decomp, **kwargs):
     projection, lengths = reduce(case, ensemble, decomp, **kwargs)
-    projcase = ProjectedCase(case, projection, lengths)
+    projcase = ProjectedCase(case, projection, lengths, fields=list(decomp))
 
     projcase.meta['nmodes'] = dict(zip(decomp, lengths))
     errors = {}

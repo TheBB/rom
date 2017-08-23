@@ -497,7 +497,7 @@ class ProjectedCase(MetaData):
             for name, integrable in case._integrables.items()
         ])
 
-        self.fast_tensors = False
+        self.fast_tensors = True
 
     def __iter__(self):
         yield from self.case
@@ -518,8 +518,16 @@ class ProjectedCase(MetaData):
         )
 
     @property
+    def has_exact(self):
+        return self.case.has_exact
+
+    @property
     def domain(self):
         return self.case.domain
+
+    @property
+    def geometry(self):
+        return self.case.geometry
 
     def parameter(self, *args, **kwargs):
         return self.case.parameter(*args, **kwargs)
@@ -553,6 +561,9 @@ class ProjectedCase(MetaData):
             return self.integrate(intname, mu)
         omass = self.case.mass(field, mu)
         return self.projection.dot(omass).dot(self.projection.T)
+
+    def exact(self, *args, **kwargs):
+        return self.case.exact(*args, **kwargs)
 
     def cache(self):
         pass

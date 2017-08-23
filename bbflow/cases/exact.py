@@ -92,6 +92,8 @@ def exact(refine=1, degree=3, nel=None, power=3, **kwargs):
     case.add_integrand('vmass', fn.outer(vxbasis, vxbasis), mu['h'] * mu['w']**3)
     case.add_integrand('vmass', fn.outer(vybasis, vybasis), mu['h']**3 * mu['w'])
 
+    case.add_integrand('vdiv', fn.outer(vbasis.div(geom)), mu['w'] * mu['h'])
+
     case.add_integrand('pmass', fn.outer(pbasis, pbasis), mu['h'] * mu['w'])
 
     case.add_integrand('stab-lhs', fn.outer(lbasis, pbasis), symmetric=True)
