@@ -113,8 +113,7 @@ def metrics(case, mu, lhs, **kwargs):
 
 
 def plots(case, mu, lhs, plot_name='solution', index=0, colorbar=False,
-          length=5.0, height=1.0, width=1.0, up=1.0, figsize=(10, 10),
-          show=False, fields='', lift=True, density=1, **kwargs):
+          figsize=(10, 10), show=False, fields='', lift=True, density=1, **kwargs):
     if isinstance(fields, str):
         fields = [fields]
 

@@ -120,8 +120,17 @@ def single(ctx, case, solver, mu, **kwargs):
     case = case(**kwargs)
     mu = case.parameter(*mu)
     lhs = solver(case, mu, **kwargs)
+
     solvers.metrics(case, mu, lhs, **kwargs)
     solvers.plots(case, mu, lhs, fields=['v', 'p', 'vp'], **kwargs)
+
+    if case.has_exact:
+        ev = case.exact(mu, 'v')
+        nv = case.solution(lhs, mu, 'v')
+        norm = fn.norm2(ev - nv) ** 2
+        geom = case.physical_geometry(mu)
+        error = np.sqrt(case.domain.integrate(norm, geometry=geom, ischeme='gauss9'))
+        log.user('l2-error (v): {:.2e}'.format(error))
 
 
 @command()
@@ -234,6 +243,34 @@ def errors_many(ctx, out, ensemble, solver, cases):
     for i, row in enumerate(data):
         s = ' '.join(['{}'] * (1 + len(row))) + '\n'
         out.write(s.format(i, *row))
+
+
+@command('bfuns')
+@click.option('--field', type=str, required=True)
+@click.option('--num', type=int, default=20)
+@parse_extra_args([
+    ('case', CaseType()),
+])
+def bfuns(ctx, field, num, case, figsize=(10, 10), density=1, colorbar=False, **kwargs):
+    case = case(**kwargs)
+    basis = case.basis(field)
+    plot_name = 'bfun-' + field
+    domain = case.domain
+    geom = case.physical_geometry()
+    for i in range(num):
+        coeffs = np.zeros((basis.shape[0],))
+        coeffs[i] = 1
+        bfun = basis.dot(coeffs)
+        if field == 'v':
+            points, velocity, speed = domain.elem_eval(
+                [geom, bfun, fn.norm2(bfun)],
+                ischeme='bezier9', separate=True
+            )
+            with plot.PyPlot(plot_name, index=i, figsize=figsize) as plt:
+                plt.mesh(points, speed)
+                if colorbar:
+                    plt.colorbar()
+                plt.streamplot(points, velocity, spacing=0.1, color='black', density=density)
 
 
 if __name__ == '__main__':

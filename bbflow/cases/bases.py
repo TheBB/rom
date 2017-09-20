@@ -441,7 +441,7 @@ class Case(MetaData):
         solutions = []
         for field in fields:
             sol = self.basis(field).dot(lhs)
-            if field in self._piola:
+            if hasattr(self, '_piola') and field in self._piola:
                 piola = self._get_piola(mu, field)
                 sol = (piola * sol[_,:]).sum(-1)
             solutions.append(sol)
@@ -457,7 +457,7 @@ class Case(MetaData):
         retval = []
         for field in fields:
             sol = sum(func * scl(mu) for func, scl in self._exact[field])
-            if field in self._piola:
+            if hasattr(self, '_piola') and field in self._piola:
                 piola = self._get_piola(mu, field)
                 sol = (piola * sol[_,:]).sum(-1)
             retval.append(sol)
