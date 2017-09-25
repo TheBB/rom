@@ -302,12 +302,12 @@ class Case(MetaData):
             scale = mu(1.0)
         self._piola[field].append((function, scale))
 
-    def plot_domain(self, mu=None, show=False, figsize=(10,10)):
+    def plot_domain(self, mu=None, show=False, figsize=(10,10), index=None):
         geometry = self.geometry
         if mu is not None:
             geometry = self.physical_geometry(mu)
         points, = self.domain.elem_eval([geometry], ischeme='bezier9', separate=True)
-        with plot.PyPlot('domain', figsize=figsize) as plt:
+        with plot.PyPlot('domain', figsize=figsize, index=index) as plt:
             plt.mesh(points)
             if show:
                 plt.show()
