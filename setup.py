@@ -8,6 +8,9 @@ setup(
     maintainer='Eivind Fonn',
     maintainer_email='evfonn@gmail.com',
     packages=['bbflow'],
+    package_data={
+        'bbflow': ['data/*.cpts'],
+    },
     install_requires=[
         'click',
         'nutils',

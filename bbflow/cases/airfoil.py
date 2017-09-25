@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.misc import factorial
 from nutils import mesh, function as fn, log, _, plot
+from os import path
 
 from bbflow.cases.bases import mu, Case
 
@@ -34,7 +35,8 @@ def Bplus(i, theta, Q):
 
 
 def mk_mesh(nelems, radius):
-    cpts = np.loadtxt('NACA0015.cpts') - (0.5, 0.0)
+    fname = path.join(path.dirname(__file__), '../data/NACA0015.cpts')
+    cpts = np.loadtxt(fname) - (0.5, 0.0)
 
     pspace = np.linspace(0, 2*np.pi, cpts.shape[0] + 1)
     rspace = np.linspace(0, 1, nelems + 1)
