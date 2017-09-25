@@ -95,7 +95,7 @@ def mk_lift(case):
     case.constrain('v', domain.boundary['right'].select(-x))
 
 
-def airfoil(nelems=30, rmax=10, rmin=1, **kwargs):
+def airfoil(nelems=30, rmax=10, rmin=1, lift=True, **kwargs):
     domain, refgeom, geom = mk_mesh(nelems, rmax)
     case = Case(domain, geom)
     case.meta['refgeom'] = refgeom
@@ -109,7 +109,7 @@ def airfoil(nelems=30, rmax=10, rmin=1, **kwargs):
     r = fn.norm2(geom)
     theta = (lambda x: (1 - x)**3 * (3*x + 1))((r - rmin)/diam)
     theta = fn.piecewise(r, (rmin, rmax), 1, theta, 0)
-    dtheta = (lambda x: -12 * x * (1 - x)**2)((r - rmax)/diam) / diam
+    dtheta = (lambda x: -12 * x * (1 - x)**2)((r - rmin)/diam) / diam
     dtheta = fn.piecewise(r, (rmin, rmax), 0, dtheta, 0)
     Q = fn.outer(geom) / r * dtheta
 
@@ -120,7 +120,12 @@ def airfoil(nelems=30, rmax=10, rmin=1, **kwargs):
 
     # Add bases and construct a lift function
     vbasis, pbasis = mk_bases(case)
-    mk_lift(case)
+    case.meta['lel'] = domain.integrate(r, geometry=refgeom, ischeme='gauss9')
+    for i in range(N):
+        case.add_piola('v', Bplus(i, theta, Q), mu['angle']**i)
+
+    if lift:
+        mk_lift(case)
 
     # Stokes divergence term
     terms = [0] * Nterms
@@ -140,11 +145,11 @@ def airfoil(nelems=30, rmax=10, rmin=1, **kwargs):
         for j in range(N):
             gradu = fn.matmat(vbasis, Bplus(i, theta, Q).transpose()).grad(geom)
             gradw = fn.matmat(vbasis, Bplus(j, theta, Q).transpose()).grad(geom)
-            terms[i+j] += (gradu * gradw).sum([-1, -2])
-            terms[i+j+1] += (gradu * fn.matmat(gradw, D1.transpose())).sum([-1, -2])
-            terms[i+j+2] += (gradu * fn.matmat(gradw, D2.transpose())).sum([-1, -2])
+            terms[i+j] += fn.outer(gradu, gradw).sum([-1, -2])
+            terms[i+j+1] += fn.outer(gradu, fn.matmat(gradw, D1.transpose())).sum([-1, -2])
+            terms[i+j+2] -= fn.outer(gradu, fn.matmat(gradw, D2.transpose())).sum([-1, -2])
     for i, term in enumerate(terms):
-        case.add_integrand('laplacian', -term, mu['angle']**i)
+        case.add_integrand('laplacian', term, mu['angle']**i)
 
     # Navier-Stokes convective term
     terms = [0] * Nterms
