@@ -161,7 +161,7 @@ def airfoil(nelems=30, rmax=10, rmin=1, lift=True, **kwargs):
             gradv = fn.matmat(vbasis, Bplus(i, theta, Q).transpose()).grad(geom)
             terms[i+j] += (w[:,_,_,:,_] * vbasis[_,:,_,_,:] * gradv[_,_,:,:,:]).sum([-1, -2])
     for i, term in enumerate(terms):
-        case.add_integrand('convection', -term, mu['angle']**i)
+        case.add_integrand('convection', term, mu['angle']**i)
 
     case.finalize()
 
