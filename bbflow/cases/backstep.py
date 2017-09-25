@@ -1,8 +1,6 @@
 from functools import partial
 import numpy as np
-import scipy as sp
 from nutils import mesh, function as fn, log, _
-import pickle
 
 from bbflow.cases.bases import mu, Case
 
