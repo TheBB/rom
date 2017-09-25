@@ -346,15 +346,20 @@ class Case(MetaData):
         return basis.shape[1:]
 
     def constrain(self, basisname, *boundaries, component=None):
-        kwargs = {}
-        if hasattr(self, 'cons'):
-            kwargs['constrain'] = self.cons
-        boundary = self.domain.boundary[','.join(boundaries)]
+        if all(isinstance(bnd, str) for bnd in boundaries):
+            boundary = self.domain.boundary[','.join(boundaries)]
+        else:
+            boundary = boundaries[0]
+
         basis = self.basis(basisname)
         zero = np.zeros(self.basis_shape(basisname))
         if component is not None:
             basis = basis[...,component]
             zero = zero[...,component]
+
+        kwargs = {}
+        if hasattr(self, 'cons'):
+            kwargs['constrain'] = self.cons
         self.cons = boundary.project(
             zero, onto=basis, geometry=self.geometry, ischeme='gauss2', **kwargs
         )
