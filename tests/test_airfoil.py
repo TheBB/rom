@@ -58,19 +58,19 @@ def test_bases(mu):
     np.testing.assert_almost_equal(vdiff, 0.0)
 
 
-# def test_divergence_matrix(mu):
-#     p_vbasis, p_pbasis = piola_bases(mu)
-#     trfgeom = case.physical_geometry(mu)
+def test_divergence_matrix(mu):
+    p_vbasis, p_pbasis = piola_bases(mu)
+    trfgeom = case.physical_geometry(mu)
 
-#     itg = -fn.outer(p_pbasis, p_vbasis.div(trfgeom))
-#     phys_mx = case.domain.integrate(itg + itg.T, geometry=trfgeom, ischeme='gauss9')
+    itg = -fn.outer(p_pbasis, p_vbasis.div(trfgeom))
+    phys_mx = case.domain.integrate(itg + itg.T, geometry=trfgeom, ischeme='gauss9')
 
-#     test_mx = case.integrate('divergence', mu)
-#     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+    test_mx = case.integrate('divergence', mu)
+    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
 
-#     itg = case.integrand('divergence', mu)
-#     test_mx = case.domain.integrate(itg, geometry=case.geometry, ischeme='gauss9')
-#     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+    itg = case.integrand('divergence', mu)
+    test_mx = case.domain.integrate(itg, geometry=case.geometry, ischeme='gauss9')
+    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
 
 
 def test_laplacian_matrix(mu):
@@ -81,9 +81,23 @@ def test_laplacian_matrix(mu):
     phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
     test_mx = case.integrate('laplacian', mu)
-    print(type(test_mx), test_mx.shape)
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
 
     itg = case.integrand('laplacian', mu)
+    test_mx = case.domain.integrate(itg, geometry=case.geometry, ischeme='gauss9')
+    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+
+
+def test_mass_matrix(mu):
+    p_vbasis, p_pbasis = piola_bases(mu)
+    trfgeom = case.physical_geometry(mu)
+
+    itg = fn.outer(p_vbasis).sum([-1])
+    phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
+
+    test_mx = case.integrate('vmass', mu)
+    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+
+    itg = case.integrand('vmass', mu)
     test_mx = case.domain.integrate(itg, geometry=case.geometry, ischeme='gauss9')
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())

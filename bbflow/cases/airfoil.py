@@ -165,6 +165,13 @@ def airfoil(nelems=30, rmax=10, rmin=1, lift=True, **kwargs):
     for i, term in enumerate(terms):
         case.add_integrand('convection', term, mu['angle']**i)
 
+    # Mass matrices
+    M2 = fn.matmat(Q, P, P, Q)
+    case.add_integrand('vmass', fn.outer(vbasis, vbasis).sum([-1]))
+    case.add_integrand('vmass', -fn.outer(vbasis, fn.matmat(vbasis, D1.transpose())).sum([-1]), mu['angle'])
+    case.add_integrand('vmass', -fn.outer(vbasis, fn.matmat(vbasis, M2.transpose())).sum([-1]), mu['angle']**2)
+    case.add_integrand('pmass', fn.outer(pbasis, pbasis))
+
     case.finalize()
 
     return case
