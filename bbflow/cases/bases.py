@@ -332,9 +332,13 @@ class Case(MetaData):
     def add_basis(self, name, function, length):
         self._bases[name] = (function, length)
 
-    def basis(self, name):
+    def basis(self, name, mu=None):
         assert name in self._bases
-        return self._bases[name][0]
+        basis = self._bases[name][0]
+        if mu is None or not hasattr(self, '_piola') or name not in self._piola:
+            return basis
+        piola = self._get_piola(mu, name)
+        return fn.matmat(basis, piola.transpose())
 
     def basis_indices(self, name):
         start = 0

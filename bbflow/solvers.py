@@ -74,7 +74,7 @@ def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
     else:
         def lhs_conv(lhs):
             vsolt = case.solution(lhs, mu, 'v', lift=False)
-            vbasis = case.basis('v')
+            vbasis = case.basis('v', mu)
             conv = (
                 vbasis[:,_,:] * vsolt.grad(geom)[_,:,:] +
                 vsolt[_,_,:] * vbasis.grad(geom)
@@ -82,7 +82,7 @@ def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
             return domain.integrate(fn.outer(vbasis, conv).sum(-1), geometry=geom, ischeme='gauss9')
         def rhs_conv(lhs):
             vsolt = case.solution(lhs, mu, 'v', lift=False)
-            vbasis = case.basis('v')
+            vbasis = case.basis('v', mu)
             conv = (vsolt[_,:] * vsolt.grad(geom)).sum(-1)
             return domain.integrate((vbasis * conv[_,:]).sum(-1), geometry=geom, ischeme='gauss9')
 
