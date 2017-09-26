@@ -115,6 +115,17 @@ def command(name=None):
 
 
 @command()
+@parse_extra_args([
+    ('case', CaseType()),
+    ('out', click.File(mode='wb', lazy=True)),
+])
+def cache(ctx, case, out, **kwargs):
+    case = case(**kwargs)
+    case.cache()
+    pickle.dump(case, out)
+
+
+@command()
 @click.option('--case', '-c', type=CaseType(), required=True)
 @click.option('--solver', '-s', type=SolverType(), required=True)
 @parse_extra_args()
