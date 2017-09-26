@@ -93,6 +93,8 @@ def mk_lift(case):
     vdiv = np.sqrt(domain.integrate(vdiv, geometry=geom, ischeme='gauss9'))
     log.user('Lift divergence (ref coord):', vdiv)
 
+    lhs[case.basis_indices('p')] = 0.0
+    case.add_lift(lhs)
     case.constrain('v', 'left')
     case.constrain('v', domain.boundary['right'].select(-x))
 
