@@ -143,18 +143,24 @@ class Integrable:
             return
         if len(self.shape) > 2 and not override:
             return
+        integrands = []
+        for itg, dom, scl in self._integrands:
+            if isinstance(itg, fn.Array):
+                indicator = Integrable.indicator(domain, dom)
+                integrands.append(itg * indicator)
+        integrands = domain.integrate(integrands, geometry=geom, ischeme='gauss9')
         matrices = []
         for itg, dom, scl in self._integrands:
             if isinstance(itg, fn.Array):
-                sub_dom = Integrable.domain(domain, dom)
-                mx = sub_dom.integrate(itg, geometry=geom, ischeme='gauss9')
-                matrices.append((mx, scl))
+                matrices.append((integrands[0], scl))
+                integrands = integrands[1:]
             elif itg.ndim != 2:
                 matrices.append((itg, scl))
             elif isinstance(itg, np.ndarray):
                 matrices.append((matrix.NumpyMatrix(itg), scl))
             else:
                 matrices.append((matrix.ScipyMatrix(itg), scl))
+        assert not integrands
         self._computed = matrices
 
     def integrate(self, domain, geom, mu, lift=None, override=False):
