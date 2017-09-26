@@ -47,6 +47,8 @@ def parse_extra_args(final_args=[]):
                     extra_args[key] = values[0]
                 else:
                     extra_args[key] = values
+            if not isinstance(extra_args['mu'], tuple):
+                extra_args['mu'] = (extra_args['mu'],)
             return func(ctx, **kwargs, **extra_args)
         return inner
     return decorator
