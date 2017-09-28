@@ -64,31 +64,24 @@ def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
     vmass = case.mass('v', mu)
 
     if case.fast_tensors:
-        conv_tens = case['convection'](mu)
-        def lhs_conv(lhs):
-            return matrix.NumpyMatrix(
-                (conv_tens * lhs[_,:,_]).sum(1) + (conv_tens * lhs[_,_,:]).sum(2)
-            )
-        def rhs_conv(lhs):
-            return (conv_tens * lhs[_,:,_] * lhs[_,_,:]).sum((1, 2))
+        def conv(lhs):
+            a = case['convection'](mu, contraction=(None, lhs, None))
+            b = case['convection'](mu, contraction=(None, None, lhs))
+            c = case['convection'](mu, contraction=(None, lhs, lhs))
+            return a + b, c
     else:
-        def lhs_conv(lhs):
-            vsolt = case.solution(lhs, mu, 'v', lift=False)
-            vbasis = case.basis('v', mu)
-            conv = (
-                vbasis[:,_,:] * vsolt.grad(geom)[_,:,:] +
-                vsolt[_,_,:] * vbasis.grad(geom)
-            ).sum(-1)
-            return domain.integrate(fn.outer(vbasis, conv).sum(-1), geometry=geom, ischeme='gauss9')
-        def rhs_conv(lhs):
-            vsolt = case.solution(lhs, mu, 'v', lift=False)
-            vbasis = case.basis('v', mu)
-            conv = (vsolt[_,:] * vsolt.grad(geom)).sum(-1)
-            return domain.integrate((vbasis * conv[_,:]).sum(-1), geometry=geom, ischeme='gauss9')
+        def conv(lhs):
+            a, b, c = (
+                case['convection'](mu, contraction=(None, lhs, None)) +
+                case['convection'](mu, contraction=(None, None, lhs)) +
+                case['convection'](mu, contraction=(None, lhs, lhs))
+            ).get()
+            return a + b, c
 
     while True:
-        rhs = stokes_rhs - stokes_mat.matvec(lhs) - rhs_conv(lhs)
-        ns_mat = stokes_mat + lhs_conv(lhs)
+        _lhs, _rhs = conv(lhs)
+        rhs = stokes_rhs - stokes_mat.matvec(lhs) - _rhs
+        ns_mat = stokes_mat + _lhs
 
         update = ns_mat.solve(rhs, constrain=case.cons)
         lhs += update
