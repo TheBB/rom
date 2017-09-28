@@ -8,212 +8,7 @@ import scipy as sp
 from nutils import function as fn, matrix, _, plot, log
 from operator import itemgetter, attrgetter
 
-
-class MetaMu(type):
-
-    def __getitem__(cls, val):
-        return mu(itemgetter(val))
-
-class mu(metaclass=MetaMu):
-
-    def _wrap(func):
-        def ret(*args):
-            args = [arg if isinstance(arg, mu) else mu(arg) for arg in args]
-            return func(*args)
-        return ret
-
-    def __init__(self, *args):
-        if len(args) == 1:
-            self.func = args[0]
-            return
-        self.oper, self.op1, self.op2 = args
-
-    def __call__(self, p):
-        if hasattr(self, 'oper'):
-            if self.oper == '+':
-                return self.op1(p) + self.op2(p)
-            if self.oper == '-':
-                return self.op1(p) - self.op2(p)
-            if self.oper == '*':
-                return self.op1(p) * self.op2(p)
-            if self.oper == '/':
-                return self.op1(p) / self.op2(p)
-            if self.oper == '**':
-                return self.op1(p) ** self.op2(p)
-            raise ValueError(self.oper)
-        if callable(self.func):
-            return self.func(p)
-        return self.func
-
-    @_wrap
-    def __add__(self, other):
-        return mu('+', self, other)
-
-    @_wrap
-    def __radd__(self, other):
-        return mu('+', other, self)
-
-    @_wrap
-    def __sub__(self, other):
-        return mu('-', self, other)
-
-    @_wrap
-    def __rsub__(self, other):
-        return mu('-', other, self)
-
-    @_wrap
-    def __mul__(self, other):
-        return mu('*', self, other)
-
-    @_wrap
-    def __rmul__(self, other):
-        return mu('*', other, self)
-
-    @_wrap
-    def __pow__(self, other):
-        return mu('**', self, other)
-
-    @_wrap
-    def __truediv__(self, other):
-        return mu('/', self, other)
-
-    @_wrap
-    def __rtruediv__(self, other):
-        return mu('/', other, self)
-
-
-class Integrable:
-
-    def __init__(self):
-        self._name = 'unnamed'
-        self._integrands = []
-        self._computed = []
-        self._lifts = defaultdict(Integrable)
-        self.shape = None
-
-    @staticmethod
-    def domain(domain, spec):
-        if spec is None:
-            return domain
-        return domain[','.join('patch' + str(d) for d in spec)]
-
-    @staticmethod
-    def indicator(domain, spec):
-        if spec is None:
-            return 1
-        patches = domain.basis_patch()
-        return patches.dot([1 if i in spec else 0 for i in range(len(patches))])
-
-    def add_integrand(self, integrand, domain=None, scale=None, symmetric=False):
-        if symmetric:
-            integrand = integrand + integrand.T
-        if self.shape is not None:
-            assert self.shape == integrand.shape
-        else:
-            self.shape = integrand.shape
-        if isinstance(domain, int):
-            domain = {domain,}
-        if domain is not None:
-            domain = frozenset(domain)
-        if scale is None:
-            scale = mu(1.0)
-        self._integrands.append((integrand, domain, scale))
-
-    def add_lift(self, lift, lift_scale):
-        ndims = len(self.shape)
-        combs = chain.from_iterable(
-            combinations(range(1, ndims), naxes)
-            for naxes in range(1, ndims)
-        )
-        for axes in combs:
-            sub_int = self._lifts[frozenset(axes)]
-            sub_int.name = '{}({})'.format(self.name, ','.join(str(a) for a in axes))
-            for integrand, domain, scale in self._integrands:
-                if not isinstance(integrand, fn.Array):
-                    integrand = integrand.toarray()
-                for axis in axes[::-1]:
-                    index = (_,) * axis + (slice(None),) + (_,) * (len(integrand.shape) - axis - 1)
-                    integrand = (integrand * lift[index]).sum(axis)
-                index = frozenset(axes)
-                sub_int.add_integrand(integrand, domain, scale * lift_scale)
-
-    def cache(self, domain, geom, override=False):
-        for integrable in self._lifts.values():
-            integrable.cache(domain, geom)
-        if self._computed:
-            return
-        if len(self.shape) > 2 and not override:
-            return
-        integrands = []
-        for itg, dom, scl in self._integrands:
-            if isinstance(itg, fn.Array):
-                indicator = Integrable.indicator(domain, dom)
-                integrands.append(itg * indicator)
-        with log.context(self.name):
-            integrands = domain.integrate(integrands, geometry=geom, ischeme='gauss9')
-        matrices = []
-        for itg, dom, scl in self._integrands:
-            if isinstance(itg, fn.Array):
-                matrices.append((integrands[0], scl))
-                integrands = integrands[1:]
-            elif itg.ndim != 2:
-                matrices.append((itg, scl))
-            elif isinstance(itg, np.ndarray):
-                matrices.append((matrix.NumpyMatrix(itg), scl))
-            else:
-                matrices.append((matrix.ScipyMatrix(itg), scl))
-        assert not integrands
-        self._computed = matrices
-
-    def integrate(self, domain, geom, mu, lift=None, override=False):
-        if lift is not None:
-            integrable = self._lifts[frozenset(lift)]
-            return integrable.integrate(domain, geom, mu, override=override)
-        if not self._computed:
-            self.cache(domain, geom, override=override)
-        return sum(matrix * scl(mu) for matrix, scl in self._computed)
-
-    def integrand(self, domain, mu, lift=None):
-        if lift is not None:
-            integrable = self._lifts[frozenset(lift)]
-            return integrable.integrand(domain, geom, mu)
-        ret_integrand = 0
-        for itg, dom, scl in self._integrands:
-            indicator = Integrable.indicator(domain, dom)
-            ret_integrand += scl(mu) * itg * indicator
-        return ret_integrand
-
-    def project(self, domain, geom, projection):
-        self.cache(domain, geom)
-        if len(self.shape) == 1:
-            computed = [
-                (projection.dot(vec), scl)
-                for vec, scl in self._computed
-            ]
-        elif len(self.shape) == 2:
-            computed = [
-                (matrix.NumpyMatrix(projection.dot(mx.core.dot(projection.T))), scl)
-                for mx, scl in self._computed
-            ]
-        elif len(self.shape) == 3:
-            computed = []
-            for itg, dom, scl in self._integrands:
-                reduced = (
-                    itg[_,:,_,:,_,:] * projection[:,:,_,_,_,_] *
-                    projection[_,_,:,:,_,_] * projection[_,_,_,_,:,:]
-                ).sum((1, 3, 5))
-                sub_dom = Integrable.domain(domain, dom)
-                tensor = sub_dom.integrate(reduced, geometry=geom, ischeme='gauss9')
-                computed.append((tensor, scl))
-
-        retval = Integrable()
-        retval._computed = computed
-        if self._lifts:
-            retval._lifts = OrderedDict([
-                (name, itg.project(domain, geom, projection))
-                for name, itg in self._lifts.items()
-            ])
-        return retval
+from bbflow.affine import AffineRepresentation, Integrand, mu
 
 
 class MetaData:
@@ -233,7 +28,7 @@ class Case(MetaData):
         self._parameters = OrderedDict()
         self._fixed_values = {}
         self._displacements = []
-        self._integrables = defaultdict(Integrable)
+        self._integrables = {}
         self._lifts = []
         self._exact = defaultdict(list)
         self._piola = defaultdict(list)
@@ -386,8 +181,14 @@ class Case(MetaData):
         self._lifts.append((lift, scale))
 
     def add_integrand(self, name, integrand, scale=None, domain=None, symmetric=False):
-        self._integrables[name].add_integrand(integrand, domain, scale, symmetric=symmetric)
-        self._integrables[name].name = name
+        if name not in self._integrables:
+            self._integrables[name] = AffineRepresentation(name)
+        if symmetric:
+            integrand = integrand + integrand.T
+        if scale is None:
+            scale = mu(1.0)
+        integrand = Integrand.make(integrand, domain)
+        self._integrables[name].append(integrand, scale)
 
     def add_collocate(self, name, equation, points, index=None, scale=None, symmetric=False):
         if index is None:
@@ -412,20 +213,27 @@ class Case(MetaData):
     def finalize(self):
         for integrable in self._integrables.values():
             for lift, scale in self._lifts:
-                integrable.add_lift(lift, scale)
+                integrable.contract_lifts(lift, scale)
 
     @log.title
     def cache(self):
         for integrable in self._integrables.values():
             integrable.cache(self.domain, self.geometry)
 
-    def integrate(self, name, mu, lift=None, override=False):
+    @log.title
+    def integrate(self, name, mu, lift=None, override=False, wrap=True):
         if isinstance(lift, int):
             lift = (lift,)
         assert name in self._integrables
-        return self._integrables[name].integrate(
+        value = self._integrables[name].integrate(
             self.domain, self.geometry, mu, lift=lift, override=override
         )
+        if wrap:
+            if isinstance(value, np.ndarray) and value.ndim == 2:
+                return matrix.NumpyMatrix(value)
+            if isinstance(value, sp.sparse.spmatrix):
+                return matrix.ScipyMatrix(value)
+        return value
 
     def integrand(self, name, mu, lift=None):
         if isinstance(lift, int):
@@ -533,13 +341,19 @@ class ProjectedCase(MetaData):
         assert key in self
         return partial(self.integrate, key)
 
-    def integrate(self, name, mu, lift=None, override=False):
+    def integrate(self, name, mu, lift=None, override=False, wrap=True):
         if isinstance(lift, int):
             lift = (lift,)
         assert name in self._integrables
-        return self._integrables[name].integrate(
+        value = self._integrables[name].integrate(
             self.case.domain, self.case.geometry, mu, lift=lift, override=override
         )
+        if wrap:
+            if isinstance(value, np.ndarray) and value.ndim == 2:
+                return matrix.NumpyMatrix(value)
+            if isinstance(value, sp.sparse.spmatrix):
+                return matrix.ScipyMatrix(value)
+        return value
 
     @property
     def has_exact(self):
