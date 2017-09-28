@@ -94,19 +94,30 @@ def mk_lift(case):
     log.user('Lift divergence (ref coord):', vdiv)
 
     lhs[case.basis_indices('p')] = 0.0
-    case.add_lift(lhs)
+    case.add_lift(lhs, scale=mu['velocity'])
     case.constrain('v', 'left')
     case.constrain('v', domain.boundary['right'].select(-x))
 
 
-def airfoil(nelems=30, rmax=10, rmin=1, lift=True, **kwargs):
+def airfoil(nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, **kwargs):
     domain, refgeom, geom = mk_mesh(nelems, rmax)
     case = Case(domain, geom)
     case.meta['refgeom'] = refgeom
 
-    N = 14
-    Nterms = 2*N - 1
-    case.add_parameter('angle', -np.pi*25/180, np.pi*25/180, default=0.0)
+    if nterms is None:
+        arg = np.pi * amax / 180
+        exact = np.array([[np.cos(arg), -np.sin(arg)], [np.sin(arg), np.cos(arg)]])
+        approx = np.zeros((2,2))
+        nterms = 0
+        while np.linalg.norm(exact - approx) > 1e-13:
+            approx += Rmat(nterms, arg)
+            nterms += 1
+        log.user('nterms:', nterms)
+
+    dterms = 2*nterms - 1
+
+    case.add_parameter('angle', -np.pi*amax/180, np.pi*amax/180, default=0.0)
+    case.add_parameter('velocity', 1.0, 20.0)
 
     # Some quantities we need
     diam = rmax - rmin
@@ -118,23 +129,23 @@ def airfoil(nelems=30, rmax=10, rmin=1, lift=True, **kwargs):
     Q = fn.outer(geom) / r * dtheta
 
     # Geometry mapping
-    for i in range(N):
+    for i in range(nterms):
         case.add_displacement(fn.matmat(Rmat(i,theta), geom), mu['angle']**i)
     case.add_displacement(-geom, mu(1.0))
 
     # Add bases and construct a lift function
     vbasis, pbasis = mk_bases(case)
     case.meta['lel'] = domain.integrate(r, geometry=refgeom, ischeme='gauss9')
-    for i in range(N):
+    for i in range(nterms):
         case.add_piola('v', Bplus(i, theta, Q), mu['angle']**i)
 
     if lift:
         mk_lift(case)
 
     # Stokes divergence term
-    terms = [0] * Nterms
-    for i in range(N):
-        for j in range(N):
+    terms = [0] * dterms
+    for i in range(nterms):
+        for j in range(nterms):
             itg = fn.matmat(vbasis, Bplus(j, theta, Q).transpose()).grad(geom)
             itg = (itg * Bminus(i, theta, Q)).sum([-1, -2])
             terms[i+j] += fn.outer(pbasis, itg)
@@ -144,9 +155,9 @@ def airfoil(nelems=30, rmax=10, rmin=1, lift=True, **kwargs):
     # Stokes laplacian term
     D1 = fn.matmat(Q, P) - fn.matmat(P, Q)
     D2 = fn.matmat(P, Q, Q, P)
-    terms = [0] * (Nterms + 2)
-    for i in range(N):
-        for j in range(N):
+    terms = [0] * (dterms + 2)
+    for i in range(nterms):
+        for j in range(nterms):
             gradu = fn.matmat(vbasis, Bplus(i, theta, Q).transpose()).grad(geom)
             gradw = fn.matmat(vbasis, Bplus(j, theta, Q).transpose()).grad(geom)
             terms[i+j] += fn.outer(gradu, gradw).sum([-1, -2])
@@ -156,9 +167,9 @@ def airfoil(nelems=30, rmax=10, rmin=1, lift=True, **kwargs):
         case.add_integrand('laplacian', term, mu['angle']**i)
 
     # Navier-Stokes convective term
-    terms = [0] * Nterms
-    for i in range(N):
-        for j in range(N):
+    terms = [0] * dterms
+    for i in range(nterms):
+        for j in range(nterms):
             w = fn.matmat(vbasis, Bplus(j, theta, Q).transpose())
             gradv = fn.matmat(vbasis, Bplus(i, theta, Q).transpose()).grad(geom)
             terms[i+j] += (w[:,_,_,:,_] * vbasis[_,:,_,_,:] * gradv[_,_,:,:,:]).sum([-1, -2])
