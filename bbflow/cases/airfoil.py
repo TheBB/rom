@@ -3,7 +3,7 @@ from scipy.misc import factorial
 from nutils import mesh, function as fn, log, _, plot
 from os import path
 
-from bbflow.cases.bases import mu, Case
+from bbflow.cases.bases import mu, Case, FlowCase
 
 
 def rotmat(angle):
@@ -101,7 +101,7 @@ def mk_lift(case):
 
 def airfoil(nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, **kwargs):
     domain, refgeom, geom = mk_mesh(nelems, rmax)
-    case = Case(domain, geom)
+    case = FlowCase(domain, geom)
     case.meta['refgeom'] = refgeom
 
     if nterms is None:

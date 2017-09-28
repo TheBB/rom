@@ -85,6 +85,7 @@ class mu(metaclass=MetaMu):
 class Integrable:
 
     def __init__(self):
+        self._name = 'unnamed'
         self._integrands = []
         self._computed = []
         self._lifts = defaultdict(Integrable)
@@ -125,6 +126,8 @@ class Integrable:
             for naxes in range(1, ndims)
         )
         for axes in combs:
+            sub_int = self._lifts[frozenset(axes)]
+            sub_int.name = '{}({})'.format(self.name, ','.join(str(a) for a in axes))
             for integrand, domain, scale in self._integrands:
                 if not isinstance(integrand, fn.Array):
                     integrand = integrand.toarray()
@@ -132,9 +135,7 @@ class Integrable:
                     index = (_,) * axis + (slice(None),) + (_,) * (len(integrand.shape) - axis - 1)
                     integrand = (integrand * lift[index]).sum(axis)
                 index = frozenset(axes)
-                self._lifts[frozenset(axes)].add_integrand(
-                    integrand, domain, scale * lift_scale,
-                )
+                sub_int.add_integrand(integrand, domain, scale * lift_scale)
 
     def cache(self, domain, geom, override=False):
         for integrable in self._lifts.values():
@@ -148,7 +149,8 @@ class Integrable:
             if isinstance(itg, fn.Array):
                 indicator = Integrable.indicator(domain, dom)
                 integrands.append(itg * indicator)
-        integrands = domain.integrate(integrands, geometry=geom, ischeme='gauss9')
+        with log.context(self.name):
+            integrands = domain.integrate(integrands, geometry=geom, ischeme='gauss9')
         matrices = []
         for itg, dom, scl in self._integrands:
             if isinstance(itg, fn.Array):
@@ -385,6 +387,7 @@ class Case(MetaData):
 
     def add_integrand(self, name, integrand, scale=None, domain=None, symmetric=False):
         self._integrables[name].add_integrand(integrand, domain, scale, symmetric=symmetric)
+        self._integrables[name].name = name
 
     def add_collocate(self, name, equation, points, index=None, scale=None, symmetric=False):
         if index is None:
@@ -411,6 +414,7 @@ class Case(MetaData):
             for lift, scale in self._lifts:
                 integrable.add_lift(lift, scale)
 
+    @log.title
     def cache(self):
         for integrable in self._integrables.values():
             integrable.cache(self.domain, self.geometry)
@@ -490,6 +494,11 @@ class Case(MetaData):
             dom = (dom,)
         patches = self.domain.basis_patch()
         return patches.dot([1 if i in dom else 0 for i in range(len(patches))])
+
+
+class FlowCase(Case):
+
+    pass
 
 
 class ProjectedCase(MetaData):
