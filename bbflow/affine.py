@@ -105,14 +105,14 @@ class Integrand:
                 cont = cont[...,_]
             obj = obj * cont
             axes.append(i)
-        obj = obj.sum(axes)
+        obj = obj.sum(tuple(axes))
         return obj
 
     def __init__(self):
         self._cached = None
         self.cacheable = True
 
-    def tonutils(self, domain):
+    def tonutils(self, domain, contraction=None):
         raise NotImplementedError
 
     def save_cache(self, cached):
@@ -186,18 +186,64 @@ class NutilsIntegrand(Integrand):
     def shape(self):
         return self._function.shape
 
-    def tonutils(self, domain):
+    def tonutils(self, domain, contraction=None):
         if self._domain_spec is None:
-            return self._function
-        patches = domain.basis_patch()
-        indicator = patches.dot([
-            1 if i in self._domain_spec else 0
-            for i in range(len(patches))
-        ])
-        return self._function * indicator
+            indicator = 1
+        else:
+            patches = domain.basis_patch()
+            indicator = patches.dot([
+                1 if i in self._domain_spec else 0
+                for i in range(len(patches))
+            ])
+        func = self._function
+        if contraction is not None:
+            func = Integrand._contract(func, contraction, self.ndim)
+        return func * indicator
 
     def contract(self, contraction):
         return NutilsIntegrand(Integrand._contract(self._function, contraction, self.ndim), self._domain_spec)
+
+    def project(self, projection):
+        if self._cached is not None:
+            return super().project(projection)
+        func = self._function
+        if self.ndim == 1:
+            func = fn.matmat(projection, func)
+        elif self.ndim == 2:
+            func = fn.matmat(projection, func, projection.T)
+        elif self.ndim == 3:
+            func = (
+                func[_,:,_,:,_,:] * projection[:,:,_,_,_,_] *
+                projection[_,_,:,:,_,_] * projection[_,_,_,_,:,:]
+            ).sum((1, 3, 5))
+        else:
+            raise NotImplementedError
+        return NutilsIntegrand(func, self._domain_spec)
+
+
+class IntegrandList(list):
+
+    def __init__(self, domain, geom, *integrands):
+        super().__init__(integrands)
+        self._domain = domain
+        self._geom = geom
+
+    def __add__(self, other):
+        if not isinstance(other, IntegrandList):
+            return NotImplemented
+        assert self._domain is other._domain
+        assert self._geom is other._geom
+        return IntegrandList(self._domain, self._geom, *self, *other)
+
+    def __iadd__(self, other):
+        if not isinstance(other, IntegrandList):
+            return NotImplemented
+        assert self._domain is other._domain
+        assert self._geom is other._geom
+        self.extend(other)
+
+    def get(self):
+        return self._domain.integrate(self, geometry=self._geom, ischeme='gauss9')
 
 
 class AffineRepresentation:
@@ -265,25 +311,40 @@ class AffineRepresentation:
             integrand.save_cache(value)
         self._cached = True
 
-    def integrate(self, domain, geom, mu, lift=None, override=False):
+    def integrate(self, domain, geom, mu, lift=None, contraction=None, override=False):
         if lift is not None:
             rep = self._lift_contractions[frozenset(lift)]
-            return rep.integrate(domain, geom, mu, override=override)
+            return rep.integrate(domain, geom, mu, override=override, contraction=None)
         if not self._cached:
             self.cache(domain, geom, override=override)
-        return sum(itg.value * scl(mu) for itg, scl in self._integrands)
+        if self._cached:
+            value = sum(itg.value * scl(mu) for itg, scl in self._integrands)
+            if contraction is not None:
+                value = Integrand._contract(value, contraction, self.ndim)
+            return value
+        integrand = self.integrand(domain, mu, lift=lift, contraction=contraction)
+        return IntegrandList(domain, geom, integrand)
+        # value = domain.integrate(integrand, geometry=geom, ischeme='gauss9')
+        # if isinstance(value, matrix.Matrix):
+        #     value = value.core
+        # return value
 
-    def integrand(self, domain, mu, lift=None):
+    def integrand(self, domain, mu, lift=None, contraction=None):
         if lift is not None:
             rep = self._lift_contractions[frozenset(key)]
-            return rep.integrand(domain, mu)
-        return sum(itg.tonutils(domain) * scl(mu) for itg, scl in self._integrands)
+            return rep.integrand(domain, mu, contraction=None)
+        return sum(
+            itg.tonutils(domain, contraction=contraction) * scl(mu)
+            for itg, scl in self._integrands
+        )
 
-    def project(self, domain, geom, projection):
+    def project(self, projection, domain, geom):
         self.cache(domain, geom)
         new = AffineRepresentation(self.name)
         for integrand, scale in self._integrands:
             new.append(integrand.project(projection), scale)
         for name, rep in self._lift_contractions.items():
-            new._lift_contractions[name] = rep.project(domain, geom, projection)
+            new._lift_contractions[name] = rep.project(projection, domain, geom)
+        log.user('caching for', self.name)
+        new.cache(domain, geom, override=True)
         return new

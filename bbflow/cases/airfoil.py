@@ -101,7 +101,7 @@ def mk_lift(case):
 
 def airfoil(nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, **kwargs):
     domain, refgeom, geom = mk_mesh(nelems, rmax)
-    case = FlowCase(domain, geom)
+    case = Case(domain, geom)
     case.meta['refgeom'] = refgeom
 
     if nterms is None:
