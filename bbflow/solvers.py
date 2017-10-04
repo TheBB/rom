@@ -69,6 +69,13 @@ def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
             b = case['convection'](mu, contraction=(None, None, lhs))
             c = case['convection'](mu, contraction=(None, lhs, lhs))
             return a + b, c
+        # conv_tens = case['convection'](mu)
+        # def lhs_conv(lhs):
+        #     return matrix.NumpyMatrix(
+        #         (conv_tens * lhs[_,:,_]).sum(1) + (conv_tens * lhs[_,_,:]).sum(2)
+        #     )
+        # def rhs_conv(lhs):
+        #     return (conv_tens * lhs[_,:,_] * lhs[_,_,:]).sum((1, 2))
     else:
         def conv(lhs):
             a, b, c = (
