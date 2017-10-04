@@ -112,7 +112,7 @@ class Integrand:
         self._cached = None
         self.cacheable = True
 
-    def tonutils(self, domain, contraction=None):
+    def tonutils(self, case, contraction=None, mu=None):
         raise NotImplementedError
 
     def save_cache(self, cached):
@@ -170,13 +170,13 @@ class ArrayIntegrand(Integrand):
 
 class NutilsIntegrand(Integrand):
 
-    def __init__(self, function, domain):
+    def __init__(self, function, domain_spec):
         super().__init__()
         assert function is not None
         self._function = function
-        if isinstance(domain, int):
-            domain = (domain,)
-        self._domain_spec = domain
+        if isinstance(domain_spec, int):
+            domain_spec = (domain_spec,)
+        self._domain_spec = domain_spec
 
     @property
     def ndim(self):
@@ -186,11 +186,11 @@ class NutilsIntegrand(Integrand):
     def shape(self):
         return self._function.shape
 
-    def tonutils(self, domain, contraction=None):
+    def tonutils(self, case, contraction=None, mu=None):
         if self._domain_spec is None:
             indicator = 1
         else:
-            patches = domain.basis_patch()
+            patches = case.domain.basis_patch()
             indicator = patches.dot([
                 1 if i in self._domain_spec else 0
                 for i in range(len(patches))
@@ -201,7 +201,9 @@ class NutilsIntegrand(Integrand):
         return func * indicator
 
     def contract(self, contraction):
-        return NutilsIntegrand(Integrand._contract(self._function, contraction, self.ndim), self._domain_spec)
+        return NutilsIntegrand(Integrand._contract(
+            self._function, contraction, self.ndim), self._domain_spec
+        )
 
     def project(self, projection):
         if self._cached is not None:
@@ -221,29 +223,82 @@ class NutilsIntegrand(Integrand):
         return NutilsIntegrand(func, self._domain_spec)
 
 
+class FunctionIntegrand(Integrand):
+
+    @staticmethod
+    def total_contraction(existing, new):
+        indices = [
+            i for i, con in enumerate(existing)
+            if con is None or con.ndim == 2
+        ]
+        ret = list(existing)
+        for i, val in zip(indices, new):
+            ret[i] = val
+        return tuple(ret)
+
+    def __init__(self, function, defaults, contraction=None):
+        super().__init__()
+        self._function = function
+        self._defaults = defaults
+        if contraction is None:
+            self._contraction = (None,) * len(defaults)
+        else:
+            assert len(contraction) == len(defaults)
+            self._contraction = contraction
+
+    @property
+    def ndim(self):
+        return sum(1 for con in self._contraction if con is None or con.ndim == 2)
+
+    @property
+    def shape(self):
+        return tuple(
+            d.shape[0] for d, con in zip(self._defaults, self._contraction)
+            if con is None or con.ndim == 2
+        )
+
+    def tonutils(self, case, contraction=None, mu=None):
+        if contraction is None:
+            contraction = (None,) * self.ndim
+        contraction = FunctionIntegrand.total_contraction(self._contraction, contraction)
+        bases = []
+        for basis, cont in zip(self._defaults, contraction):
+            if cont is None:
+                bases.append(basis)
+            elif cont.ndim == 1:
+                bases.append(basis.dot(cont)[_,...])
+            elif cont.ndim == 2:
+                bases.append(fn.matmat(cont, basis))
+        if callable(self._function):
+            return self._function(case, mu, *bases)
+        return sum(func(case, mu, *bases) for func in self._function)
+
+    def contract(self, contraction):
+        assert len(contraction) == self.ndim
+        contraction = FunctionIntegrand.total_contraction(self._contraction, contraction)
+        return FunctionIntegrand(self._function, self._defaults, contraction)
+
+
 class IntegrandList(list):
 
-    def __init__(self, domain, geom, *integrands):
+    def __init__(self, case, *integrands):
         super().__init__(integrands)
-        self._domain = domain
-        self._geom = geom
+        self._case = case
 
     def __add__(self, other):
         if not isinstance(other, IntegrandList):
             return NotImplemented
-        assert self._domain is other._domain
-        assert self._geom is other._geom
-        return IntegrandList(self._domain, self._geom, *self, *other)
+        assert self._case is other._case
+        return IntegrandList(self._case, *self, *other)
 
     def __iadd__(self, other):
         if not isinstance(other, IntegrandList):
             return NotImplemented
-        assert self._domain is other._domain
-        assert self._geom is other._geom
+        assert self._case is other._case
         self.extend(other)
 
     def get(self):
-        return self._domain.integrate(self, geometry=self._geom, ischeme='gauss9')
+        return self._case.domain.integrate(self, geometry=self._case.geometry, ischeme='gauss9')
 
 
 class AffineRepresentation:
@@ -253,6 +308,7 @@ class AffineRepresentation:
         self._integrands = []
         self._lift_contractions = {}
         self._cached = False
+        self.fallback = None
 
     @property
     def ndim(self):
@@ -291,18 +347,20 @@ class AffineRepresentation:
             for integrand, i_scale in self._integrands:
                 rep.append(integrand.contract(contraction), scale * i_scale)
 
-    def cache(self, domain, geom, override=False):
+    def cache(self, case, override=False):
         for rep in self._lift_contractions.values():
-            rep.cache(domain, geom)
+            rep.cache(case)
         if self._cached:
             return
         if self.ndim > 2 and not override:
             return
+        domain = case.domain
+        geom = case.geometry
         integrands, values = [], []
         for integrand, __ in  self._integrands:
             if integrand.cacheable:
                 integrands.append(integrand)
-                values.append(integrand.tonutils(domain))
+                values.append(integrand.tonutils(case))
         with log.context(self.name):
             values = domain.integrate(values, geometry=geom, ischeme='gauss9')
         for integrand, value in zip(integrands, values):
@@ -311,26 +369,28 @@ class AffineRepresentation:
             integrand.save_cache(value)
         self._cached = True
 
-    def integrate(self, domain, geom, mu, lift=None, contraction=None, override=False):
+    def integrate(self, case, mu, lift=None, contraction=None, override=False):
         if lift is not None:
             rep = self._lift_contractions[frozenset(lift)]
-            return rep.integrate(domain, geom, mu, override=override, contraction=None)
+            return rep.integrate(case, mu, override=override, contraction=None)
         if not self._cached:
-            self.cache(domain, geom, override=override)
+            self.cache(case, override=override)
         if self._cached:
             value = sum(itg.value * scl(mu) for itg, scl in self._integrands)
             if contraction is not None:
                 value = Integrand._contract(value, contraction, self.ndim)
             return value
-        integrand = self.integrand(domain, mu, lift=lift, contraction=contraction)
-        return IntegrandList(domain, geom, integrand)
+        integrand = self.integrand(case, mu, lift=lift, contraction=contraction)
+        return IntegrandList(case, integrand)
 
-    def integrand(self, domain, mu, lift=None, contraction=None):
+    def integrand(self, case, mu, lift=None, contraction=None):
         if lift is not None:
             rep = self._lift_contractions[frozenset(key)]
-            return rep.integrand(domain, mu, contraction=None)
+            return rep.integrand(case, mu, contraction=None)
+        if self.fallback:
+            return self.fallback.tonutils(case, contraction=contraction, mu=mu)
         return sum(
-            itg.tonutils(domain, contraction=contraction) * scl(mu)
+            itg.tonutils(case, contraction=contraction, mu=mu) * scl(mu)
             for itg, scl in self._integrands
         )
 

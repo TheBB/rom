@@ -1,9 +1,11 @@
+from functools import partial
 import numpy as np
 from scipy.misc import factorial
 from nutils import mesh, function as fn, log, _, plot
 from os import path
 
-from bbflow.cases.bases import mu, Case, FlowCase
+from bbflow.cases.bases import mu, Case
+from bbflow.affine import FunctionIntegrand, AffineRepresentation
 
 
 def rotmat(angle):
@@ -99,6 +101,29 @@ def mk_lift(case):
     case.constrain('v', domain.boundary['right'].select(-x))
 
 
+def convection(wtrf, vtrf, case, mu, w, u, v):
+    if len(u.shape) == 1: u = u[_,:]
+    if len(v.shape) == 1: v = v[_,:]
+    if len(w.shape) == 1: w = w[_,:]
+
+    v = fn.matmat(v, vtrf.transpose()).grad(case.geometry)
+    w = fn.matmat(w, wtrf.transpose())
+
+    integrand = (w[:,_,_,:,_] * u[_,:,_,_,:] * v[_,_,:,:,:]).sum([-1, -2])
+    ind = tuple(0 if l == 1 else slice(None) for l in integrand.shape)
+    integrand = integrand[ind]
+    return integrand
+
+
+def true_convection(case, mu, w, u, v):
+    J = case.physical_geometry(mu).grad(case.geometry)
+    return convection(J, J, case, mu, w, u, v)
+
+
+def geometry(theta, case, mu):
+    return fn.matmat(rotmat(mu['angle'] * theta), case.geometry)
+
+
 def airfoil(nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, **kwargs):
     domain, refgeom, geom = mk_mesh(nelems, rmax)
     case = Case(domain, geom)
@@ -129,16 +154,11 @@ def airfoil(nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, **kwarg
     Q = fn.outer(geom) / r * dtheta
 
     # Geometry mapping
-    for i in range(nterms):
-        case.add_displacement(fn.matmat(Rmat(i,theta), geom), mu['angle']**i)
-    case.add_displacement(-geom, mu(1.0))
+    case.set_geometry(partial(geometry, theta))
+    case._piola.add('v')
 
     # Add bases and construct a lift function
     vbasis, pbasis = mk_bases(case)
-    case.meta['lel'] = domain.integrate(r, geometry=refgeom, ischeme='gauss9')
-    for i in range(nterms):
-        case.add_piola('v', Bplus(i, theta, Q), mu['angle']**i)
-
     if lift:
         mk_lift(case)
 
@@ -167,14 +187,16 @@ def airfoil(nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, **kwarg
         case.add_integrand('laplacian', term, mu['angle']**i)
 
     # Navier-Stokes convective term
-    terms = [0] * dterms
+    terms = [[] for _ in range(dterms)]
     for i in range(nterms):
         for j in range(nterms):
-            w = fn.matmat(vbasis, Bplus(j, theta, Q).transpose())
-            gradv = fn.matmat(vbasis, Bplus(i, theta, Q).transpose()).grad(geom)
-            terms[i+j] += (w[:,_,_,:,_] * vbasis[_,:,_,_,:] * gradv[_,_,:,:,:]).sum([-1, -2])
+            terms[i+j].append(partial(convection, Bplus(j, theta, Q), Bplus(i, theta, Q)))
+    conv = AffineRepresentation('convection')
+    defaults = (vbasis,) * 3
     for i, term in enumerate(terms):
-        case.add_integrand('convection', term, mu['angle']**i)
+        conv.append(FunctionIntegrand(term, defaults), scale=mu['angle']**i)
+    conv.fallback = FunctionIntegrand(true_convection, defaults)
+    case._integrables['convection'] = conv
 
     # Mass matrices
     M2 = fn.matmat(Q, P, P, Q)
