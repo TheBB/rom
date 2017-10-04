@@ -27,11 +27,11 @@ class Case(MetaData):
         self._bases = OrderedDict()
         self._parameters = OrderedDict()
         self._fixed_values = {}
-        self._displacements = []
+        self._geometry = None
         self._integrables = {}
         self._lifts = []
-        self._exact = defaultdict(list)
-        self._piola = defaultdict(list)
+        self._exact = {}
+        self._piola = set()
 
         self.domain = domain
         self.geometry = geom
@@ -91,19 +91,12 @@ class Case(MetaData):
         for name, value in kwargs.items():
             self._fixed_values[name] = value
 
-    def add_exact(self, field, function, scale=None):
-        if scale is None:
-            scale = mu(1.0)
-        self._exact[field].append((function, scale))
+    def set_exact(self, field, function):
+        self._exact[field] = function
 
     @property
     def has_exact(self):
         return bool(self._exact)
-
-    def add_piola(self, field, function, scale=None):
-        if scale is None:
-            scale = mu(1.0)
-        self._piola[field].append((function, scale))
 
     def plot_domain(self, mu=None, show=False, figsize=(10,10), index=None):
         geometry = self.geometry
@@ -115,16 +108,16 @@ class Case(MetaData):
             if show:
                 plt.show()
 
-    def add_displacement(self, function, scale):
-        self._displacements.append((function, scale))
+    def set_geometry(self, function):
+        self._geometry = function
 
     def physical_geometry(self, mu=None):
+        if self._geometry is None:
+            return self.geometry
         if mu is None:
             mu = self.parameter()
-        displacement = [0] * len(self.geometry)
-        for func, scale in self._displacements:
-            displacement = [s + scale(mu) * f for s, f in zip(displacement, func)]
-        return self.geometry + displacement
+        displacement = self._geometry(self, mu)
+        return displacement
 
     def add_basis(self, name, function, length):
         self._bases[name] = (function, length)
@@ -132,10 +125,10 @@ class Case(MetaData):
     def basis(self, name, mu=None):
         assert name in self._bases
         basis = self._bases[name][0]
-        if mu is None or not hasattr(self, '_piola') or name not in self._piola:
+        if mu is None or name not in self._piola:
             return basis
-        piola = self._get_piola(mu, name)
-        return fn.matmat(basis, piola.transpose())
+        J = self.physical_geometry(mu).grad(self.geometry)
+        return fn.matmat(basis, J.transpose())
 
     def basis_indices(self, name):
         start = 0
@@ -218,7 +211,7 @@ class Case(MetaData):
     @log.title
     def cache(self):
         for integrable in self._integrables.values():
-            integrable.cache(self.domain, self.geometry)
+            integrable.cache(self)
 
     @log.title
     def integrate(self, name, mu, lift=None, contraction=None, override=False, wrap=True):
@@ -226,8 +219,7 @@ class Case(MetaData):
             lift = (lift,)
         assert name in self._integrables
         value = self._integrables[name].integrate(
-            self.domain, self.geometry, mu, lift=lift,
-            contraction=contraction, override=override,
+            self, mu, lift=lift, contraction=contraction, override=override,
         )
         if wrap:
             if isinstance(value, np.ndarray) and value.ndim == 2:
@@ -268,10 +260,7 @@ class Case(MetaData):
             multiple = False
         solutions = []
         for field in fields:
-            sol = self.basis(field).dot(lhs)
-            if hasattr(self, '_piola') and field in self._piola:
-                piola = self._get_piola(mu, field)
-                sol = (piola * sol[_,:]).sum(-1)
+            sol = self.basis(field, mu).dot(lhs)
             solutions.append(sol)
         if not multiple:
             return solutions[0]
@@ -284,17 +273,14 @@ class Case(MetaData):
             multiple = False
         retval = []
         for field in fields:
-            sol = sum(func * scl(mu) for func, scl in self._exact[field])
-            if hasattr(self, '_piola') and field in self._piola:
-                piola = self._get_piola(mu, field)
-                sol = (piola * sol[_,:]).sum(-1)
+            sol = self._exact[field](mu)
+            if field in self._piola:
+                J = self.physical_geometry(mu).grad(self.geometry)
+                sol = fn.matmat(sol, J.transpose())
             retval.append(sol)
         if not multiple:
             return retval[0]
         return retval
-
-    def _get_piola(self, mu, field):
-        return sum(func * scl(mu) for func, scl in self._piola[field])
 
     def _indicator(self, dom):
         if dom is None:
@@ -303,11 +289,6 @@ class Case(MetaData):
             dom = (dom,)
         patches = self.domain.basis_patch()
         return patches.dot([1 if i in dom else 0 for i in range(len(patches))])
-
-
-class FlowCase(Case):
-
-    pass
 
 
 class ProjectedCase(MetaData):
