@@ -19,6 +19,10 @@ def _time(func):
     return ret
 
 
+class IterationCountError(Exception):
+    pass
+
+
 @_time
 def _stokes(case, mu, **kwargs):
     assert 'divergence' in case
@@ -39,7 +43,7 @@ def _stokes(case, mu, **kwargs):
 
 
 @_time
-def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
+def _navierstokes(case, mu, newton_tol=1e-10, maxit=10, **kwargs):
     assert 'divergence' in case
     assert 'laplacian' in case
     assert 'convection' in case
@@ -78,7 +82,7 @@ def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
             ).get()
             return a + b, c
 
-    while True:
+    for it in count(1):
         _lhs, _rhs = conv(lhs)
         rhs = stokes_rhs - stokes_mat.matvec(lhs) - _rhs
         ns_mat = stokes_mat + _lhs
@@ -90,6 +94,9 @@ def _navierstokes(case, mu, newton_tol=1e-10, **kwargs):
         log.info('update: {:.2e}'.format(update_norm))
         if update_norm < newton_tol:
             break
+
+        if it > maxit:
+            raise IterationCountError
 
     return lhs
 
