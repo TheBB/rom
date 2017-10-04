@@ -5,7 +5,6 @@ from nutils import log, core
 
 
 def _solve(args):
-    core.globalproperties['verbose'] = 3
     case, solver, (mu, wt), weights = args
     lhs = solver(case, mu)
     if weights:
@@ -13,7 +12,7 @@ def _solve(args):
     return lhs
 
 
-def make_ensemble(case, solver, quadrule, weights=False, parallel=True):
+def make_ensemble(case, solver, quadrule, weights=False, parallel=False):
     case.cache()
     quadrule = [(case.parameter(*mu), wt) for mu, wt in quadrule]
     log.user('generating ensemble of {} solutions'.format(len(quadrule)))

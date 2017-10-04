@@ -143,5 +143,5 @@ def backstep_test(*args, **kwargs):
 
 def backstep_trivial(*args, **kwargs):
     case = backstep(*args, **kwargs)
-    case.restrict(viscosity=20, length=10, height=1)
+    case.restrict(viscosity=20, length=10, velocity=1)
     return case

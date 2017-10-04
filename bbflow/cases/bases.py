@@ -221,12 +221,13 @@ class Case(MetaData):
             integrable.cache(self.domain, self.geometry)
 
     @log.title
-    def integrate(self, name, mu, lift=None, override=False, wrap=True):
+    def integrate(self, name, mu, lift=None, contraction=None, override=False, wrap=True):
         if isinstance(lift, int):
             lift = (lift,)
         assert name in self._integrables
         value = self._integrables[name].integrate(
-            self.domain, self.geometry, mu, lift=lift, override=override
+            self.domain, self.geometry, mu, lift=lift,
+            contraction=contraction, override=override,
         )
         if wrap:
             if isinstance(value, np.ndarray) and value.ndim == 2:
@@ -325,7 +326,7 @@ class ProjectedCase(MetaData):
         self.cons[:] = np.nan
 
         self._integrables = OrderedDict([
-            (name, integrable.project(case.domain, case.geometry, projection))
+            (name, integrable.project(projection, case.domain, case.geometry))
             for name, integrable in case._integrables.items()
         ])
 
@@ -341,12 +342,13 @@ class ProjectedCase(MetaData):
         assert key in self
         return partial(self.integrate, key)
 
-    def integrate(self, name, mu, lift=None, override=False, wrap=True):
+    def integrate(self, name, mu, lift=None, contraction=None, override=False, wrap=True):
         if isinstance(lift, int):
             lift = (lift,)
         assert name in self._integrables
         value = self._integrables[name].integrate(
-            self.case.domain, self.case.geometry, mu, lift=lift, override=override
+            self.case.domain, self.case.geometry, mu, lift=lift,
+            contraction=contraction, override=override,
         )
         if wrap:
             if isinstance(value, np.ndarray) and value.ndim == 2:
