@@ -324,10 +324,6 @@ class AffineRepresentation:
             return value
         integrand = self.integrand(domain, mu, lift=lift, contraction=contraction)
         return IntegrandList(domain, geom, integrand)
-        # value = domain.integrate(integrand, geometry=geom, ischeme='gauss9')
-        # if isinstance(value, matrix.Matrix):
-        #     value = value.core
-        # return value
 
     def integrand(self, domain, mu, lift=None, contraction=None):
         if lift is not None:
@@ -345,6 +341,5 @@ class AffineRepresentation:
             new.append(integrand.project(projection), scale)
         for name, rep in self._lift_contractions.items():
             new._lift_contractions[name] = rep.project(projection, domain, geom)
-        log.user('caching for', self.name)
         new.cache(domain, geom, override=True)
         return new
