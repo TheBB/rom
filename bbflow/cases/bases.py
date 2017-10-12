@@ -8,6 +8,7 @@ import scipy as sp
 from nutils import function as fn, matrix, _, plot, log
 from operator import itemgetter, attrgetter
 
+from bbflow.util import multiple_to_single
 from bbflow.affine import AffineRepresentation, Integrand, mu
 
 
@@ -252,35 +253,18 @@ class Case(MetaData):
     def solution_vector(self, lhs, mu, lift=True):
         return lhs + self._lift(mu) if lift else lhs
 
-    def solution(self, lhs, mu, fields, lift=True):
+    @multiple_to_single('field')
+    def solution(self, lhs, mu, field, lift=True):
         lhs = self.solution_vector(lhs, mu, lift)
-        multiple = True
-        if isinstance(fields, str):
-            fields = [fields]
-            multiple = False
-        solutions = []
-        for field in fields:
-            sol = self.basis(field, mu).dot(lhs)
-            solutions.append(sol)
-        if not multiple:
-            return solutions[0]
-        return solutions
+        return self.basis(field, mu).dot(lhs)
 
-    def exact(self, mu, fields):
-        multiple = True
-        if isinstance(fields, str):
-            fields = [fields]
-            multiple = False
-        retval = []
-        for field in fields:
-            sol = self._exact[field](self, mu)
-            if field in self._piola:
-                J = self.physical_geometry(mu).grad(self.geometry)
-                sol = fn.matmat(sol, J.transpose())
-            retval.append(sol)
-        if not multiple:
-            return retval[0]
-        return retval
+    @multiple_to_single('field')
+    def exact(self, mu, field):
+        sol = self._exact[field](self, mu)
+        if field in self._piola:
+            J = self.physical_geometry(mu).grad(self.geometry)
+            sol = fn.matmat(sol, J.transpose())
+        return sol
 
     def _indicator(self, dom):
         if dom is None:
