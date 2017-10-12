@@ -9,7 +9,11 @@ case = cases.airfoil(nelems=2, lift=False)
 
 @pytest.fixture
 def mu():
-    return {'angle': np.pi * 19 / 180}
+    return {
+        'angle': np.pi * 19 / 180,
+        'viscosity': 1.0,
+        'velocity': 1.0,
+    }
 
 def piola_bases(mu):
     trfgeom = case.physical_geometry(mu)
@@ -39,7 +43,7 @@ def test_bases(mu):
     b_vbasis = fn.matmat(vbasis, J.transpose()) / detJ
     b_pbasis = pbasis / detJ
 
-    Z = case._get_piola(mu, 'v')
+    Z = case.physical_geometry(mu).grad(case.geometry)
     detZ = fn.determinant(Z)
     zdiff = np.sqrt(domain.integrate((Z - J)**2, geometry=refgeom, ischeme='gauss9').toarray())
     np.testing.assert_almost_equal(zdiff, 0.0)

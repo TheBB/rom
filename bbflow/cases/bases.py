@@ -232,7 +232,7 @@ class Case(MetaData):
         if isinstance(lift, int):
             lift = (lift,)
         assert name in self._integrables
-        return self._integrables[name].integrand(self.domain, mu, lift=lift)
+        return self._integrables[name].integrand(self, mu, lift=lift)
 
     def mass(self, field, mu=None):
         if mu is None:
@@ -273,7 +273,7 @@ class Case(MetaData):
             multiple = False
         retval = []
         for field in fields:
-            sol = self._exact[field](mu)
+            sol = self._exact[field](self, mu)
             if field in self._piola:
                 J = self.physical_geometry(mu).grad(self.geometry)
                 sol = fn.matmat(sol, J.transpose())
