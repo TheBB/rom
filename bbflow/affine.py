@@ -126,7 +126,7 @@ class Integrand:
         assert self._cached is not None
         return self._cached
 
-    def project(self, projection):
+    def project(self, case, projection):
         value = self.value
         if self.ndim == 1:
             return Integrand.make(projection.dot(value))
@@ -205,9 +205,9 @@ class NutilsIntegrand(Integrand):
             self._function, contraction, self.ndim), self._domain_spec
         )
 
-    def project(self, projection):
+    def project(self, case, projection):
         if self._cached is not None:
-            return super().project(projection)
+            return super().project(case, projection)
         func = self._function
         if self.ndim == 1:
             func = fn.matmat(projection, func)
@@ -227,10 +227,7 @@ class FunctionIntegrand(Integrand):
 
     @staticmethod
     def total_contraction(existing, new):
-        indices = [
-            i for i, con in enumerate(existing)
-            if con is None or con.ndim == 2
-        ]
+        indices = [i for i, con in enumerate(existing) if con is None]
         ret = list(existing)
         for i, val in zip(indices, new):
             ret[i] = val
@@ -238,6 +235,8 @@ class FunctionIntegrand(Integrand):
 
     def __init__(self, function, defaults, contraction=None):
         super().__init__()
+        if callable(function):
+            function = [function]
         self._function = function
         self._defaults = defaults
         if contraction is None:
@@ -248,13 +247,12 @@ class FunctionIntegrand(Integrand):
 
     @property
     def ndim(self):
-        return sum(1 for con in self._contraction if con is None or con.ndim == 2)
+        return sum(1 for con in self._contraction if con is None)
 
     @property
     def shape(self):
         return tuple(
-            d.shape[0] for d, con in zip(self._defaults, self._contraction)
-            if con is None or con.ndim == 2
+            d.shape[0] for d, con in zip(self._defaults, self._contraction) if con is None
         )
 
     def tonutils(self, case, contraction=None, mu=None):
@@ -265,18 +263,26 @@ class FunctionIntegrand(Integrand):
         for basis, cont in zip(self._defaults, contraction):
             if cont is None:
                 bases.append(basis)
-            elif cont.ndim == 1:
+            else:
                 bases.append(basis.dot(cont)[_,...])
-            elif cont.ndim == 2:
-                bases.append(fn.matmat(cont, basis))
-        if callable(self._function):
-            return self._function(case, mu, *bases)
         return sum(func(case, mu, *bases) for func in self._function)
 
     def contract(self, contraction):
         assert len(contraction) == self.ndim
         contraction = FunctionIntegrand.total_contraction(self._contraction, contraction)
         return FunctionIntegrand(self._function, self._defaults, contraction)
+
+    def project(self, case, projection):
+        if self._cached is not None:
+            return super().project(case, projection)
+        args = []
+        for basis, cont in zip(self._defaults, self._contraction):
+            if cont is None:
+                args.append(fn.matmat(projection, basis))
+            else:
+                args.append(basis.dot(cont)[_,...])
+        newfunc = sum(func(case, mu, *args) for func in self._function)
+        return NutilsIntegrand(newfunc, None)
 
 
 class IntegrandList(list):
@@ -348,10 +354,10 @@ class AffineRepresentation:
                 rep.append(integrand.contract(contraction), scale * i_scale)
 
     def cache(self, case, override=False):
-        for rep in self._lift_contractions.values():
-            rep.cache(case)
         if self._cached:
             return
+        for rep in self._lift_contractions.values():
+            rep.cache(case)
         if self.ndim > 2 and not override:
             return
         domain = case.domain
@@ -361,8 +367,17 @@ class AffineRepresentation:
             if integrand.cacheable:
                 integrands.append(integrand)
                 values.append(integrand.tonutils(case))
+        if not values:
+            self._cached = True
+            return
         with log.context(self.name):
-            values = domain.integrate(values, geometry=geom, ischeme='gauss9')
+            try:
+                values = domain.integrate(values, geometry=geom, ischeme='gauss9')
+            except OSError:
+                values = [
+                    domain.integrate(v, geometry=geom, ischeme='gauss9')
+                    for v in log.iter('integrand', values)
+                ]
         for integrand, value in zip(integrands, values):
             if isinstance(value, matrix.Matrix):
                 value = value.core
@@ -394,12 +409,12 @@ class AffineRepresentation:
             for itg, scl in self._integrands
         )
 
-    def project(self, projection, domain, geom):
-        self.cache(domain, geom)
+    def project(self, case, projection):
+        self.cache(case)
         new = AffineRepresentation(self.name)
         for integrand, scale in self._integrands:
-            new.append(integrand.project(projection), scale)
+            new.append(integrand.project(case, projection), scale)
         for name, rep in self._lift_contractions.items():
-            new._lift_contractions[name] = rep.project(projection, domain, geom)
-        new.cache(domain, geom, override=True)
+            new._lift_contractions[name] = rep.project(case, projection)
+        new.cache(case, override=True)
         return new

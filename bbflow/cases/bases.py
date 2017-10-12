@@ -307,7 +307,7 @@ class ProjectedCase(MetaData):
         self.cons[:] = np.nan
 
         self._integrables = OrderedDict([
-            (name, integrable.project(projection, case.domain, case.geometry))
+            (name, integrable.project(case, projection))
             for name, integrable in case._integrables.items()
         ])
 
@@ -328,8 +328,7 @@ class ProjectedCase(MetaData):
             lift = (lift,)
         assert name in self._integrables
         value = self._integrables[name].integrate(
-            self.case.domain, self.case.geometry, mu, lift=lift,
-            contraction=contraction, override=override,
+            self, mu, lift=lift, contraction=contraction, override=override,
         )
         if wrap:
             if isinstance(value, np.ndarray) and value.ndim == 2:

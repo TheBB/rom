@@ -143,6 +143,7 @@ def airfoil(nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, **kwarg
 
     case.add_parameter('angle', -np.pi*amax/180, np.pi*amax/180, default=0.0)
     case.add_parameter('velocity', 1.0, 20.0)
+    case.add_parameter('viscosity', 1.0, 1000.0)
 
     # Some quantities we need
     diam = rmax - rmin
@@ -184,7 +185,7 @@ def airfoil(nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, **kwarg
             terms[i+j+1] += fn.outer(gradu, fn.matmat(gradw, D1.transpose())).sum([-1, -2])
             terms[i+j+2] -= fn.outer(gradu, fn.matmat(gradw, D2.transpose())).sum([-1, -2])
     for i, term in enumerate(terms):
-        case.add_integrand('laplacian', term, mu['angle']**i)
+        case.add_integrand('laplacian', term, mu['angle']**i / mu['viscosity'])
 
     # Navier-Stokes convective term
     terms = [[] for _ in range(dterms)]
