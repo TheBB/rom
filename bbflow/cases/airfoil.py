@@ -120,92 +120,101 @@ def true_convection(case, mu, w, u, v):
     return convection(J, J, case, mu, w, u, v)
 
 
-def geometry(theta, case, mu):
-    return fn.matmat(rotmat(mu['angle'] * theta), case.geometry)
+def nterms_rotmat_taylor(angle):
+    exact = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
+    approx = np.zeros((2,2))
+    nterms = 0
+    while np.linalg.norm(exact - approx) > 1e-13:
+        approx += Rmat(nterms, angle)
+        nterms += 1
+    return nterms
 
 
-def airfoil(nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, **kwargs):
-    domain, refgeom, geom = mk_mesh(nelems, rmax)
-    case = Case(domain, geom)
-    case.meta['refgeom'] = refgeom
-
-    if nterms is None:
-        arg = np.pi * amax / 180
-        exact = np.array([[np.cos(arg), -np.sin(arg)], [np.sin(arg), np.cos(arg)]])
-        approx = np.zeros((2,2))
-        nterms = 0
-        while np.linalg.norm(exact - approx) > 1e-13:
-            approx += Rmat(nterms, arg)
-            nterms += 1
-        log.user('nterms:', nterms)
-
-    dterms = 2*nterms - 1
-
-    case.add_parameter('angle', -np.pi*amax/180, np.pi*amax/180, default=0.0)
-    case.add_parameter('velocity', 1.0, 20.0)
-    case.add_parameter('viscosity', 1.0, 1000.0)
-
-    # Some quantities we need
-    diam = rmax - rmin
+def intermediate(geom, rmin, rmax, nterms):
     r = fn.norm2(geom)
+    diam = rmax - rmin
     theta = (lambda x: (1 - x)**3 * (3*x + 1))((r - rmin)/diam)
     theta = fn.piecewise(r, (rmin, rmax), 1, theta, 0)
     dtheta = (lambda x: -12 * x * (1 - x)**2)((r - rmin)/diam) / diam
     dtheta = fn.piecewise(r, (rmin, rmax), 0, dtheta, 0)
+
     Q = fn.outer(geom) / r * dtheta
+    return theta, Q
 
-    # Geometry mapping
-    case.set_geometry(partial(geometry, theta))
-    case._piola.add('v')
 
-    # Add bases and construct a lift function
-    vbasis, pbasis = mk_bases(case)
-    if lift:
-        mk_lift(case)
+class airfoil(Case):
 
-    # Stokes divergence term
-    terms = [0] * dterms
-    for i in range(nterms):
-        for j in range(nterms):
-            itg = fn.matmat(vbasis, Bplus(j, theta, Q).transpose()).grad(geom)
-            itg = (itg * Bminus(i, theta, Q)).sum([-1, -2])
-            terms[i+j] += fn.outer(pbasis, itg)
-    for i, term in enumerate(terms):
-        case.add_integrand('divergence', -term, mu['angle']**i, symmetric=True)
+    def __init__(self, nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, **kwargs):
+        domain, refgeom, geom = mk_mesh(nelems, rmax)
+        super().__init__(domain, geom)
+        self.meta['refgeom'] = refgeom
 
-    # Stokes laplacian term
-    D1 = fn.matmat(Q, P) - fn.matmat(P, Q)
-    D2 = fn.matmat(P, Q, Q, P)
-    terms = [0] * (dterms + 2)
-    for i in range(nterms):
-        for j in range(nterms):
-            gradu = fn.matmat(vbasis, Bplus(i, theta, Q).transpose()).grad(geom)
-            gradw = fn.matmat(vbasis, Bplus(j, theta, Q).transpose()).grad(geom)
-            terms[i+j] += fn.outer(gradu, gradw).sum([-1, -2])
-            terms[i+j+1] += fn.outer(gradu, fn.matmat(gradw, D1.transpose())).sum([-1, -2])
-            terms[i+j+2] -= fn.outer(gradu, fn.matmat(gradw, D2.transpose())).sum([-1, -2])
-    for i, term in enumerate(terms):
-        case.add_integrand('laplacian', term, mu['angle']**i / mu['viscosity'])
+        self.add_parameter('angle', -np.pi*amax/180, np.pi*amax/180, 0.0)
+        self.add_parameter('velocity', 1.0, 20.0)
+        self.add_parameter('viscosity', 1.0, 1000.0)
 
-    # Navier-Stokes convective term
-    terms = [[] for _ in range(dterms)]
-    for i in range(nterms):
-        for j in range(nterms):
-            terms[i+j].append(partial(convection, Bplus(j, theta, Q), Bplus(i, theta, Q)))
-    conv = AffineRepresentation('convection')
-    defaults = (vbasis,) * 3
-    for i, term in enumerate(terms):
-        conv.append(FunctionIntegrand(term, defaults), scale=mu['angle']**i)
-    conv.fallback = FunctionIntegrand(true_convection, defaults)
-    case._integrables['convection'] = conv
+        if nterms is None:
+            nterms = nterms_rotmat_taylor(np.pi * amax / 180)
+            log.user('nterms:', nterms)
+        dterms = 2 * nterms - 1
 
-    # Mass matrices
-    M2 = fn.matmat(Q, P, P, Q)
-    case.add_integrand('vmass', fn.outer(vbasis, vbasis).sum([-1]))
-    case.add_integrand('vmass', -fn.outer(vbasis, fn.matmat(vbasis, D1.transpose())).sum([-1]), mu['angle'])
-    case.add_integrand('vmass', -fn.outer(vbasis, fn.matmat(vbasis, M2.transpose())).sum([-1]), mu['angle']**2)
-    case.add_integrand('pmass', fn.outer(pbasis, pbasis))
+        # Some quantities we need
+        theta, Q = intermediate(geom, rmin, rmax, nterms)
+        self.theta = theta
 
-    case.finalize()
+        # Geometry mapping
+        self._piola.add('v')
 
-    return case
+        # Add bases and construct a lift function
+        vbasis, pbasis = mk_bases(self)
+        if lift:
+            mk_lift(self)
+
+        # Stokes divergence term
+        terms = [0] * dterms
+        for i in range(nterms):
+            for j in range(nterms):
+                itg = fn.matmat(vbasis, Bplus(j, theta, Q).transpose()).grad(geom)
+                itg = (itg * Bminus(i, theta, Q)).sum([-1, -2])
+                terms[i+j] += fn.outer(pbasis, itg)
+        for i, term in enumerate(terms):
+            self.add_integrand('divergence', -term, mu['angle']**i, symmetric=True)
+
+        # Stokes laplacian term
+        D1 = fn.matmat(Q, P) - fn.matmat(P, Q)
+        D2 = fn.matmat(P, Q, Q, P)
+        terms = [0] * (dterms + 2)
+        for i in range(nterms):
+            for j in range(nterms):
+                gradu = fn.matmat(vbasis, Bplus(i, theta, Q).transpose()).grad(geom)
+                gradw = fn.matmat(vbasis, Bplus(j, theta, Q).transpose()).grad(geom)
+                terms[i+j] += fn.outer(gradu, gradw).sum([-1, -2])
+                terms[i+j+1] += fn.outer(gradu, fn.matmat(gradw, D1.transpose())).sum([-1, -2])
+                terms[i+j+2] -= fn.outer(gradu, fn.matmat(gradw, D2.transpose())).sum([-1, -2])
+        for i, term in enumerate(terms):
+            self.add_integrand('laplacian', term, mu['angle']**i / mu['viscosity'])
+
+        # Navier-Stokes convective term
+        terms = [[] for _ in range(dterms)]
+        for i in range(nterms):
+            for j in range(nterms):
+                terms[i+j].append(partial(convection, Bplus(j, theta, Q), Bplus(i, theta, Q)))
+        conv = AffineRepresentation('convection')
+        defaults = (vbasis,) * 3
+        for i, term in enumerate(terms):
+            conv.append(FunctionIntegrand(term, defaults), scale=mu['angle']**i)
+        conv.fallback = FunctionIntegrand(true_convection, defaults)
+        self._integrables['convection'] = conv
+
+        # Mass matrices
+        M2 = fn.matmat(Q, P, P, Q)
+        self.add_integrand('vmass', fn.outer(vbasis, vbasis).sum([-1]))
+        self.add_integrand('vmass', -fn.outer(vbasis, fn.matmat(vbasis, D1.transpose())).sum([-1]), mu['angle'])
+        self.add_integrand('vmass', -fn.outer(vbasis, fn.matmat(vbasis, M2.transpose())).sum([-1]), mu['angle']**2)
+        self.add_integrand('pmass', fn.outer(pbasis, pbasis))
+
+        self.finalize()
+
+
+    def _physical_geometry(self, mu):
+        return fn.matmat(rotmat(mu['angle'] * self.theta), self.geometry)

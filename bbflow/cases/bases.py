@@ -7,31 +7,35 @@ import numpy as np
 import scipy as sp
 from nutils import function as fn, matrix, _, plot, log
 from operator import itemgetter, attrgetter
+from namedlist import namedlist
 
 from bbflow.util import multiple_to_single
 from bbflow.affine import AffineRepresentation, Integrand, mu
 
 
-class MetaData:
-
-    def __init__(self):
-        self.meta = {}
-
-
-Parameter = namedtuple('Parameter', ['name', 'min', 'max', 'default', 'index'])
+Parameter = namedlist(
+    'Parameter',
+    ['position', 'name', ('min', None), ('max', None), ('default', None)]
+)
 
 
-class Case(MetaData):
+class MetaCase(type):
+
+    def __new__(cls, name, bases, kwargs):
+        kwargs['meta'] = {}
+        kwargs['parameters'] = OrderedDict()
+        kwargs['_fixed_values'] = {}
+
+        return type.__new__(cls, name, bases, kwargs)
+
+
+class Case(metaclass=MetaCase):
 
     def __init__(self, domain, geom):
         super().__init__()
         self._bases = OrderedDict()
-        self._parameters = OrderedDict()
-        self._fixed_values = {}
-        self._geometry = None
         self._integrables = {}
         self._lifts = []
-        self._exact = {}
         self._piola = set()
 
         self.domain = domain
@@ -60,12 +64,12 @@ class Case(MetaData):
     def add_parameter(self, name, min, max, default=None):
         if default is None:
             default = (min + max) / 2
-        self._parameters[name] = Parameter(name, min, max, default, len(self._parameters))
+        self.parameters[name] = Parameter(len(self.parameters), name, min, max, default)
         self._fixed_values[name] = None
 
     def parameter(self, *args, **kwargs):
         mu, index = [], 0
-        for param in self._parameters.values():
+        for param in self.parameters.values():
             fixed = self._fixed_values[param.name]
             if fixed is not None:
                 mu.append(fixed)
@@ -74,17 +78,19 @@ class Case(MetaData):
                 mu.append(kwargs[param.name])
             elif index < len(args):
                 mu.append(args[index])
-            else:
+            elif param.default is not None:
                 mu.append(param.default)
+            else:
+                mu.append((param.min + param.max) / 2)
             index += 1
         retval = dict(enumerate(mu))
-        retval.update({name: value for name, value in zip(self._parameters, mu)})
+        retval.update({name: value for name, value in zip(self.parameters, mu)})
         return retval
 
     def ranges(self):
         return [
             (p.min, p.max)
-            for p in self._parameters.values()
+            for p in self.parameters.values()
             if self._fixed_values[p.name] is None
         ]
 
@@ -92,12 +98,9 @@ class Case(MetaData):
         for name, value in kwargs.items():
             self._fixed_values[name] = value
 
-    def set_exact(self, field, function):
-        self._exact[field] = function
-
     @property
     def has_exact(self):
-        return bool(self._exact)
+        return hasattr(self, '_exact')
 
     def plot_domain(self, mu=None, show=False, figsize=(10,10), index=None):
         geometry = self.geometry
@@ -113,12 +116,11 @@ class Case(MetaData):
         self._geometry = function
 
     def physical_geometry(self, mu=None):
-        if self._geometry is None:
-            return self.geometry
-        if mu is None:
-            mu = self.parameter()
-        displacement = self._geometry(self, mu)
-        return displacement
+        if hasattr(self, '_physical_geometry'):
+            if mu is None:
+                mu = self.parameter()
+            return self._physical_geometry(mu)
+        return self.geometry
 
     def add_basis(self, name, function, length):
         self._bases[name] = (function, length)
@@ -260,7 +262,9 @@ class Case(MetaData):
 
     @multiple_to_single('field')
     def exact(self, mu, field):
-        sol = self._exact[field](self, mu)
+        assert self.has_exact
+        sol = self._exact(mu, field)
+        print(type(sol))
         if field in self._piola:
             J = self.physical_geometry(mu).grad(self.geometry)
             sol = fn.matmat(sol, J.transpose())
@@ -275,7 +279,7 @@ class Case(MetaData):
         return patches.dot([1 if i in dom else 0 for i in range(len(patches))])
 
 
-class ProjectedCase(MetaData):
+class ProjectedCase:
 
     def __init__(self, case, projection, lengths, fields=None):
         assert not isinstance(case, ProjectedCase)
@@ -284,6 +288,7 @@ class ProjectedCase(MetaData):
         if fields is None:
             fields = list(case._bases)
 
+        self.meta = {}
         self.case = case
         self.projection = projection
         self._bases = OrderedDict(zip(fields, lengths))
