@@ -5,6 +5,15 @@ from nutils import mesh, function as fn, log, _
 from bbflow.cases.bases import mu, Case
 
 
+def geometry(case, mu):
+    x, y = case.geometry
+    scale = (
+        fn.piecewise(x, (0,), 1, mu['length']),
+        fn.piecewise(y, (0,), mu['height'], 1),
+    )
+    return case.geometry * scale
+
+
 def backstep(refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True, **kwargs):
     if nel_up is None:
         nel_up = int(10 * refine)
@@ -33,9 +42,7 @@ def backstep(refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True, *
     case.add_parameter('height', 0.3, 2, 1)
     case.add_parameter('velocity', 0.5, 1.2, 1)
 
-    x, y = geom
-    case.add_displacement(geom * (fn.heaviside(x), 0), mu['length']-1)
-    case.add_displacement(geom * (0, fn.heaviside(-y)), mu['height']-1)
+    case.set_geometry(geometry)
 
     # Bases
     bases = [
@@ -57,6 +64,7 @@ def backstep(refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True, *
     vgrad = vbasis.grad(geom)
 
     # Lifting function
+    __, y = case.geometry
     profile = fn.max(0, y*(1-y) * 4)[_] * (1, 0)
     case.add_lift(profile, 'v', scale=mu['velocity'])
 

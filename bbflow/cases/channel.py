@@ -1,8 +1,13 @@
+from functools import partial
 import numpy as np
 import scipy as sp
 from nutils import mesh, function as fn, log, _, plot
 
 from bbflow.cases.bases import mu, Case
+
+
+def ignore(retval, *args, **kwargs):
+    return retval
 
 
 def channel(refine=1, degree=3, nel=None, **kwargs):
@@ -33,8 +38,8 @@ def channel(refine=1, degree=3, nel=None, **kwargs):
     profile = (y * (1 - y))[_] * (1, 0)
     case.add_lift(profile, 'v')
 
-    case.add_exact('v', profile)
-    case.add_exact('p', 4 - 2*x)
+    case.set_exact('v', partial(ignore, profile))
+    case.set_exact('p', partial(ignore, 4 - 2*x))
 
     case.add_integrand('divergence', -fn.outer(vbasis.div(geom), pbasis), symmetric=True)
     case.add_integrand('laplacian', fn.outer(vbasis.grad(geom)).sum((-1, -2)))

@@ -1,8 +1,13 @@
+from functools import partial
 import numpy as np
 import scipy as sp
 from nutils import mesh, function as fn, log, _, plot
 
 from bbflow.cases.bases import mu, Case
+
+
+def ignore(retval, *args, **kwargs):
+    return retval
 
 
 def cavity(refine=1, degree=4, nel=None, **kwargs):
@@ -42,8 +47,8 @@ def cavity(refine=1, degree=4, nel=None, **kwargs):
     pressure -= domain.integrate(pressure, ischeme='gauss9', geometry=geom) / domain.volume(geometry=geom)
     force = pressure.grad(geom) - velocity.laplace(geom)
 
-    case.add_exact('v', velocity)
-    case.add_exact('p', pressure)
+    case.set_exact('v', partial(ignore, velocity))
+    case.set_exact('p', partial(ignore, pressure))
 
     case.add_integrand('forcing', (vbasis * force[_,:]).sum(-1))
     case.add_integrand('divergence', -fn.outer(vbasis.div(geom), pbasis), symmetric=True)

@@ -1,9 +1,19 @@
+from functools import partial
 import numpy as np
 import scipy as sp
 from nutils import mesh, function as fn, log, _, plot
 
 from bbflow.cases.bases import mu, Case
 import sys
+
+
+def geometry(case, mu):
+    return (mu['w'], mu['h']) * case.geometry
+
+
+def exact_sln(ex, r, case, mu):
+    scale = mu['w']**(r-1) * mu['h']**(r-1)
+    return scale * ex
 
 
 def exact(refine=1, degree=3, nel=None, power=3, **kwargs):
@@ -19,8 +29,7 @@ def exact(refine=1, degree=3, nel=None, power=3, **kwargs):
     case.add_parameter('w', 1, 2)
     case.add_parameter('h', 1, 2)
 
-    case.add_displacement(fn.asarray((x, 0)), mu['w']-1)
-    case.add_displacement(fn.asarray((0, y)), mu['h']-1)
+    case.set_geometry(geometry)
 
     bases = [
         domain.basis('spline', degree=(degree, degree-1)),  # vx
@@ -50,9 +59,11 @@ def exact(refine=1, degree=3, nel=None, power=3, **kwargs):
     f3 = r*(r-1)*(r-2) * x**(r-3)
     g3 = r*(r-1)*(r-2) * y**(r-3)
 
-    case.add_exact('v', fn.asarray((f*g1, 0)), mu['w']**(r-1) * mu['h']**(r-1))
-    case.add_exact('v', - fn.asarray((0, f1*g)), mu['w']**(r-1) * mu['h']**(r-1))
-    case.add_exact('p', f1*g1 - 1, mu['w']**(r-1) * mu['h']**(r-1))
+    case.set_exact('v', partial(exact_sln, fn.asarray((f*g1, -f1*g)), r))
+    case.set_exact('p', partial(exact_sln, f1*g1 - 1, r))
+    # case.add_exact('v', fn.asarray((f*g1, 0)), mu['w']**(r-1) * mu['h']**(r-1))
+    # case.add_exact('v', - fn.asarray((0, f1*g)), mu['w']**(r-1) * mu['h']**(r-1))
+    # case.add_exact('p', f1*g1 - 1, mu['w']**(r-1) * mu['h']**(r-1))
 
     # Awkward way of computing a solenoidal lift
     mdom, t = mesh.rectilinear([pts])
@@ -111,8 +122,7 @@ def exact(refine=1, degree=3, nel=None, power=3, **kwargs):
 
     case.add_collocate('stab-rhs', - f*g3[_], points, index=case.root+1, scale=mu['w']**3 * mu['h']**(r-3))
 
-    case.add_piola('v', fn.asarray(((1, 0), (0, 0))), mu['w'])
-    case.add_piola('v', fn.asarray(((0, 0), (0, 1))), mu['h'])
+    case._piola.add('v')
 
     case.finalize()
 
