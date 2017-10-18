@@ -105,3 +105,19 @@ def test_mass_matrix(mu):
     itg = case.integrand('vmass', mu)
     test_mx = case.domain.integrate(itg, geometry=case.geometry, ischeme='gauss9')
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+
+
+def test_convection(mu):
+    p_vbasis, p_pbasis = piola_bases(mu)
+    trfgeom = case.physical_geometry(mu)
+
+    a, b, c = [np.random.rand(p_vbasis.shape[0]) for __ in range(3)]
+    u = p_vbasis.dot(b)
+    v = p_vbasis.dot(c).grad(trfgeom)
+    w = p_vbasis.dot(a)
+
+    itg = (w[:,_] * u[_,:] * v[:,:]).sum([-1, -2])
+    phys_conv = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
+
+    test_conv = case.integrate('convection', mu, contraction=(a,b,c)).get()
+    np.testing.assert_almost_equal(phys_conv, test_conv)
