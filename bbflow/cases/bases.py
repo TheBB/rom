@@ -13,26 +13,18 @@ from bbflow.util import multiple_to_single
 from bbflow.affine import AffineRepresentation, Integrand, mu
 
 
-Parameter = namedlist(
-    'Parameter',
-    ['position', 'name', ('min', None), ('max', None), ('default', None)]
-)
+Parameter = namedtuple('Parameter', ['position', 'name', 'min', 'max', 'default'])
 
 
-class MetaCase(type):
-
-    def __new__(cls, name, bases, kwargs):
-        kwargs['meta'] = {}
-        kwargs['parameters'] = OrderedDict()
-        kwargs['_fixed_values'] = {}
-
-        return type.__new__(cls, name, bases, kwargs)
-
-
-class Case(metaclass=MetaCase):
+class Case:
 
     def __init__(self, domain, geom):
         super().__init__()
+
+        self.meta = {}
+        self.parameters = OrderedDict()
+        self._fixed_values = {}
+
         self._bases = OrderedDict()
         self._integrables = {}
         self._lifts = []
