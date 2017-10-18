@@ -351,7 +351,7 @@ class AffineRepresentation:
                 contraction[ax] = lift
             rep = self._lift_contractions[frozenset(axes)]
             for integrand, i_scale in self._integrands:
-                rep.append(integrand.contract(contraction), scale * i_scale)
+                rep.append(integrand.contract(contraction), i_scale * scale**len(axes))
 
     def cache(self, case, override=False):
         if self._cached:
