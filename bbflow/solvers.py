@@ -113,7 +113,8 @@ def metrics(case, mu, lhs, **kwargs):
 
 
 def plots(case, mu, lhs, plot_name='solution', index=0, colorbar=False,
-          figsize=(10, 10), show=False, fields='', lift=True, density=1, **kwargs):
+          figsize=(10, 10), show=False, fields='', lift=True, density=1,
+          xlim=None, ylim=None, axes=True, **kwargs):
     if isinstance(fields, str):
         fields = [fields]
 
@@ -126,22 +127,26 @@ def plots(case, mu, lhs, plot_name='solution', index=0, colorbar=False,
         ischeme='bezier9', separate=True
     )
 
+    def modify(plt):
+        if show: plt.show()
+        if xlim: plt.xlim(*xlim)
+        if ylim: plt.ylim(*ylim)
+        if not axes: plt.axis('off')
+
     if 'v' in fields:
         with plot.PyPlot(plot_name + '-v', index=index, figsize=figsize) as plt:
             plt.mesh(points, speed)
             if colorbar:
                 plt.colorbar()
             plt.streamplot(points, velocity, spacing=0.1, color='black', density=density)
-            if show:
-                plt.show()
+            modify(plt)
 
     if 'p' in fields:
         with plot.PyPlot(plot_name + '-p', index=index, figsize=figsize) as plt:
             plt.mesh(points, press)
             if colorbar:
                 plt.colorbar()
-            if show:
-                plt.show()
+            modify(plt)
 
     if 'vp' in fields:
         with plot.PyPlot(plot_name + '-vp', index=index, figsize=figsize) as plt:
@@ -149,8 +154,7 @@ def plots(case, mu, lhs, plot_name='solution', index=0, colorbar=False,
             if colorbar:
                 plt.colorbar()
             plt.streamplot(points, velocity, spacing=0.1, density=density)
-            if show:
-                plt.show()
+            modify(plt)
 
 
 def stokes(case, mu, **kwargs):
