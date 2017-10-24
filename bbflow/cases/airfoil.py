@@ -22,10 +22,12 @@ def Pmat(i):
     return Ps[i % 4]
 
 
-def Rmat(i, theta):
+def Rmat(i, theta=None):
     if i < 0:
         return np.zeros((2,2))
-    return theta**i / factorial(i) * Pmat(i)
+    if theta is not None:
+        return theta**i / factorial(i) * Pmat(i)
+    return Pmat(i) / factorial(i)
 
 
 def Bminus(i, theta, Q):
@@ -256,6 +258,13 @@ class airfoil(Case):
                 'vmass', -fn.outer(vbasis, fn.matmat(vbasis, M2.transpose())).sum([-1]), mu['angle']**2
             )
         self.add_integrand('pmass', fn.outer(pbasis, pbasis))
+
+        # Pressure force
+        for i in range(nterms):
+            self.add_integrand(
+                'pforce', pbasis[:,_] * fn.matmat(Rmat(i), geom.normal())[_,:],
+                mu['angle']**i, domain=domain.boundary['left'],
+            )
 
         self.finalize()
 

@@ -1,6 +1,6 @@
 from itertools import combinations, chain
 import numpy as np
-from nutils import function as fn, log, matrix, _
+from nutils import function as fn, log, matrix, _, topology
 from operator import itemgetter, attrgetter
 import scipy as sp
 
@@ -128,11 +128,18 @@ class Integrand:
 
     def project(self, case, projection):
         value = self.value
-        if self.ndim == 1:
+
+        ndim = 0
+        for axlen in value.shape:
+            if axlen != projection.shape[1]:
+                break
+            ndim += 1
+
+        if ndim == 1:
             return Integrand.make(projection.dot(value))
-        elif self.ndim == 2:
+        elif ndim == 2:
             return Integrand.make(projection.dot(value.dot(projection.T)))
-        elif self.ndim == 3:
+        elif ndim == 3:
             reduced = (
                 value[_,:,_,:,_,:] * projection[:,:,_,_,_,_] *
                 projection[_,_,:,:,_,_] * projection[_,_,_,_,:,:]
@@ -187,6 +194,13 @@ class NutilsIntegrand(Integrand):
         return self._function.shape
 
     def tonutils(self, case, contraction=None, mu=None):
+        func = self._function
+        if contraction is not None:
+            func = Integrand._contract(func, contraction, self.ndim)
+
+        if isinstance(self._domain_spec, topology.Topology):
+            return self._domain_spec, func
+
         if self._domain_spec is None:
             indicator = 1
         else:
@@ -195,10 +209,7 @@ class NutilsIntegrand(Integrand):
                 1 if i in self._domain_spec else 0
                 for i in range(len(patches))
             ])
-        func = self._function
-        if contraction is not None:
-            func = Integrand._contract(func, contraction, self.ndim)
-        return func * indicator
+        return None, func * indicator
 
     def contract(self, contraction):
         return NutilsIntegrand(Integrand._contract(
@@ -265,7 +276,7 @@ class FunctionIntegrand(Integrand):
                 bases.append(basis)
             else:
                 bases.append(basis.dot(cont)[_,...])
-        return sum(func(case, mu, *bases) for func in self._function)
+        return None, sum(func(case, mu, *bases) for func in self._function)
 
     def contract(self, contraction):
         assert len(contraction) == self.ndim
@@ -331,12 +342,18 @@ class AffineRepresentation:
         self._integrands.append((integrand, scale))
 
     def contract_lifts(self, lift, scale):
-        if self.ndim == 1:
+        ndim = 0
+        for axlen in self.shape:
+            if axlen != len(lift):
+                break
+            ndim += 1
+
+        if ndim == 1:
             return
 
         axes_combs = list(chain.from_iterable(
-            combinations(range(1, self.ndim), naxes)
-            for naxes in range(1, self.ndim)
+            combinations(range(1, ndim), naxes)
+            for naxes in range(1, ndim)
         ))
 
         if not self._lift_contractions:
@@ -371,12 +388,17 @@ class AffineRepresentation:
             self._cached = True
             return
         with log.context(self.name):
-            try:
-                values = domain.integrate(values, geometry=geom, ischeme='gauss9')
-            except OSError:
+            success = False
+            if all(domain is None for domain, __ in values):
+                try:
+                    values = domain.integrate([v for __, v in values], geometry=geom, ischeme='gauss9')
+                    success = True
+                except OSError:
+                    pass
+            if not success:
                 values = [
-                    domain.integrate(v, geometry=geom, ischeme='gauss9')
-                    for v in log.iter('integrand', values)
+                    d.integrate(v, geometry=geom, ischeme='gauss9')
+                    for d, v in log.iter('integrand', values)
                 ]
         for integrand, value in zip(integrands, values):
             if isinstance(value, matrix.Matrix):
@@ -403,11 +425,15 @@ class AffineRepresentation:
             rep = self._lift_contractions[frozenset(key)]
             return rep.integrand(case, mu, contraction=None)
         if self.fallback:
-            return self.fallback.tonutils(case, contraction=contraction, mu=mu)
-        return sum(
-            itg.tonutils(case, contraction=contraction, mu=mu) * scl(mu)
-            for itg, scl in self._integrands
-        )
+            domain, integrand = self.fallback.tonutils(case, contraction=contraction, mu=mu)
+            assert domain is None
+            return integrand
+        retvals = [
+            itg.tonutils(case, contraction=contraction, mu=mu)
+            for itg, __ in self._integrands
+        ]
+        assert all(domain is None for domain, __ in retvals)
+        return sum(itg * scl(mu) for (__, itg), (__, scl) in zip(retvals, self._integrands))
 
     def project(self, case, projection):
         self.cache(case)
