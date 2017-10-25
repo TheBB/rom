@@ -120,6 +120,11 @@ class Integrand:
         self._cached = cached
         self.cacheable = False
 
+    def del_cache(self):
+        assert not self.cacheable
+        self._cached = None
+        self.cacheable = True
+
     @property
     def value(self):
         assert not self.cacheable
@@ -135,11 +140,13 @@ class Integrand:
                 break
             ndim += 1
 
-        if ndim == 1:
+        if self.ndim == 1 and ndim == 1:
             return Integrand.make(projection.dot(value))
-        elif ndim == 2:
+        elif self.ndim == 2 and ndim == 1:
+            return Integrand.make(value.T.dot(projection.T).T)
+        elif self.ndim == 2:
             return Integrand.make(projection.dot(value.dot(projection.T)))
-        elif ndim == 3:
+        elif self.ndim == 3:
             reduced = (
                 value[_,:,_,:,_,:] * projection[:,:,_,_,_,_] *
                 projection[_,_,:,:,_,_] * projection[_,_,_,_,:,:]
@@ -397,7 +404,7 @@ class AffineRepresentation:
                     pass
             if not success:
                 values = [
-                    d.integrate(v, geometry=geom, ischeme='gauss9')
+                    (d or domain).integrate(v, geometry=geom, ischeme='gauss9')
                     for d, v in log.iter('integrand', values)
                 ]
         for integrand, value in zip(integrands, values):
@@ -405,6 +412,15 @@ class AffineRepresentation:
                 value = value.core
             integrand.save_cache(value)
         self._cached = True
+
+    def uncache(self):
+        if not self._cached:
+            return
+        for rep in self._lift_contractions.values():
+            rep.uncache()
+        for integrand, __ in self._integrands:
+            integrand.del_cache()
+        self._cached = False
 
     def integrate(self, case, mu, lift=None, contraction=None, override=False):
         if lift is not None:

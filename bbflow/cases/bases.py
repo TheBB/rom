@@ -208,6 +208,10 @@ class Case:
         for integrable in self._integrables.values():
             integrable.cache(self)
 
+    def uncache(self):
+        for integrable in self._integrables.values():
+            integrable.uncache()
+
     @log.title
     def integrate(self, name, mu, lift=None, contraction=None, override=False, wrap=True):
         if isinstance(lift, int):
@@ -292,6 +296,8 @@ class ProjectedCase:
             for name, integrable in case._integrables.items()
         ])
 
+        case.uncache()
+
         self.fast_tensors = True
 
     def __iter__(self):
@@ -367,4 +373,7 @@ class ProjectedCase:
         return self.case.exact(*args, **kwargs)
 
     def cache(self):
+        pass
+
+    def uncache(self):
         pass
