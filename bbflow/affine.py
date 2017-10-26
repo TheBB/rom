@@ -169,6 +169,9 @@ class ArrayIntegrand(Integrand):
     def shape(self):
         return self.value.shape
 
+    def del_cache(self):
+        pass
+
     def contract(self, contraction):
         if isinstance(self.value, np.ndarray):
             return ArrayIntegrand(Integrand._contract(self.value, contraction, self.ndim))
