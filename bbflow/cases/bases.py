@@ -184,10 +184,12 @@ class Case:
             index = self.root
         ncomps = equation.shape[-1]
 
-        data = np.array([
-            equation.eval(self.domain.elements[eid], np.array([pt]))[0]
-            for eid, pt in points
-        ])
+        elements = [self.domain.elements[eid] for eid, __ in points]
+        kwargs = [{
+            '_transforms': (elem.transform, elem.opposite),
+            '_points': np.array([pt]),
+        } for elem, (__, pt) in zip(elements, points)]
+        data = np.array([equation.eval(**kwg)[0] for kwg in kwargs])
 
         if equation.ndim == 2:
             data = np.transpose(data, (0, 2, 1))
