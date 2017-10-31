@@ -135,3 +135,24 @@ def make_reduced_parallel(case, ensemble, decomp, nmodes):
     pool = Pool()
     cases = list(log.iter('case', pool.imap(_make_reduced_parallel, args)))
     return cases
+
+
+def infsup(case, quadrule):
+    mu = case.parameter()
+    vind, pind = case.basis_indices(['v', 'p'])
+
+    # Ensure that Vmass = Pmass = I
+    for name, ind in [('vmass', vind), ('pmass', pind)]:
+        mass = case[name](mu, wrap=False)[np.ix_(ind,ind)]
+        np.testing.assert_almost_equal(np.diag(mass), 1.0)
+        np.testing.assert_almost_equal(mass - np.diag([1.0] * mass.shape[0]), 0.0)
+
+    bound = np.inf
+    for mu, __ in quadrule:
+        mu = case.parameter(*mu)
+        mx = case['divergence'](mu, wrap=False)[np.ix_(pind,vind)]
+        mx = mx.dot(mx.T)
+        ev = np.sqrt(np.linalg.eigvalsh(mx)[0])
+        bound = min(bound, ev)
+
+    return bound

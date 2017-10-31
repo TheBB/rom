@@ -125,6 +125,7 @@ class Case:
         J = self.physical_geometry(mu).grad(self.geometry)
         return fn.matmat(basis, J.transpose())
 
+    @multiple_to_single('name')
     def basis_indices(self, name):
         start = 0
         for field, (__, length) in self._bases.items():
@@ -309,6 +310,16 @@ class ProjectedCase:
     def __getitem__(self, key):
         assert key in self
         return partial(self.integrate, key)
+
+    @multiple_to_single('name')
+    def basis_indices(self, name):
+        start = 0
+        for field, length in self._bases.items():
+            if field != name:
+                start += length
+            else:
+                break
+        return np.arange(start, start + length, dtype=np.int)
 
     def integrate(self, name, mu, lift=None, contraction=None, override=False, wrap=True):
         if isinstance(lift, int):
