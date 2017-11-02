@@ -16,7 +16,4 @@ setup(
         'nutils',
         'numpy',
     ],
-    entry_points={
-        'console_scripts': ['bbflow=bbflow.__main__:main']
-    },
 )
