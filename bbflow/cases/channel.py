@@ -7,7 +7,7 @@ from bbflow.cases.bases import mu, Case
 
 class channel(Case):
 
-    def __init__(self, refine=1, degree=3, nel=None, **kwargs):
+    def __init__(self, refine=1, degree=3, nel=None):
         if nel is None:
             nel = int(10 * refine)
 

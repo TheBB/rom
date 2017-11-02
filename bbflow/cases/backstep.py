@@ -7,7 +7,7 @@ from bbflow.cases.bases import mu, Case
 
 class backstep(Case):
 
-    def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True, **kwargs):
+    def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True):
         if nel_up is None:
             nel_up = int(10 * refine)
         if nel_length is None:

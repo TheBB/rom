@@ -8,7 +8,7 @@ import sys
 
 class exact(Case):
 
-    def __init__(self, refine=1, degree=3, nel=None, power=3, **kwargs):
+    def __init__(self, refine=1, degree=3, nel=None, power=3):
         if nel is None:
             nel = int(10 * refine)
 

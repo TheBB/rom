@@ -24,7 +24,7 @@ class IterationCountError(Exception):
 
 
 @_time
-def _stokes(case, mu, **kwargs):
+def stokes(case, mu):
     assert 'divergence' in case
     assert 'laplacian' in case
 
@@ -43,7 +43,7 @@ def _stokes(case, mu, **kwargs):
 
 
 @_time
-def _navierstokes(case, mu, newton_tol=1e-10, maxit=10, **kwargs):
+def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     assert 'divergence' in case
     assert 'laplacian' in case
     assert 'convection' in case
@@ -101,7 +101,7 @@ def _navierstokes(case, mu, newton_tol=1e-10, maxit=10, **kwargs):
     return lhs
 
 
-def metrics(case, mu, lhs, **kwargs):
+def metrics(case, mu, lhs):
     domain = case.domain
     geom = case.physical_geometry(mu)
     vsol = case.solution(lhs, mu, 'v')
@@ -114,7 +114,7 @@ def metrics(case, mu, lhs, **kwargs):
 
 def plots(case, mu, lhs, plot_name='solution', index=0, colorbar=False,
           figsize=(10, 10), show=False, fields='', lift=True, density=1,
-          xlim=None, ylim=None, axes=True, **kwargs):
+          xlim=None, ylim=None, axes=True):
     if isinstance(fields, str):
         fields = [fields]
 
@@ -155,11 +155,3 @@ def plots(case, mu, lhs, plot_name='solution', index=0, colorbar=False,
                 plt.colorbar()
             plt.streamplot(points, velocity, spacing=0.1, density=density)
             modify(plt)
-
-
-def stokes(case, mu, **kwargs):
-    return _stokes(case, mu, **kwargs)
-
-
-def navierstokes(case, mu, **kwargs):
-    return _navierstokes(case, mu, **kwargs)

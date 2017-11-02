@@ -165,7 +165,7 @@ def intermediate(geom, rmin, rmax, nterms):
 
 class airfoil(Case):
 
-    def __init__(self, nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, piola=True, **kwargs):
+    def __init__(self, nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, piola=True):
         domain, refgeom, geom = mk_mesh(nelems, rmax)
         super().__init__(domain, geom)
         self.meta['refgeom'] = refgeom

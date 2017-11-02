@@ -8,7 +8,7 @@ from operator import itemgetter
 from bbflow.cases import ProjectedCase
 
 
-def eigen(case, ensemble, fields=None, **kwargs):
+def eigen(case, ensemble, fields=None):
     if fields is None:
         fields = list(case._bases)
     retval = OrderedDict()
@@ -22,7 +22,7 @@ def eigen(case, ensemble, fields=None, **kwargs):
     return retval
 
 
-def plot_spectrum(decomp, show=False, figsize=(10,10), plot_name='spectrum', index=0, **kwargs):
+def plot_spectrum(decomp, show=False, figsize=(10,10), plot_name='spectrum', index=0):
     with plot.PyPlot(plot_name, index=index, figsize=figsize) as plt:
         for f, (evs, __) in decomp.items():
             evs, __ = decomp[f]
