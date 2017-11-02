@@ -101,6 +101,19 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     return lhs
 
 
+@_time
+def supremizer(case, mu, rhs):
+    vinds, pinds = case.basis_indices(['v', 'p'])
+    bmx = case['divergence'](mu).core[np.ix_(vinds,pinds)]
+    length = len(rhs)
+    rhs = bmx.dot(rhs[pinds])
+    mass = matrix.ScipyMatrix(case['vmass'](case.parameter()).core[np.ix_(vinds,vinds)])
+    cons = case.cons[vinds]
+    lhs = mass.solve(rhs, constrain=cons)
+    lhs.resize((length,))
+    return lhs
+
+
 def metrics(case, mu, lhs):
     domain = case.domain
     geom = case.physical_geometry(mu)
