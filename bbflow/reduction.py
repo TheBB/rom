@@ -57,34 +57,31 @@ def infsup(case, quadrule):
     mu = case.parameter()
     vind, pind = case.basis_indices(['v', 'p'])
 
-    # Ensure that Vmass = Pmass = I
-    for name, ind in [('vmass', vind), ('pmass', pind)]:
-        mass = case[name](mu, wrap=False)[np.ix_(ind,ind)]
-        np.testing.assert_almost_equal(np.diag(mass), 1.0)
-        np.testing.assert_almost_equal(mass - np.diag([1.0] * mass.shape[0]), 0.0)
-
     bound = np.inf
     for mu, __ in quadrule:
         mu = case.parameter(*mu)
-        mx = case['divergence'](mu, wrap=False)[np.ix_(pind,vind)]
-        mx = mx.dot(mx.T)
-        ev = np.sqrt(np.linalg.eigvalsh(mx)[0])
+        b = case['divergence'](mu, wrap=False)[np.ix_(pind,vind)]
+        v = np.linalg.inv(case['vmass'](mu, wrap=False)[np.ix_(vind,vind)])
+        mx = b.dot(v).dot(b.T)
+        ev = np.sqrt(np.abs(np.linalg.eigvalsh(mx)[0]))
         bound = min(bound, ev)
 
     return bound
 
 
-def make_reduced(case, ensemble, decomp, nmodes):
-    projection, lengths = reduce(case, ensemble, decomp, nmodes)
-    projcase = ProjectedCase(case, projection, lengths, fields=list(decomp))
+def make_reduced(case, basis, *extra_bases):
+    for extra_basis in extra_bases:
+        for name, mx in extra_basis.items():
+            if name in basis:
+                basis[name] = np.vstack((basis[name], mx))
+            else:
+                basis[name] = mx
 
-    projcase.meta['nmodes'] = dict(zip(decomp, lengths))
-    errors = {}
-    for name, num in zip(decomp, lengths):
-        evs, __ = decomp[name]
-        errors[name] = np.sqrt(max(0.0, np.sum(evs[num:])))
-    projcase.meta['errors'] = errors
+    lengths = [mx.shape[0] for mx in basis.values()]
+    projection = np.vstack([mx for mx in basis.values()])
+    projcase = ProjectedCase(case, projection, lengths, fields=list(basis))
 
+    projcase.meta['nmodes'] = dict(zip(basis, lengths))
     return projcase
 
 
