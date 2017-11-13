@@ -131,27 +131,3 @@ class backstep(Case):
             fn.piecewise(y, (0,), mu['height'], 1),
         )
         return self.geometry * scale
-
-
-def backstep_geom(*args, **kwargs):
-    case = backstep(*args, **kwargs)
-    case.restrict((None, None, None, 0.2))
-    return case
-
-
-def backstep_inlet(*args, **kwargs):
-    case = backstep(*args, **kwargs)
-    case.restrict((None, 10.0, None, None))
-    return case
-
-
-def backstep_test(*args, **kwargs):
-    case = backstep(*args, **kwargs)
-    case.restrict(viscosity=20, length=10)
-    return case
-
-
-def backstep_trivial(*args, **kwargs):
-    case = backstep(*args, **kwargs)
-    case.restrict(viscosity=20, length=10, velocity=1)
-    return case
