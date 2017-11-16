@@ -1,5 +1,6 @@
 import inspect
 import functools
+import time as timemod
 
 
 def multiple_to_single(argname):
@@ -24,3 +25,20 @@ def multiple_to_single(argname):
 
         return ret
     return decorator
+
+
+class time:
+
+    def __init__(self, display=True):
+        self._display = True
+        self._time = 0.0
+
+    def __enter__(self):
+        self._time = timemod.time()
+
+    def __exit__(self):
+        self._time = timemod.time() - self._time
+
+    @property
+    def seconds(self):
+        return self._time

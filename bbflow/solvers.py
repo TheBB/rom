@@ -2,28 +2,15 @@ from functools import wraps
 from itertools import count
 import numpy as np
 from nutils import function as fn, log, plot, _, matrix
-import time
 
 
 __all__ = ['stokes', 'navierstokes']
-
-
-def _time(func):
-    @wraps(func)
-    def ret(*args, **kwargs):
-        start = time.time()
-        retval = func(*args, **kwargs)
-        end = time.time()
-        log.info('took {:.2e} seconds'.format(end - start))
-        return retval
-    return ret
 
 
 class IterationCountError(Exception):
     pass
 
 
-@_time
 def stokes(case, mu):
     assert 'divergence' in case
     assert 'laplacian' in case
@@ -42,7 +29,6 @@ def stokes(case, mu):
     return lhs
 
 
-@_time
 def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     assert 'divergence' in case
     assert 'laplacian' in case
@@ -101,7 +87,6 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     return lhs
 
 
-@_time
 def supremizer(case, mu, rhs):
     vinds, pinds = case.basis_indices(['v', 'p'])
     bmx = case['divergence'](mu).core[np.ix_(vinds,pinds)]
