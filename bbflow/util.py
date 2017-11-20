@@ -1,6 +1,7 @@
 import inspect
 import functools
 import time as timemod
+from nutils import log
 
 
 def multiple_to_single(argname):
@@ -29,15 +30,20 @@ def multiple_to_single(argname):
 
 class time:
 
-    def __init__(self, display=True):
+    def __init__(self, context=None, display=True):
         self._display = True
+        self._context = context
         self._time = 0.0
 
     def __enter__(self):
         self._time = timemod.time()
+        return self
 
-    def __exit__(self):
+    def __exit__(self, exc_type, exc_value, traceback):
         self._time = timemod.time() - self._time
+        if self._display:
+            s = (str(self._context) + ': ') if self._context is not None else ''
+            log.user('{}{:.2e} seconds'.format(s, self._time))
 
     @property
     def seconds(self):
