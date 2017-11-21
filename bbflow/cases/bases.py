@@ -32,7 +32,6 @@ class Case:
 
         self.domain = domain
         self.geometry = geom
-        self.fast_tensors = False
 
     def __iter__(self):
         yield from self._integrables
@@ -248,8 +247,6 @@ class ProjectedCase:
         ])
 
         case.uncache()
-
-        self.fast_tensors = True
 
     def __iter__(self):
         yield from self.case
