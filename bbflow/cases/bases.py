@@ -180,7 +180,6 @@ class Case:
         new_itgs = {}
         for name, itg in self._integrables.items():
             itg = itg.cache(**kwargs)
-            print(f'Contracting for {name}')
             for lift, scale in self._lifts:
                 itg.contract_lifts(lift, scale)
             new_itgs[name] = itg
@@ -213,7 +212,6 @@ class Case:
     def exact(self, mu, field):
         assert self.has_exact
         sol = self._exact(mu, field)
-        print(type(sol))
         if field in self._piola:
             J = self.physical_geometry(mu).grad(self.geometry)
             sol = fn.matmat(sol, J.transpose())
