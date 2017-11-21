@@ -58,6 +58,7 @@ class Case:
             default = (min + max) / 2
         self.parameters[name] = Parameter(len(self.parameters), name, min, max, default)
         self._fixed_values[name] = None
+        return mu[name]
 
     def parameter(self, *args, **kwargs):
         mu, index = [], 0
