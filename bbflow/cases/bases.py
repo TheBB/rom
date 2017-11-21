@@ -170,50 +170,10 @@ class Case:
         lift[np.where(np.isnan(lift))] = 0.0
         self._lifts.append((lift, scale))
 
-    def add_integrand(self, name, integrand, scale=None, domain=None, symmetric=False):
-        if name not in self._integrables:
-            self._integrables[name] = AffineRepresentation(name)
-        if symmetric:
-            integrand = integrand + integrand.T
-        if scale is None:
-            scale = mu(1.0)
-        integrand = Integrand.make(integrand, domain)
-        self._integrables[name].append(integrand, scale)
-
     def finalize(self):
         for integrable in self._integrables.values():
             for lift, scale in self._lifts:
                 integrable.contract_lifts(lift, scale)
-
-    @log.title
-    def cache(self):
-        for integrable in self._integrables.values():
-            integrable.cache(self)
-
-    def uncache(self):
-        for integrable in self._integrables.values():
-            integrable.uncache()
-
-    @log.title
-    def integrate(self, name, mu, lift=None, contraction=None, override=False, wrap=True):
-        if isinstance(lift, int):
-            lift = (lift,)
-        assert name in self._integrables
-        value = self._integrables[name].integrate(
-            self, mu, lift=lift, contraction=contraction, override=override,
-        )
-        if wrap:
-            if isinstance(value, np.ndarray) and value.ndim == 2:
-                return matrix.NumpyMatrix(value)
-            if isinstance(value, sp.sparse.spmatrix):
-                return matrix.ScipyMatrix(value)
-        return value
-
-    def integrand(self, name, mu, lift=None):
-        if isinstance(lift, int):
-            lift = (lift,)
-        assert name in self._integrables
-        return self._integrables[name].integrand(self, mu, lift=lift)
 
     def mass(self, field, mu=None):
         if mu is None:
