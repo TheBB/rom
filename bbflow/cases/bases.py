@@ -10,7 +10,7 @@ from operator import itemgetter, attrgetter
 from namedlist import namedlist
 
 from bbflow.util import multiple_to_single
-from bbflow.affine import AffineRepresentation, Integrand, mu
+from bbflow.newaffine import mu, Integrand, AffineRepresentation
 
 
 Parameter = namedtuple('Parameter', ['position', 'name', 'min', 'max', 'default'])
