@@ -52,26 +52,15 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     stokes_rhs -= case['convection'](mu, lift=(1,2))
 
     vmass = case.mass('v', mu)
-
-    if case.fast_tensors:
-        def conv(lhs):
-            a = case['convection'](mu, contraction=(None, lhs, None))
-            b = case['convection'](mu, contraction=(None, None, lhs))
-            c = case['convection'](mu, contraction=(None, lhs, lhs))
-            return a + b, c
-    else:
-        def conv(lhs):
-            a, b, c = (
-                case['convection'](mu, contraction=(None, lhs, None)) +
-                case['convection'](mu, contraction=(None, None, lhs)) +
-                case['convection'](mu, contraction=(None, lhs, lhs))
-            ).get()
-            return a + b, c
+    conv = case['convection']
 
     for it in count(1):
-        _lhs, _rhs = conv(lhs)
-        rhs = stokes_rhs - stokes_mat.matvec(lhs) - _rhs
-        ns_mat = stokes_mat + _lhs
+        rhs = stokes_rhs - stokes_mat.matvec(lhs) - conv(mu, contraction=(None, lhs, lhs))
+        ns_mat = (
+            stokes_mat +
+            conv(mu, contraction=(None, lhs, None)) +
+            conv(mu, contraction=(None, None, lhs))
+        )
 
         update = ns_mat.solve(rhs, constrain=case.cons)
         lhs += update
