@@ -170,10 +170,15 @@ class Case:
         lift[np.where(np.isnan(lift))] = 0.0
         self._lifts.append((lift, scale))
 
-    def finalize(self):
-        for integrable in self._integrables.values():
+    def finalize(self, **kwargs):
+        new_itgs = {}
+        for name, itg in self._integrables.items():
+            itg = itg.cache(**kwargs)
+            print(f'Contracting for {name}')
             for lift, scale in self._lifts:
-                integrable.contract_lifts(lift, scale)
+                itg.contract_lifts(lift, scale)
+            new_itgs[name] = itg
+        self._integrables = new_itgs
 
     def mass(self, field, mu=None):
         if mu is None:
