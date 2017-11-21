@@ -41,8 +41,14 @@ class Case:
         return key in self._integrables
 
     def __getitem__(self, key):
-        assert key in self
-        return partial(self.integrate, key)
+        return self._integrables[key]
+
+    def __setitem__(self, key, value):
+        if Integrand.acceptable(value):
+            value = Integrand.make(value)
+        if not isinstance(value, AffineRepresentation):
+            value = AffineRepresentation([mu(1.0)], [value])
+        self._integrables[key] = value
 
     @property
     def size(self):
