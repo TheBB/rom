@@ -188,8 +188,8 @@ class Case:
         if mu is None:
             mu = self.parameter()
         intname = field + 'mass'
-        if intname in self._integrables:
-            return self.integrate(intname, mu)
+        if intname in self:
+            return self[intname](mu)
         integrand = fn.outer(self.basis(field))
         while len(integrand.shape) > 2:
             integrand = integrand.sum(-1)
