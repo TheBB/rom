@@ -179,28 +179,6 @@ class Case:
         integrand = Integrand.make(integrand, domain)
         self._integrables[name].append(integrand, scale)
 
-    def add_collocate(self, name, equation, points, index=None, scale=None, symmetric=False):
-        if index is None:
-            index = self.root
-        ncomps = equation.shape[-1]
-
-        elements = [self.domain.elements[eid] for eid, __ in points]
-        kwargs = [{
-            '_transforms': (elem.transform, elem.opposite),
-            '_points': np.array([pt]),
-        } for elem, (__, pt) in zip(elements, points)]
-        data = np.array([equation.eval(**kwg)[0] for kwg in kwargs])
-
-        if equation.ndim == 2:
-            data = np.transpose(data, (0, 2, 1))
-            data = np.reshape(data, (ncomps * len(points), data.shape[-1]))
-            data = sp.sparse.coo_matrix(data)
-            data = sp.sparse.csr_matrix((data.data, (data.row + index, data.col)), shape=(self.size,)*2)
-        elif equation.ndim == 1:
-            data = np.hstack([np.zeros((index,)), data.flatten()])
-
-        self.add_integrand(name, data, scale=scale, symmetric=symmetric)
-
     def finalize(self):
         for integrable in self._integrables.values():
             for lift, scale in self._lifts:

@@ -1,6 +1,8 @@
 import inspect
 import functools
 import time as timemod
+import numpy as np
+import scipy as sp
 from nutils import log
 
 
@@ -48,3 +50,27 @@ class time:
     @property
     def seconds(self):
         return self._time
+
+
+def collocate(domain, equation, points, index, size):
+    ncomps = equation.shape[-1]
+
+    elements = [domain.elements[eid] for eid, __ in points]
+    kwargs = [{
+        '_transforms': (elem.transform, elem.opposite),
+        '_points': np.array([pt]),
+    } for elem, (__, pt) in zip(elements, points)]
+
+    data = np.array([equation.eval(**kwg)[0] for kwg in kwargs])
+
+    if equation.ndim == 2:
+        data = np.transpose(data, (0, 2, 1))
+        data = np.reshape(data, (ncomps * len(points), data.shape[-1]))
+        data = sp.sparse.coo_matrix(data)
+        data = sp.sparse.csr_matrix((data.data, (data.row + index, data.col)), shape=(size,)*2)
+    elif equation.ndim == 1:
+        data = np.hstack([np.zeros((index,)), data.flatten()])
+    else:
+        raise NotImplementedError
+
+    return data
