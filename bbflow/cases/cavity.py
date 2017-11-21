@@ -2,7 +2,9 @@ import numpy as np
 import scipy as sp
 from nutils import mesh, function as fn, log, _, plot
 
-from bbflow.cases.bases import mu, Case
+from bbflow.cases import mu
+from bbflow.util import collocate
+from bbflow.cases.bases import Case
 
 
 class cavity(Case):
@@ -46,25 +48,21 @@ class cavity(Case):
 
         self._exact_solutions = {'v': velocity, 'p': pressure}
 
-        self.add_integrand('forcing', (vbasis * force[_,:]).sum(-1))
-        self.add_integrand('divergence', -fn.outer(vbasis.div(geom), pbasis), symmetric=True)
-        self.add_integrand('laplacian', fn.outer(vbasis.grad(geom)).sum((-1, -2)))
-        self.add_integrand('vmass', fn.outer(vbasis).sum(-1))
-        self.add_integrand('pmass', fn.outer(pbasis))
+        self['forcing'] = (vbasis * force[_,:]).sum(-1)
+        self['divergence'] = -fn.add_T(fn.outer(vbasis.div(geom), pbasis))
+        self['laplacian'] = fn.outer(vbasis.grad(geom)).sum((-1, -2))
+        self['vmass'] = fn.outer(vbasis).sum(-1)
+        self['pmass'] = fn.outer(pbasis)
 
-        self.add_integrand('stab-lhs', fn.outer(lbasis, pbasis), symmetric=True)
-
-        points = [
-            (0, (0, 0)),
-            (nel-1, (0, 1)),
-            (nel*(nel-1), (1, 0)),
-            (nel**2-1, (1, 1)),
-        ]
+        points = [(0, (0, 0)), (nel-1, (0, 1)), (nel*(nel-1), (1, 0)), (nel**2-1, (1, 1))]
         eqn = (pbasis.grad(geom) - vbasis.laplace(geom))[:,0,_]
-        self.add_collocate('stab-lhs', eqn, points, index=self.root+1, symmetric=True)
-        self.add_collocate('stab-rhs', force[0,_], points, index=self.root+1)
+        colloc = collocate(domain, eqn, points, self.root+1, self.size)
+        self['stab-lhs'] = colloc + colloc.T
+        self['stab-lhs'] += fn.add_T(fn.outer(lbasis, pbasis))
 
-        self.finalize()
+        self['stab-rhs'] = collocate(domain, force[0,_], points, self.root+1, self.size)
+
+        self.finalize(domain=domain, geometry=geom)
 
     def _exact(self, mu, field):
         return self._exact_solutions[field]
