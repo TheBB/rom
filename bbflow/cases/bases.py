@@ -227,7 +227,6 @@ class ProjectedCase:
 
     def __init__(self, case, projection, lengths, fields=None):
         assert not isinstance(case, ProjectedCase)
-        super().__init__()
 
         if fields is None:
             fields = list(case._bases)
@@ -240,21 +239,18 @@ class ProjectedCase:
         self.cons[:] = np.nan
 
         self._integrables = OrderedDict([
-            (name, integrable.project(case, projection))
+            (name, integrable.project(projection))
             for name, integrable in case._integrables.items()
         ])
 
-        case.uncache()
-
     def __iter__(self):
-        yield from self.case
+        yield from self._integrables
 
     def __contains__(self, key):
-        return key in self.case
+        return key in self._integrables
 
     def __getitem__(self, key):
-        assert key in self
-        return partial(self.integrate, key)
+        return self._integrables[key]
 
     @multiple_to_single('name')
     def basis_indices(self, name):
@@ -265,20 +261,6 @@ class ProjectedCase:
             else:
                 break
         return np.arange(start, start + length, dtype=np.int)
-
-    def integrate(self, name, mu, lift=None, contraction=None, override=False, wrap=True):
-        if isinstance(lift, int):
-            lift = (lift,)
-        assert name in self._integrables
-        value = self._integrables[name].integrate(
-            self, mu, lift=lift, contraction=contraction, override=override,
-        )
-        if wrap:
-            if isinstance(value, np.ndarray) and value.ndim == 2:
-                return matrix.NumpyMatrix(value)
-            if isinstance(value, sp.sparse.spmatrix):
-                return matrix.ScipyMatrix(value)
-        return value
 
     @property
     def has_exact(self):
