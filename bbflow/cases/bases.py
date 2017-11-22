@@ -19,14 +19,12 @@ Parameter = namedtuple('Parameter', ['position', 'name', 'min', 'max', 'default'
 class Case:
 
     def __init__(self, domain, geom):
-        super().__init__()
-
         self.meta = {}
         self.parameters = OrderedDict()
         self._fixed_values = {}
 
         self._bases = OrderedDict()
-        self._integrables = {}
+        self._integrables = OrderedDict()
         self._lifts = []
         self._piola = set()
 
