@@ -74,3 +74,8 @@ def collocate(domain, equation, points, index, size):
         raise NotImplementedError
 
     return data
+
+
+def characteristic(domain, patches):
+    basis = domain.basis_patch()
+    return basis.dot([1 if i in patches else 0 for i in range(len(basis))])
