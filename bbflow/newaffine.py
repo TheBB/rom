@@ -2,7 +2,9 @@ from itertools import combinations, chain
 from operator import itemgetter
 import numpy as np
 import scipy.sparse as sp
-from nutils import function as fn, matrix, _
+from nutils import function as fn, matrix, _, log
+
+from bbflow import util
 
 
 _SCALARS = (
@@ -261,9 +263,11 @@ class ScipyArrayIntegrand(ThinWrapperIntegrand):
 
     def contract(self, contraction):
         assert len(contraction) == 2
+
         ca, cb = contraction
+        if ca is None and cb is None:
+            return self
         assert ca is None or cb is None
-        assert ca is not None or cb is not None
 
         if ca is None:
             return NumpyArrayIntegrand(self.obj.dot(cb))
@@ -277,7 +281,7 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
 
     @classmethod
     def accepts(cls, obj):
-        return isinstance(obj, fn.Array)
+        return isinstance(obj, fn.Array) and obj.ndim <= 3
 
     def __init__(self, obj):
         super().__init__(obj)
@@ -307,10 +311,18 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
 class COOTensorIntegrand(Integrand):
 
     def __init__(self, shape, *args):
+        assert len(shape) == 3
         assert len(shape) == len(args) - 1
         self.shape = shape
         self.ndim = len(shape)
         *self.indices, self.data = args
+
+        # TODO: Figure out in advance which assemblers we will need
+        self.assemblers = {
+            (1,): util.CSRAssembler((shape[0], shape[2]), args[0], args[2]),
+            (2,): util.CSRAssembler((shape[0], shape[1]), args[0], args[1]),
+            (1,2): util.VectorAssembler((shape[0],), args[0])
+        }
 
     def get(self, contraction):
         retval = self._contract(contraction)
@@ -319,6 +331,8 @@ class COOTensorIntegrand(Integrand):
         return retval.toarray()
 
     def toarray(self):
+        # TODO: This could be more efficient, but this function should never be
+        # called in performance-critical code anyway
         # Ravel down to a matrix, convert to scipy, then to numpy, then unravel
         flat_index = np.ravel_multi_index(self.indices[1:], self.shape[1:])
         flat_shape = (self.shape[0], np.product(self.shape[1:]))
@@ -333,34 +347,14 @@ class COOTensorIntegrand(Integrand):
         return Integrand.make(self._contract(contraction))
 
     def _contract(self, contraction):
+        if all(c is None for c in contraction):
+            return self
         contraction = [(i, c) for i, c in enumerate(contraction) if c is not None]
-        axes = [i for i, __ in contraction]
-        new_shape = tuple(shp for i, shp in enumerate(self.shape) if i not in axes)
-
-        # If the contraction results in a vector, we create a sparse matrix first,
-        # and then use stock scipy matvec
-        if len(new_shape) == 1:
-            __, post_dot = contraction[-1]
-            *contraction, __ = contraction
-            new_shape += (len(post_dot),)
-            axes = axes[:-1]
-        else:
-            post_dot = None
-
+        axes = tuple(i for i, __ in contraction)
         data = np.copy(self.data)
         for i, c in contraction:
             data *= c[self.indices[i]]
-
-        indices = tuple(ind for i, ind in enumerate(self.indices) if i not in axes)
-
-        # TODO: No explicit deduplication for higher order results at the moment
-        if len(new_shape) >= 3:
-            return COOTensorIntegrand(new_shape, *indices, data)
-
-        matrix = sp.csr_matrix((data, indices), shape=new_shape)
-        if post_dot is not None:
-            return matrix.dot(post_dot)
-        return matrix
+        return self.assemblers[axes](data)
 
     def project(self, projection):
         # TODO: This could be more efficient
