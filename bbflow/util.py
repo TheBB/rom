@@ -2,9 +2,29 @@ import inspect
 import functools
 import time as timemod
 import numpy as np
+from os.path import exists
+import pickle
 import scipy.sparse as sp
 import scipy.sparse._sparsetools as sptools
 from nutils import log
+
+
+def pickle_cache(fmt):
+    def decorator(func):
+        signature = inspect.signature(func)
+        @functools.wraps(func)
+        def inner(*args, **kwargs):
+            binding = signature.bind(*args, **kwargs)
+            filename = fmt.format(**binding.arguments)
+            if exists(filename):
+                with open(filename, 'rb') as f:
+                    return pickle.load(f)
+            obj = func(*args, **kwargs)
+            with open(filename, 'wb') as f:
+                pickle.dump(obj, f)
+            return obj
+        return inner
+    return decorator
 
 
 def multiple_to_single(argname):
