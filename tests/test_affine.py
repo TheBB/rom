@@ -108,7 +108,7 @@ def test_nutils_tensor():
 
     itg = basis[:,_,_] * basis[_,:,_] * basis[_,_,:]
 
-    a = (mu(1.0) * itg).cache(domain=domain, geometry=geom)({}, wrap=False)
+    a = (mu(1.0) * itg).cache_main(override=True, domain=domain, geometry=geom)({}, wrap=False)
     b = domain.integrate(itg, geometry=geom, ischeme='gauss9')
 
     np.testing.assert_almost_equal(a, b)
