@@ -3,6 +3,8 @@ from itertools import count
 import numpy as np
 from nutils import function as fn, log, plot, _, matrix
 
+from bbflow.newaffine import integrate
+
 
 __all__ = ['stokes', 'navierstokes']
 
@@ -52,15 +54,18 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     stokes_rhs -= case['convection'](mu, lift=(1,2))
 
     vmass = case.mass('v', mu)
-    conv = case['convection']
+
+    def conv(lhs):
+        c = case['convection']
+        r = c(mu, contraction=(None, lhs, lhs))
+        l = c(mu, contraction=(None, lhs, None)) + c(mu, contraction=(None, None, lhs))
+        r, l = integrate(r, l)
+        return r, l
 
     for it in count(1):
-        rhs = stokes_rhs - stokes_mat.matvec(lhs) - conv(mu, contraction=(None, lhs, lhs))
-        ns_mat = (
-            stokes_mat +
-            conv(mu, contraction=(None, lhs, None)) +
-            conv(mu, contraction=(None, None, lhs))
-        )
+        r, l = conv(lhs)
+        rhs = stokes_rhs - stokes_mat.matvec(lhs) - r
+        ns_mat = stokes_mat + l
 
         update = ns_mat.solve(rhs, constrain=case.cons)
         lhs += update
