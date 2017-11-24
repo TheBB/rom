@@ -4,8 +4,10 @@ from scipy.misc import factorial
 from nutils import mesh, function as fn, log, _, plot
 from os import path
 
-from bbflow.cases.bases import mu, Case
-from bbflow.affine import FunctionIntegrand, AffineRepresentation
+from bbflow.cases import mu
+from bbflow.cases.bases import Case
+from bbflow.newaffine import AffineRepresentation, Integrand, NutilsFallback
+import bbflow.affine as af
 
 
 def rotmat(angle):
@@ -103,52 +105,48 @@ def mk_lift(case):
     case.constrain('v', domain.boundary['right'].select(-x))
 
 
-def convection(wtrf, vtrf, case, mu, w, u, v):
-    if len(u.shape) == 1: u = u[_,:]
-    if len(v.shape) == 1: v = v[_,:]
-    if len(w.shape) == 1: w = w[_,:]
+def piola_true_convection(mu, w, u, v, case):
+    if w.ndim == 1: w = w[_,:]
+    if u.ndim == 1: u = u[_,:]
+    if v.ndim == 1: v = v[_,:]
 
-    v = fn.matmat(v, vtrf.transpose()).grad(case.geometry)
-    w = fn.matmat(w, wtrf.transpose())
+    J = case.physical_geometry(mu).grad(case.geometry)
+    v = fn.matmat(v, J.transpose()).grad(case.geometry)
+    w = fn.matmat(w, J.transpose())
 
     integrand = (w[:,_,_,:,_] * u[_,:,_,_,:] * v[_,_,:,:,:]).sum([-1, -2])
     ind = tuple(0 if l == 1 else slice(None) for l in integrand.shape)
-    integrand = integrand[ind]
-    return integrand
+    return integrand[ind]
 
 
-def nonpiola_convection(utrf, case, mu, w, u, v):
-    if len(u.shape) == 1: u = u[_,:]
-    if len(v.shape) == 1: v = v[_,:]
-    if len(w.shape) == 1: w = w[_,:]
+def nonpiola_true_convection(mu, w, u, v, case):
+    if w.ndim == 1: w = w[_,:]
+    if u.ndim == 1: u = u[_,:]
+    if v.ndim == 1: v = v[_,:]
 
-    u = fn.matmat(u, utrf)
+    Jit = fn.inverse(case.physical_geometry(mu).grad(case.geometry)).transpose()
+    u = fn.matmat(u, Jit)
     v = v.grad(case.geometry)
 
     integrand = (w[:,_,_,:,_] * u[_,:,_,_,:] * v[_,_,:,:,:]).sum([-1, -2])
     ind = tuple(0 if l == 1 else slice(None) for l in integrand.shape)
-    integrand = integrand[ind]
-    return integrand
+    return integrand[ind]
 
 
-def true_convection(case, mu, w, u, v):
-    J = case.physical_geometry(mu).grad(case.geometry)
-    return convection(J, J, case, mu, w, u, v)
-
-
-def nonpiola_true_convection(case, mu, w, u, v):
-    Jit = fn.inverse(case.physical_geometry(mu).grad(case.geometry)).transpose()
-    return nonpiola_convection(Jit, case, mu, w, u, v)
-
-
-def nterms_rotmat_taylor(angle):
+def nterms_rotmat_taylor(angle, threshold):
     exact = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
     approx = np.zeros((2,2))
     nterms = 0
-    while np.linalg.norm(exact - approx) > 1e-13:
+    while np.linalg.norm(exact - approx) > threshold:
         approx += Rmat(nterms, angle)
         nterms += 1
     return nterms
+
+
+def error_rotmat_taylor(nterms, angle):
+    exact = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
+    approx = sum(Rmat(i, angle) for i in range(nterms))
+    return np.linalg.norm(exact - approx)
 
 
 def intermediate(geom, rmin, rmax, nterms):
@@ -165,18 +163,24 @@ def intermediate(geom, rmin, rmax, nterms):
 
 class airfoil(Case):
 
-    def __init__(self, nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, piola=True):
-        domain, refgeom, geom = mk_mesh(nelems, rmax)
+    def __init__(self, override=False, mesh=None,
+                 nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, piola=True):
+        # if mesh is None:
+        #     domain, refgeom, geom = mk_mesh(nelems, rmax)
+        # else:
+        domain, refgeom, geom = mesh
         super().__init__(domain, geom)
         self.meta['refgeom'] = refgeom
 
-        self.add_parameter('angle', -np.pi*amax/180, np.pi*amax/180, 0.0)
-        self.add_parameter('velocity', 1.0, 20.0)
-        self.add_parameter('viscosity', 1.0, 1000.0)
+        ANG = self.add_parameter('angle', -np.pi*amax/180, np.pi*amax/180, 0.0)
+        V = self.add_parameter('velocity', 1.0, 20.0)
+        NU = 1 / self.add_parameter('viscosity', 1.0, 1000.0)
 
         if nterms is None:
-            nterms = nterms_rotmat_taylor(np.pi * amax / 180)
+            nterms = nterms_rotmat_taylor(np.pi * amax / 180, 1e-13)
             log.user('nterms:', nterms)
+        else:
+            log.user('error: {:.2e}'.format(error_rotmat_taylor(nterms, np.pi * amax / 180)))
         dterms = 2 * nterms - 1
 
         # Some quantities we need
@@ -206,8 +210,10 @@ class airfoil(Case):
                 fn.outer(pbasis, (vgrad * Bminus(i, theta, Q)).sum([-1, -2]))
                 for i in range(nterms)
             ]
-        for i, term in enumerate(terms):
-            self.add_integrand('divergence', -term, mu['angle']**i, symmetric=True)
+        self['divergence'] = AffineRepresentation(
+            [-ANG**i for i, __ in enumerate(terms)],
+            [Integrand.make(fn.add_T(term)) for term in terms],
+        )
 
         # Stokes laplacian term
         D1 = fn.matmat(Q, P) - fn.matmat(P, Q)
@@ -227,46 +233,49 @@ class airfoil(Case):
                 fn.outer(vgrad, fn.matmat(vgrad, D1.transpose())).sum([-1, -2]),
                 -fn.outer(vgrad, fn.matmat(vgrad, D2.transpose())).sum([-1, -2]),
             ]
-        for i, term in enumerate(terms):
-            self.add_integrand('laplacian', term, mu['angle']**i / mu['viscosity'])
+        self['laplacian'] = AffineRepresentation(
+            [ANG**i * NU for i, __ in enumerate(terms)],
+            [Integrand.make(term) for term in terms],
+        )
 
         # Navier-Stokes convective term
         if piola:
-            terms = [[] for _ in range(dterms)]
+            terms = [0] * dterms
             for i in range(nterms):
                 for j in range(nterms):
-                    terms[i+j].append(partial(convection, Bplus(j, theta, Q), Bplus(i, theta, Q)))
-            fallback = true_convection
+                    v = fn.matmat(vbasis, Bplus(i, theta, Q).transpose()).grad(geom)
+                    w = fn.matmat(vbasis, Bplus(j, theta, Q).transpose())
+                    terms[i+j] += (w[:,_,_,:,_] * vbasis[_,:,_,_,:] * v[_,_,:,:,:]).sum([-1, -2])
+            # fallback = piola_true_convection
         else:
-            terms = [partial(nonpiola_convection, Bminus(i, theta, Q)) for i in range(nterms)]
-            fallback = nonpiola_true_convection
-        conv = AffineRepresentation('convection')
-        defaults = (vbasis,) * 3
-        for i, term in enumerate(terms):
-            conv.append(FunctionIntegrand(term, defaults), scale=mu['angle']**i)
-        conv.fallback = FunctionIntegrand(fallback, defaults)
-        self._integrables['convection'] = conv
+            terms = []
+            for i in range(nterms):
+                u = fn.matmat(vbasis, Bminus(i, theta, Q))
+                terms.append((vbasis[:,_,_,:,_] * u[_,:,_,_,:] * vgrad[_,_,:,:,:]).sum([-1, -2]))
+            # terms = [partial(nonpiola_convection, Bminus(i, theta, Q)) for i in range(nterms)]
+            # fallback = nonpiola_true_convection
+        self['convection'] = AffineRepresentation(
+            [ANG**i for i, __ in enumerate(terms)],
+            [Integrand.make(term) for term in terms],
+        )
+        # self['convection'].fallback = NutilsFallback(fallback, (vbasis,)*3, case=self)
 
         # Mass matrices
-        self.add_integrand('vmass', fn.outer(vbasis, vbasis).sum([-1]))
+        self['vmass'] = mu(1.0) * fn.outer(vbasis).sum([-1])
         if piola:
             M2 = fn.matmat(Q, P, P, Q)
-            self.add_integrand(
-                'vmass', -fn.outer(vbasis, fn.matmat(vbasis, D1.transpose())).sum([-1]), mu['angle']
-            )
-            self.add_integrand(
-                'vmass', -fn.outer(vbasis, fn.matmat(vbasis, M2.transpose())).sum([-1]), mu['angle']**2
-            )
-        self.add_integrand('pmass', fn.outer(pbasis, pbasis))
+            self['vmass'] -= ANG * fn.outer(vbasis, fn.matmat(vbasis, D1.transpose())).sum(-1)
+            self['vmass'] -= ANG**2 * fn.outer(vbasis, fn.matmat(vbasis, M2.transpose())).sum(-1)
+        self['pmass'] = fn.outer(pbasis)
 
-        # Pressure force
-        for i in range(nterms):
-            self.add_integrand(
-                'pforce', pbasis[:,_] * fn.matmat(Rmat(i), geom.normal())[_,:],
-                mu['angle']**i, domain=domain.boundary['left'],
-            )
+        # # Pressure force
+        # for i in range(nterms):
+        #     self.add_integrand(
+        #         'pforce', pbasis[:,_] * fn.matmat(Rmat(i), geom.normal())[_,:],
+        #         mu['angle']**i, domain=domain.boundary['left'],
+        #     )
 
-        self.finalize()
+        self.finalize(override=override, domain=domain, geometry=geom)
 
     def _physical_geometry(self, mu):
         return fn.matmat(rotmat(mu['angle'] * self.theta), self.geometry)
