@@ -173,13 +173,15 @@ class Case:
         lift[np.where(np.isnan(lift))] = 0.0
         self._lifts.append((lift, scale))
 
+    @log.title
     def finalize(self, override=False, **kwargs):
         new_itgs = {}
         for name, itg in self._integrables.items():
-            itg = itg.cache_main(override=override, **kwargs)
-            for lift, scale in self._lifts:
-                itg.contract_lifts(lift, scale)
-            itg.cache_lifts(override=override, **kwargs)
+            with log.context(name):
+                itg.cache_main(override=override, **kwargs)
+                for lift, scale in self._lifts:
+                    itg.contract_lifts(lift, scale)
+                itg.cache_lifts(override=override, **kwargs)
             new_itgs[name] = itg
         self._integrables = new_itgs
 
