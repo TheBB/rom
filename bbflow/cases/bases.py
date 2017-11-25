@@ -47,6 +47,20 @@ class Case:
             value = AffineRepresentation([mu(1.0)], [value])
         self._integrables[key] = value
 
+    def __str__(self):
+        s = f'       {"Name": <17} {"Terms": >5}   Shape\n'
+        for name, integrable in self._integrables.items():
+            opt = 'Y' if integrable.optimized else 'N'
+            shp = '×'.join(str(s) for s in integrable.shape)
+            fb = '*' if integrable.fallback else ' '
+            s += f'[{opt}] {fb} {name: <17} {len(integrable): >5}   {shp}\n'
+            for axes, sub in integrable._lift_contractions.items():
+                opt = 'Y' if sub.optimized else 'N'
+                shp = '×'.join(str(s) for s in sub.shape)
+                sub_name = f'{name}[' + ','.join(map(str, sorted(axes))) + ']'
+                s += f'[{opt}]     {sub_name: <15} {len(integrable): >5}   {shp}\n'
+        return s[:-1]
+
     @property
     def size(self):
         basis, __ = next(iter(self._bases.values()))
