@@ -5,6 +5,7 @@ from nutils import mesh, function as fn, log, _
 from bbflow.cases import mu
 from bbflow.util import collocate, characteristic
 from bbflow.cases.bases import Case
+from bbflow.newaffine import NutilsDelayedIntegrand
 
 
 class backstep(Case):
@@ -84,11 +85,14 @@ class backstep(Case):
         )
 
         # Navier-stokes convective term
-        self['convection'] = (vbasis[:,_,_,:,_] * vbasis[_,:,_,_,:] * vgrad[_,_,:,:,:]).sum([-1, -2]) * cp0
-        itg = (vbasis[:,_,_,:] * vbasis[_,:,_,_,0] * vgrad[_,_,:,:,0]).sum(-1)
-        self['convection'] += itg * cp1
-        self['convection'] += H * itg * cp2
-        self['convection'] += L * (vbasis[:,_,_,:] * vbasis[_,:,_,_,1] * vgrad[_,_,:,:,1]).sum(-1) * cp12
+        args = ('ijk', 'wuv')
+        kwargs = {'x': geom, 'w': vbasis, 'u': vbasis, 'v': vbasis}
+        self['convection'] = (
+            + H * NutilsDelayedIntegrand('c w_ia u_j0 v_ka,0', *args, **kwargs, c=cp2)
+            + L * NutilsDelayedIntegrand('c w_ia u_j1 v_ka,1', *args, **kwargs, c=cp12)
+            + NutilsDelayedIntegrand('c w_ia u_jb v_ka,b', *args, **kwargs, c=cp0)
+            + NutilsDelayedIntegrand('c w_ia u_j0 v_ka,0', *args, **kwargs, c=cp1)
+        )
 
         # Mass matrices
         self['vmass'] = (
@@ -103,7 +107,7 @@ class backstep(Case):
         )
 
         if not stabilize:
-            self.finalize()
+            self.finalize(override=override, domain=domain, geometry=geom)
             return
 
         points = [(0, (0, 0)), (nel_up-1, (0, 1))]
