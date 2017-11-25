@@ -118,6 +118,12 @@ class Case:
             return self._physical_geometry(mu)
         return self.geometry
 
+    def jacobian(self, mu=None):
+        return self.physical_geometry(mu).grad(self.geometry)
+
+    def jacobian_inverse(self, mu=None):
+        return fn.inverse(self.physical_geometry(mu).grad(self.geometry))
+
     def add_basis(self, name, function, length):
         self._bases[name] = (function, length)
 
