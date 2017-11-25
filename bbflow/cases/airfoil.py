@@ -6,7 +6,7 @@ from os import path
 
 from bbflow.cases import mu
 from bbflow.cases.bases import Case
-from bbflow.newaffine import AffineRepresentation, Integrand, NutilsFallback
+from bbflow.newaffine import AffineRepresentation, Integrand, NutilsDelayedIntegrand
 import bbflow.affine as af
 
 
@@ -165,10 +165,10 @@ class airfoil(Case):
 
     def __init__(self, override=False, mesh=None,
                  nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, piola=True):
-        # if mesh is None:
-        #     domain, refgeom, geom = mk_mesh(nelems, rmax)
-        # else:
-        domain, refgeom, geom = mesh
+        if mesh is None:
+            domain, refgeom, geom = mk_mesh(nelems, rmax)
+        else:
+            domain, refgeom, geom = mesh
         super().__init__(domain, geom)
         self.meta['refgeom'] = refgeom
 
@@ -240,25 +240,41 @@ class airfoil(Case):
 
         # Navier-Stokes convective term
         if piola:
-            terms = [0] * dterms
+            terms = [
+                NutilsDelayedIntegrand(None, 'ijk', 'wuv', x=geom, w=vbasis, u=vbasis, v=vbasis)
+                for __ in range(dterms)
+            ]
             for i in range(nterms):
                 for j in range(nterms):
                     v = fn.matmat(vbasis, Bplus(i, theta, Q).transpose()).grad(geom)
                     w = fn.matmat(vbasis, Bplus(j, theta, Q).transpose())
-                    terms[i+j] += (w[:,_,_,:,_] * vbasis[_,:,_,_,:] * v[_,_,:,:,:]).sum([-1, -2])
-            # fallback = piola_true_convection
+                    Bname, Cname = f'B{i}B{j}', f'C{i}C{j}'
+                    terms[i+j].add(
+                        f'?ww_ia u_jb ?vv_ka,b | ?ww_ij = w_ia {Bname}_ja | ?vv_ij = v_ia {Cname}_ja',
+                        **{Bname: Bplus(j,theta,Q), Cname: Bplus(i,theta,Q)},
+                    )
+            fallback = NutilsDelayedIntegrand(
+                '?ww_ia u_jb ?vv_ka,b | ?ww_ij = w_ia J_ja | ?vv_ij = v_ia J_ja', 'ijk', 'wuv',
+                x=geom, w=vbasis, u=vbasis, v=vbasis, J=self.jacobian,
+            )
         else:
             terms = []
             for i in range(nterms):
                 u = fn.matmat(vbasis, Bminus(i, theta, Q))
-                terms.append((vbasis[:,_,_,:,_] * u[_,:,_,_,:] * vgrad[_,_,:,:,:]).sum([-1, -2]))
-            # terms = [partial(nonpiola_convection, Bminus(i, theta, Q)) for i in range(nterms)]
-            # fallback = nonpiola_true_convection
+                terms.append(NutilsDelayedIntegrand(
+                    'w_ia ?uu_jb v_ka,b | ?uu_ij = u_ia B_aj', 'ijk', 'wuv',
+                    x=geom, w=vbasis, u=vbasis, v=vbasis, B=Bminus(i,theta,Q),
+                ))
+            fallback = NutilsDelayedIntegrand(
+                'w_ia ?uu_jb v_ka,b | ?uu_ij = u_ia J_ja', 'ijk', 'wuv',
+                x=geom, w=vbasis, u=vbasis, v=vbasis, J=self.jacobian_inverse,
+            )
         self['convection'] = AffineRepresentation(
             [ANG**i for i, __ in enumerate(terms)],
             [Integrand.make(term) for term in terms],
         )
-        # self['convection'].fallback = NutilsFallback(fallback, (vbasis,)*3, case=self)
+        fallback.add_kwargs(domain=domain, geometry=geom)
+        self['convection'].fallback = fallback
 
         # Mass matrices
         self['vmass'] = mu(1.0) * fn.outer(vbasis).sum([-1])
