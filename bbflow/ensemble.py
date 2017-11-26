@@ -1,27 +1,30 @@
-from itertools import repeat
-from multiprocessing import Pool
+from itertools import repeat, count
+from multiprocessing import Pool, current_process
 import numpy as np
 from nutils import log, core
 
+from bbflow import util
+
 
 def _solve(args):
-    case, solver, (mu, wt), weights = args
-    lhs = solver(case, mu)
+    case, solver, (mu, wt), weights, count = args
+    __verbose__ = 3
+    with log.context(f'{current_process().name}'), log.context(f'{count}'), util.time():
+        lhs = solver(case, mu)
     if weights:
         lhs *= wt
     return lhs
 
 
 def make_ensemble(case, solver, quadrule, weights=False, parallel=False):
-    case.cache()
     quadrule = [(case.parameter(*mu), wt) for mu, wt in quadrule]
     log.user('generating ensemble of {} solutions'.format(len(quadrule)))
     if not parallel:
         solutions = [_solve((case, solver, qpt, weights)) for qpt in quadrule]
     else:
-        args = zip(repeat(case), repeat(solver), quadrule, repeat(weights))
+        args = zip(repeat(case), repeat(solver), quadrule, repeat(weights), count())
         pool = Pool()
-        solutions = list(log.iter('solution', pool.imap(_solve, args)))
+        solutions = list(pool.imap(_solve, args))
     return np.array(solutions)
 
 
