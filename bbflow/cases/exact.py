@@ -5,6 +5,7 @@ from nutils import mesh, function as fn, log, _, plot
 from bbflow.cases import mu
 from bbflow.util import collocate
 from bbflow.cases.bases import Case
+from bbflow.newaffine import AffineRepresentation
 
 
 class exact(Case):
@@ -90,9 +91,9 @@ class exact(Case):
         )
 
         self['divergence'] = - h * w * fn.add_T(fn.outer(vx_x, pbasis) + fn.outer(vy_y, pbasis))
-        self['vmass'] = h * w**3 * fn.outer(vxbasis) + h**3 * w * fn.outer(vybasis)
+        self['v-h1s'] = AffineRepresentation(self['laplacian'])
         self['vdiv'] = w * h * fn.outer(vbasis.div(geom))
-        self['pmass'] = h * w * fn.outer(pbasis, pbasis)
+        self['p-l2'] = h * w * fn.outer(pbasis, pbasis)
 
         points = [(0, (0, 0)), (nel-1, (0, 1)), (nel*(nel-1), (1, 0)), (nel**2-1, (1, 1))]
         colloc = [collocate(domain, eqn[:,_], points, self.root+1, self.size) for eqn in [p_x, -vx_xx, -vx_yy]]

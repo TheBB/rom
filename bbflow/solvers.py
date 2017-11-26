@@ -53,7 +53,7 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     stokes_mat += case['convection'](mu, lift=1) + case['convection'](mu, lift=2)
     stokes_rhs -= case['convection'](mu, lift=(1,2))
 
-    vmass = case.mass('v', mu)
+    vmass = case.norm('v', 'h1s', mu=mu)
 
     def conv(lhs):
         c = case['convection']

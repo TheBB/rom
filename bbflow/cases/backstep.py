@@ -94,13 +94,14 @@ class backstep(Case):
             + NutilsDelayedIntegrand('c w_ia u_j0 v_ka,0', *args, **kwargs, c=cp1)
         )
 
-        # Mass matrices
-        self['vmass'] = (
+        # Norms
+        self['v-h1s'] = self['laplacian'] / NU
+        self['v-l2'] = (
             + L * fn.outer(vbasis).sum(-1) * cp1
             + L*H * fn.outer(vbasis).sum(-1) * cp2
             + fn.outer(vbasis).sum(-1) * cp0
         )
-        self['pmass'] = (
+        self['p-l2'] = (
             + L * fn.outer(pbasis) * cp1
             + L*H * fn.outer(pbasis) * cp2
             + fn.outer(pbasis) * cp0

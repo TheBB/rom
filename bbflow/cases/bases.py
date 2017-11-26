@@ -205,17 +205,24 @@ class Case:
             new_itgs[name] = itg
         self._integrables = new_itgs
 
-    def mass(self, field, mu=None):
+    def norm(self, field, type='l2', mu=None):
         if mu is None:
             mu = self.parameter()
-        intname = field + 'mass'
+        intname = f'{field}-{type}'
         if intname in self:
             return self[intname](mu)
-        integrand = fn.outer(self.basis(field))
-        while len(integrand.shape) > 2:
-            integrand = integrand.sum(-1)
+
+        assert False
+        itg = self.basis(field)
         geom = self.physical_geometry(mu)
-        return self.domain.integrate(integrand, geometry=geom, ischeme='gauss9')
+        if type == 'h1s':
+            itg = itg.grad(geom)
+        else:
+            assert type == 'l2'
+        itg = fn.outer(itg)
+        while itg.ndim > 2:
+            itg = itg.sum([-1])
+        return self.domain.integrate(itg, geometry=geom, ischeme='gauss9')
 
     def _lift(self, mu):
         return sum(lift * scl(mu) for lift, scl in self._lifts)
@@ -321,13 +328,13 @@ class ProjectedCase:
         basis = self.case.basis(name)
         return fn.matmat(self.projection, basis)
 
-    def mass(self, field, mu=None):
+    def norm(self, field, type='l2', mu=None):
         if mu is None:
             mu = self.parameter()
-        intname = field + 'mass'
+        intname = f'{field}-{type}'
         if intname in self._integrables:
-            return self.integrate(intname, mu)
-        omass = self.case.mass(field, mu)
+            return self[intname](mu)
+        omass = self.case.norm(field, type=type, mu=mu)
         return self.projection.dot(omass).dot(self.projection.T)
 
     def exact(self, *args, **kwargs):

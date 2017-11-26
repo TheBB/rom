@@ -277,12 +277,13 @@ class airfoil(Case):
         self['convection'].fallback = fallback
 
         # Mass matrices
-        self['vmass'] = mu(1.0) * fn.outer(vbasis).sum([-1])
+        self['v-l2'] = mu(1.0) * fn.outer(vbasis).sum([-1])
         if piola:
             M2 = fn.matmat(Q, P, P, Q)
-            self['vmass'] -= ANG * fn.outer(vbasis, fn.matmat(vbasis, D1.transpose())).sum(-1)
-            self['vmass'] -= ANG**2 * fn.outer(vbasis, fn.matmat(vbasis, M2.transpose())).sum(-1)
-        self['pmass'] = fn.outer(pbasis)
+            self['v-l2'] -= ANG * fn.outer(vbasis, fn.matmat(vbasis, D1.transpose())).sum(-1)
+            self['v-l2'] -= ANG**2 * fn.outer(vbasis, fn.matmat(vbasis, M2.transpose())).sum(-1)
+        self['v-h1s'] = self['laplacian'] / NU
+        self['p-l2'] = fn.outer(pbasis)
 
         # # Pressure force
         # for i in range(nterms):

@@ -42,8 +42,8 @@ class channel(Case):
 
         self['divergence'] = -fn.add_T(fn.outer(vbasis.div(geom), pbasis))
         self['laplacian'] = fn.outer(vbasis.grad(geom)).sum((-1, -2))
-        self['vmass'] = fn.outer(vbasis).sum(-1)
-        self['pmass'] = fn.outer(pbasis)
+        self['v-h1s'] = fn.outer(vbasis.grad(geom)).sum([-1, -2])
+        self['p-l2'] = fn.outer(pbasis)
         self['convection'] = NutilsDelayedIntegrand(
             'w_ia u_jb v_ka,b', 'ijk', 'wuv',
             x=geom, w=vbasis, u=vbasis, v=vbasis

@@ -46,20 +46,20 @@ def test_masses(case, mu):
     domain, vbasis, pbasis = case.domain, case.basis('v'), case.basis('p')
     geom = case.physical_geometry(mu)
 
-    itg = fn.outer(vbasis, vbasis).sum(-1)
+    itg = fn.outer(vbasis.grad(geom)).sum([-1, -2])
     phys_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
 
-    test_mx = case['vmass'](mu, wrap=False)
+    test_mx = case['v-h1s'](mu, wrap=False)
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
-    test_mx = case.mass('v', mu)
+    test_mx = case.norm('v', 'h1s', mu=mu)
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
 
     itg = fn.outer(pbasis, pbasis)
     phys_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
 
-    test_mx = case['pmass'](mu, wrap=False)
+    test_mx = case['p-l2'](mu, wrap=False)
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
-    test_mx = case.mass('p', mu)
+    test_mx = case.norm('p', mu=mu)
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
 
 

@@ -51,8 +51,8 @@ class cavity(Case):
         self['forcing'] = (vbasis * force[_,:]).sum(-1)
         self['divergence'] = -fn.add_T(fn.outer(vbasis.div(geom), pbasis))
         self['laplacian'] = fn.outer(vbasis.grad(geom)).sum((-1, -2))
-        self['vmass'] = fn.outer(vbasis).sum(-1)
-        self['pmass'] = fn.outer(pbasis)
+        self['v-h1s'] = fn.outer(vbasis.grad(geom)).sum([-1, -2])
+        self['p-l2'] = fn.outer(pbasis)
 
         points = [(0, (0, 0)), (nel-1, (0, 1)), (nel*(nel-1), (1, 0)), (nel**2-1, (1, 1))]
         eqn = (pbasis.grad(geom) - vbasis.laplace(geom))[:,0,_]

@@ -105,10 +105,10 @@ def test_mass_matrix(mu, case):
     p_vbasis, p_pbasis = piola_bases(mu, case)
     trfgeom = case.physical_geometry(mu)
 
-    itg = fn.outer(p_vbasis).sum([-1])
+    itg = fn.outer(p_vbasis.grad(trfgeom)).sum([-1, -2])
     phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
-    test_mx = case['vmass'](mu)
+    test_mx = case['v-h1s'](mu)
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
 
 
