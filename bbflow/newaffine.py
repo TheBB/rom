@@ -129,7 +129,10 @@ class mu(metaclass=MetaMu):
 
     @_wrap
     def __rtruediv__(self, other):
-        return mu('/', other, self)
+        if isinstance(other, mu):
+            return mu('/', other, self)
+        elif isinstance(other, Integrand):
+            return AffineRepresentation([1 / self], [other])
 
 
 def _subclasses_recur(cls):
@@ -559,6 +562,9 @@ def integrate(*args):
 class AffineRepresentation:
 
     def __init__(self, scales=None, integrands=None):
+        if isinstance(scales, AffineRepresentation):
+            integrands = list(scales._integrands)
+            scales = list(scales._scales)
         scales = scales or []
         integrands = integrands or []
 
@@ -635,6 +641,9 @@ class AffineRepresentation:
         elif Integrand.acceptable(other):
             return AffineRepresentation(self._scales, [itg * other for itg in self._integrands])
         return NotImplemented
+
+    def __truediv__(self, other):
+        return self * (1 / other)
 
     def cache_main(self, override=False, **kwargs):
         self._integrands = [
