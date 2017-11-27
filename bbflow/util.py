@@ -1,6 +1,7 @@
 import inspect
 import functools
 import time as timemod
+from multiprocessing import current_process
 import numpy as np
 from os.path import exists
 import pickle
@@ -71,6 +72,18 @@ class time:
     @property
     def seconds(self):
         return self._time
+
+
+def parallel_log(verbose=3):
+    def decorator(func):
+        @functools.wraps(func)
+        def inner(args):
+            __verbose__ = verbose
+            count, *args = args
+            with log.context(f'{current_process().name}'), log.context(f'{count}'), time():
+                return func(*args)
+        return inner
+    return decorator
 
 
 def collocate(domain, equation, points, index, size):
