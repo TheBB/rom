@@ -222,15 +222,7 @@ class NumpyArrayIntegrand(ThinWrapperIntegrand):
         else:
             super().__init__(np.array(obj))
 
-    def get(self, contraction):
-        # TODO: Fix this assumption
-        assert all(c is None for c in contraction)
-        return self.obj
-
-    def cache(self, override=False, **kwargs):
-        return self
-
-    def contract(self, contraction):
+    def _contract(self, contraction):
         axes, obj = [], self.obj
         for i, cont in enumerate(contraction):
             if cont is None:
@@ -242,7 +234,16 @@ class NumpyArrayIntegrand(ThinWrapperIntegrand):
                 cont = cont[...,_]
             obj = obj * cont
             axes.append(i)
-        return NumpyArrayIntegrand(obj.sum(tuple(axes)))
+        return obj.sum(tuple(axes))
+
+    def get(self, contraction):
+        return self._contract(contraction)
+
+    def cache(self, override=False, **kwargs):
+        return self
+
+    def contract(self, contraction):
+        return NumpyArrayIntegrand(self._contract(contraction))
 
     def project(self, projection):
         obj = self.obj
