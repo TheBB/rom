@@ -497,19 +497,17 @@ class COOTensorIntegrand(Integrand):
         return self.assemblers[axes](data)
 
     def project(self, projection):
-        # TODO: This could be more efficient
         flat_index = np.ravel_multi_index(self.indices[:-1], self.shape[:-1])
         flat_shape = (np.product(self.shape[:-1]), self.shape[-1])
 
+        # This looks awkward but is a lot faster than calling einsum
         obj = sp.coo_matrix((self.data, (flat_index, self.indices[-1])), shape=flat_shape)
         obj = obj.dot(projection.T)
         obj = np.reshape(obj, self.shape[:-1] + (projection.shape[0],))
-
-        s = slice(None)
-        for i in range(self.ndim - 1):
-            obj = obj[(s,)*i + (_,s,Ellipsis)]
-            obj = obj * projection[(_,)*i + (s,s) + (_,) * (self.ndim - i - 1)]
-            obj = obj.sum(i+1)
+        obj = np.tensordot(projection, obj, axes=1)
+        obj = obj.transpose(1, 0, 2)
+        obj = np.tensordot(projection, obj, axes=1)
+        obj = obj.transpose(1, 0, 2)
         return NumpyArrayIntegrand(obj)
 
 
