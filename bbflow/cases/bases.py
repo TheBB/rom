@@ -268,10 +268,10 @@ class ProjectedCase:
         self.cons = np.empty((projection.shape[0],))
         self.cons[:] = np.nan
 
-        self._integrables = OrderedDict([
-            (name, integrable.project(projection))
-            for name, integrable in case._integrables.items()
-        ])
+        self._integrables = OrderedDict()
+        for name, itg in case._integrables.items():
+            with log.context(name):
+                self._integrables[name] = itg.project(projection)
 
     def __iter__(self):
         yield from self._integrables

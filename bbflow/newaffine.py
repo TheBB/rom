@@ -679,7 +679,10 @@ class AffineRepresentation:
             self._lift_contractions[axes] += AffineRepresentation(new_scales, new_integrands)
 
     def project(self, projection):
-        new = AffineRepresentation(self._scales, [itg.project(projection) for itg in self._integrands])
-        for axes, rep in self._lift_contractions.items():
+        new = AffineRepresentation(
+            self._scales,
+            [itg.project(projection) for itg in log.iter('term', self._integrands)]
+        )
+        for axes, rep in log.iter('axes', list(self._lift_contractions.items())):
             new._lift_contractions[axes] = rep.project(projection)
         return new
