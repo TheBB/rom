@@ -104,34 +104,6 @@ def mk_lift(case):
     case.constrain('v', domain.boundary['right'].select(-x))
 
 
-def piola_true_convection(mu, w, u, v, case):
-    if w.ndim == 1: w = w[_,:]
-    if u.ndim == 1: u = u[_,:]
-    if v.ndim == 1: v = v[_,:]
-
-    J = case.physical_geometry(mu).grad(case.geometry)
-    v = fn.matmat(v, J.transpose()).grad(case.geometry)
-    w = fn.matmat(w, J.transpose())
-
-    integrand = (w[:,_,_,:,_] * u[_,:,_,_,:] * v[_,_,:,:,:]).sum([-1, -2])
-    ind = tuple(0 if l == 1 else slice(None) for l in integrand.shape)
-    return integrand[ind]
-
-
-def nonpiola_true_convection(mu, w, u, v, case):
-    if w.ndim == 1: w = w[_,:]
-    if u.ndim == 1: u = u[_,:]
-    if v.ndim == 1: v = v[_,:]
-
-    Jit = fn.inverse(case.physical_geometry(mu).grad(case.geometry)).transpose()
-    u = fn.matmat(u, Jit)
-    v = v.grad(case.geometry)
-
-    integrand = (w[:,_,_,:,_] * u[_,:,_,_,:] * v[_,_,:,:,:]).sum([-1, -2])
-    ind = tuple(0 if l == 1 else slice(None) for l in integrand.shape)
-    return integrand[ind]
-
-
 def nterms_rotmat_taylor(angle, threshold):
     exact = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
     approx = np.zeros((2,2))
