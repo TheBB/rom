@@ -3,7 +3,7 @@ from nutils import mesh, function as fn, log, _
 import pickle
 import pytest
 
-from bbflow import cases, util, newaffine
+from bbflow import cases, util, affine
 
 
 @pytest.fixture(params=[True, False])
@@ -72,7 +72,7 @@ def test_convective_tensor(case, mu):
     itg = (vbasis[:,_,_,:,_] * vbasis[_,:,_,_,:] * vbasis[_,_,:,:].grad(geom)).sum([-1, -2])
     phys_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
 
-    test_mx, = newaffine.integrate(case['convection'](mu, wrap=False))
+    test_mx, = affine.integrate(case['convection'](mu, wrap=False))
     np.testing.assert_almost_equal(phys_mx, test_mx)
 
 
@@ -87,7 +87,7 @@ def test_convection(case, mu):
     lfunc = case.solution(np.zeros(lhs.shape), mu, 'v')
     vfunc = case.solution(lhs, mu, 'v', lift=False)
 
-    cmx, = newaffine.integrate(case['convection'](mu, wrap=False))
+    cmx, = affine.integrate(case['convection'](mu, wrap=False))
     cmx1 = case['convection'](mu, lift=1, wrap=False).toarray()
     cmx2 = case['convection'](mu, lift=2, wrap=False).toarray()
     cmx12 = case['convection'](mu, lift=(1,2), wrap=False)
@@ -155,7 +155,7 @@ def test_lift(case, mu):
     lmx = case['laplacian'](mu, wrap=False)
     np.testing.assert_almost_equal(lmx.dot(lift), case['laplacian'](mu, lift=1, wrap=False))
 
-    cmx, = newaffine.integrate(case['convection'](mu, wrap=False))
+    cmx, = affine.integrate(case['convection'](mu, wrap=False))
     comp = (cmx * lift[_,:,_]).sum(1)
     np.testing.assert_almost_equal(comp, case['convection'](mu, lift=1, wrap=False).toarray())
     comp = (cmx * lift[_,_,:]).sum(2)
@@ -175,7 +175,7 @@ def test_pickle(case, mu):
 def test_project(case, mu):
     dmx = case['divergence'](mu, wrap=False).toarray()
     lmx = case['laplacian'](mu, wrap=False).toarray()
-    cmx, = newaffine.integrate(case['convection'](mu, wrap=False))
+    cmx, = affine.integrate(case['convection'](mu, wrap=False))
 
     vbasis = case.basis('v')
 
@@ -194,7 +194,7 @@ def test_project(case, mu):
     }
     dmx = case['divergence'](mu, wrap=False).toarray()
     lmx = case['laplacian'](mu, wrap=False).toarray()
-    cmx, = newaffine.integrate(case['convection'](mu, wrap=False))
+    cmx, = affine.integrate(case['convection'](mu, wrap=False))
 
     proj = np.random.rand(2, vbasis.shape[0])
     pcase = cases.ProjectedCase(case, proj, [2], ['v'])

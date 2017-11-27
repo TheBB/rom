@@ -3,7 +3,7 @@ from itertools import count
 import numpy as np
 from nutils import function as fn, log, plot, _, matrix
 
-from bbflow.newaffine import integrate
+from bbflow.affine import integrate
 
 
 __all__ = ['stokes', 'navierstokes']

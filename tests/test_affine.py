@@ -2,7 +2,7 @@ import numpy as np
 from nutils import mesh, function as fn, _
 import pytest
 
-from bbflow.newaffine import mu, Integrand, COOTensorIntegrand, AffineRepresentation
+from bbflow.affine import mu, Integrand, COOTensorIntegrand, AffineRepresentation
 
 
 def test_mul_mu_itg():

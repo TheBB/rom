@@ -6,7 +6,7 @@ from os import path
 
 from bbflow.cases import mu
 from bbflow.cases.bases import Case
-from bbflow.newaffine import AffineRepresentation, Integrand, NutilsDelayedIntegrand
+from bbflow.affine import AffineRepresentation, Integrand, NutilsDelayedIntegrand
 import bbflow.affine as af
 
 

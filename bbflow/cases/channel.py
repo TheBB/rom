@@ -5,7 +5,7 @@ from nutils import mesh, function as fn, log, _, plot
 from bbflow.cases import mu
 from bbflow.util import collocate
 from bbflow.cases.bases import Case
-from bbflow.newaffine import NutilsDelayedIntegrand
+from bbflow.affine import NutilsDelayedIntegrand
 
 
 class channel(Case):

@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from nutils import mesh, function as fn, log, _, plot
 
-from bbflow import newaffine
+from bbflow import affine
 import bbflow.cases as cases
 
 
@@ -124,5 +124,5 @@ def test_convection(mu, case):
     itg = (w[:,_] * u[_,:] * v[:,:]).sum([-1, -2])
     phys_conv = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
-    test_conv, = newaffine.integrate(case['convection'](mu, contraction=(a,b,c), wrap=False))
+    test_conv, = affine.integrate(case['convection'](mu, contraction=(a,b,c), wrap=False))
     np.testing.assert_almost_equal(phys_conv, test_conv)
