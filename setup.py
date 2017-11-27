@@ -15,5 +15,7 @@ setup(
         'click',
         'nutils',
         'numpy',
+        'scipy',
+        'sharedmem',
     ],
 )

@@ -212,6 +212,10 @@ class Case:
             new_itgs[name] = itg
         self._integrables = new_itgs
 
+    def ensure_shareable(self):
+        for itg in self._integrables.values():
+            itg.ensure_shareable()
+
     def norm(self, field, type='l2', mu=None):
         if mu is None:
             mu = self.parameter()
@@ -275,9 +279,10 @@ class ProjectedCase:
         self.cons[:] = np.nan
 
         self._integrables = OrderedDict()
-        for name, itg in case._integrables.items():
-            with log.context(name):
-                self._integrables[name] = itg.project(projection)
+        with log.context('project'):
+            for name, itg in case._integrables.items():
+                with log.context(name):
+                    self._integrables[name] = itg.project(projection)
 
         self.case = Case.empty_copy(case)
 

@@ -7,6 +7,7 @@ from os.path import exists
 import pickle
 import scipy.sparse as sp
 import scipy.sparse._sparsetools as sptools
+import sharedmem
 from nutils import log
 
 
@@ -123,6 +124,12 @@ def assembler(shape, *args):
     return backend(shape, *args)
 
 
+def shared_array(arr):
+    ret = sharedmem.empty_like(arr)
+    ret[:] = arr
+    return ret
+
+
 class CSRAssembler:
 
     def __init__(self, shape, row, col):
@@ -157,6 +164,11 @@ class CSRAssembler:
         sptools.coo_tocsr(M, N, len(self.row), self.row, self.col, data, indptr, indices, new_data)
         return sp.csr_matrix((new_data, indices, indptr), shape=self.shape)
 
+    def ensure_shareable(self):
+        self.row, self.col, self.order, self.inds = map(
+            shared_array, (self.row, self.col, self.order, self.inds)
+        )
+
 
 class VectorAssembler:
 
@@ -179,3 +191,6 @@ class VectorAssembler:
         retval = np.zeros(self.shape, dtype=data.dtype)
         retval[self.row] = data
         return retval
+
+    def ensure_shareable(self):
+        self.row, self.order, self.inds = map(shared_array, (self.row, self.order, self.inds))

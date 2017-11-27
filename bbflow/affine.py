@@ -182,6 +182,9 @@ class Integrand:
     def __rsub__(self, other):
         return other + mu(-1.0) * self
 
+    def ensure_shareable(self):
+        pass
+
 
 class ThinWrapperIntegrand(Integrand):
 
@@ -462,6 +465,12 @@ class COOTensorIntegrand(Integrand):
             (1,2): util.VectorAssembler((shape[0],), indices[0])
         }
 
+    def ensure_shareable(self):
+        self.indices = tuple(util.shared_array(i) for i in self.indices)
+        self.data = util.shared_array(self.data)
+        for ass in self.assemblers.values():
+            ass.ensure_shareable()
+
     def get(self, contraction):
         retval = self._contract(contraction)
         if not isinstance(retval, COOTensorIntegrand):
@@ -656,6 +665,10 @@ class AffineRepresentation:
     def cache_lifts(self, override=False, **kwargs):
         for sub in log.iter('axes', list(self._lift_contractions.values())):
             sub.cache_main(override=override, **kwargs)
+
+    def ensure_shareable(self):
+        for itg in self._integrands:
+            itg.ensure_shareable()
 
     def contract_lifts(self, lift, scale):
         if self.ndim == 1:
