@@ -13,7 +13,7 @@ def eigen(case, ensemble, fields=None):
         fields = list(case._bases)
     retval = OrderedDict()
     for field in log.iter('field', fields, length=False):
-        mass = case.mass(field)
+        mass = case.norm(field, type=('l2' if field == 'p' else 'h1s'))
         corr = ensemble.dot(mass.core.dot(ensemble.T))
         eigvals, eigvecs = np.linalg.eigh(corr)
         eigvals = eigvals[::-1]
@@ -61,7 +61,7 @@ def infsup(case, quadrule):
     for mu, __ in quadrule:
         mu = case.parameter(*mu)
         b = case['divergence'](mu, wrap=False)[np.ix_(pind,vind)]
-        v = np.linalg.inv(case['vmass'](mu, wrap=False)[np.ix_(vind,vind)])
+        v = np.linalg.inv(case['v-h1s'](mu, wrap=False)[np.ix_(vind,vind)])
         mx = b.dot(v).dot(b.T)
         ev = np.sqrt(np.abs(np.linalg.eigvalsh(mx)[0]))
         bound = min(bound, ev)

@@ -83,12 +83,13 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
 
 def supremizer(case, mu, rhs):
     vinds, pinds = case.basis_indices(['v', 'p'])
-    bmx = case['divergence'](mu).core[np.ix_(vinds,pinds)]
     length = len(rhs)
+
+    bmx = case['divergence'](mu).core[np.ix_(vinds,pinds)]
     rhs = bmx.dot(rhs[pinds])
-    mass = matrix.ScipyMatrix(case['vmass'](case.parameter()).core[np.ix_(vinds,vinds)])
-    cons = case.cons[vinds]
-    lhs = mass.solve(rhs, constrain=cons)
+    mx = matrix.ScipyMatrix(case['v-h1s'](mu).core[np.ix_(vinds,vinds)])
+
+    lhs = mx.solve(rhs, constrain=case.cons[vinds])
     lhs.resize((length,))
     return lhs
 
