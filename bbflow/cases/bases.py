@@ -18,6 +18,13 @@ Parameter = namedtuple('Parameter', ['position', 'name', 'min', 'max', 'default'
 
 class Case:
 
+    @staticmethod
+    def empty_copy(case):
+        ret = case.__class__.__new__(case.__class__)
+        ret.__dict__.update(case.__dict__)
+        ret._integrables = OrderedDict()
+        return ret
+
     def __init__(self, domain, geom):
         self.meta = {}
         self.parameters = OrderedDict()
@@ -256,13 +263,12 @@ class Case:
 class ProjectedCase:
 
     def __init__(self, case, projection, lengths, fields=None):
-        assert not isinstance(case, ProjectedCase)
+        assert isinstance(case, Case)
 
         if fields is None:
             fields = list(case._bases)
 
         self.meta = {}
-        self.case = case
         self.projection = projection
         self._bases = OrderedDict(zip(fields, lengths))
         self.cons = np.empty((projection.shape[0],))
@@ -272,6 +278,8 @@ class ProjectedCase:
         for name, itg in case._integrables.items():
             with log.context(name):
                 self._integrables[name] = itg.project(projection)
+
+        self.case = Case.empty_copy(case)
 
     def __iter__(self):
         yield from self._integrables
