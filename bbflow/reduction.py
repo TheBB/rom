@@ -83,18 +83,3 @@ def make_reduced(case, basis, *extra_bases):
 
     projcase.meta['nmodes'] = dict(zip(basis, lengths))
     return projcase
-
-
-def _make_reduced_parallel(args):
-    case, ensemble, decomp, nmodes = args
-    return make_reduced(case, ensemble, decomp, nmodes=nmodes)
-
-
-def make_reduced_parallel(case, ensemble, decomp, nmodes):
-    case.cache()
-    args = zip(repeat(case), repeat(ensemble), repeat(decomp), nmodes)
-
-    log.user('generating {} reduced cases'.format(len(nmodes)))
-    pool = Pool()
-    cases = list(log.iter('case', pool.imap(_make_reduced_parallel, args)))
-    return cases
