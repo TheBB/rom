@@ -23,7 +23,10 @@ def make_ensemble(case, solver, quadrule, weights=False, parallel=False, args=No
         args = zip(*args)
     log.user('generating ensemble of {} solutions'.format(len(quadrule)))
     if not parallel:
-        solutions = [_solve((case, solver, qpt, weights, arg)) for qpt, arg in zip(quadrule, args)]
+        solutions = [
+            _solve((n, case, solver, qpt, weights, arg))
+            for n, qpt, arg in zip(count(), quadrule, args)
+        ]
     else:
         args = zip(count(), repeat(case), repeat(solver), quadrule, repeat(weights), args)
         pool = Pool()
