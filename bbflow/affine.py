@@ -649,6 +649,8 @@ class AffineRepresentation:
             itg.cache(override=override, **kwargs)
             for itg in log.iter('term', self._integrands)
         ]
+        if self.optimized:
+            self.fallback = None
         return self
 
     def cache_lifts(self, override=False, **kwargs):
