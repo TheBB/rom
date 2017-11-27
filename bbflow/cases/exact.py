@@ -2,8 +2,9 @@ import numpy as np
 import scipy as sp
 from nutils import mesh, function as fn, log, _, plot
 
-from bbflow.cases.bases import mu, Case
-import sys
+from bbflow.util import collocate
+from bbflow.cases.bases import Case
+from bbflow.affine import AffineRepresentation
 
 
 class exact(Case):
@@ -18,8 +19,8 @@ class exact(Case):
 
         super().__init__(domain, geom)
 
-        self.add_parameter('w', 1, 2)
-        self.add_parameter('h', 1, 2)
+        w = self.add_parameter('w', 1, 2)
+        h = self.add_parameter('h', 1, 2)
 
         bases = [
             domain.basis('spline', degree=(degree, degree-1)),  # vx
@@ -65,11 +66,13 @@ class exact(Case):
             np.zeros((sum(basis_lens) - len(hcoeffs) * len(zcoeffs) * 2))
         ])
 
-        self.add_lift(q, 'v', mu['w']**(r-1) * mu['h']**(r-1))
+        self.add_lift(q, 'v', w**(r-1) * h**(r-1))
 
-        self.add_integrand('forcing', vybasis * (f3*g)[_], mu['w']**(r-2) * mu['h']**(r+2))
-        self.add_integrand('forcing', 2 * vybasis * (f1*g2)[_], mu['w']**r * mu['h']**(r))
-        self.add_integrand('forcing', - vxbasis * (f*g3)[_], mu['w']**(r+2) * mu['h']**(r-2))
+        self['forcing'] = (
+            + w**(r-2) * h**(r+2) * vybasis * (f3 * g)[_]
+            + w**r * h**r * 2*vybasis * (f1*g2)[_]
+            + w**(r+2) * h**(r-2) * -vxbasis * (f*g3)[_]
+        )
 
         vx_x = vxbasis.grad(geom)[:,0]
         vx_xx = vx_x.grad(geom)[:,0]
@@ -79,50 +82,28 @@ class exact(Case):
         vy_y = vybasis.grad(geom)[:,1]
         p_x = pbasis.grad(geom)[:,0]
 
-        self.add_integrand('laplacian', fn.outer(vx_x, vx_x), mu['h'] * mu['w'])
-        self.add_integrand('laplacian', fn.outer(vy_x, vy_x), mu['h']**3 / mu['w'])
-        self.add_integrand('laplacian', fn.outer(vx_y, vx_y), mu['w']**3 / mu['h'])
-        self.add_integrand('laplacian', fn.outer(vy_y, vy_y), mu['w'] * mu['h'])
-
-        self.add_integrand('divergence', - fn.outer(vx_x, pbasis), mu['h'] * mu['w'], symmetric=True)
-        self.add_integrand('divergence', - fn.outer(vy_y, pbasis), mu['w'] * mu['h'], symmetric=True)
-
-        self.add_integrand('vmass', fn.outer(vxbasis, vxbasis), mu['h'] * mu['w']**3)
-        self.add_integrand('vmass', fn.outer(vybasis, vybasis), mu['h']**3 * mu['w'])
-
-        self.add_integrand('vdiv', fn.outer(vbasis.div(geom)), mu['w'] * mu['h'])
-
-        self.add_integrand('pmass', fn.outer(pbasis, pbasis), mu['h'] * mu['w'])
-
-        self.add_integrand('stab-lhs', fn.outer(lbasis, pbasis), symmetric=True)
-
-        points = [
-            (0, (0, 0)),
-            (nel-1, (0, 1)),
-            (nel*(nel-1), (1, 0)),
-            (nel**2-1, (1, 1)),
-        ]
-
-        self.add_collocate(
-            'stab-lhs', p_x[:,_], points,
-            index=self.root+1, scale=1/mu['w'], symmetric=True
+        self['laplacian'] = (
+            + h * w * fn.outer(vx_x, vx_x)
+            + h**3 / w * fn.outer(vy_x, vy_x)
+            + w**3 / h * fn.outer(vx_y, vx_y)
+            + w * h * fn.outer(vy_y, vy_y)
         )
-        self.add_collocate(
-            'stab-lhs', -vx_xx[:,_], points,
-            index=self.root+1, scale=1/mu['w'], symmetric=True
-        )
-        self.add_collocate(
-            'stab-lhs', -vx_yy[:,_], points,
-            index=self.root+1, scale=mu['w']/mu['h']**2, symmetric=True
-        )
-        self.add_collocate(
-            'stab-rhs', -f*g3[_], points,
-            index=self.root+1, scale=mu['w']**3 * mu['h']**(r-3)
-        )
+
+        self['divergence'] = - h * w * fn.add_T(fn.outer(vx_x, pbasis) + fn.outer(vy_y, pbasis))
+        self['v-h1s'] = AffineRepresentation(self['laplacian'])
+        self['vdiv'] = w * h * fn.outer(vbasis.div(geom))
+        self['p-l2'] = h * w * fn.outer(pbasis, pbasis)
+
+        points = [(0, (0, 0)), (nel-1, (0, 1)), (nel*(nel-1), (1, 0)), (nel**2-1, (1, 1))]
+        colloc = [collocate(domain, eqn[:,_], points, self.root+1, self.size) for eqn in [p_x, -vx_xx, -vx_yy]]
+        ca, cb, cc = [c + c.T for c in colloc]
+
+        self['stab-lhs'] = 1/w * ca + 1/w * cb + w/h**2 * cc
+        self['stab-lhs'] += fn.add_T(fn.outer(lbasis, pbasis))
+        self['stab-rhs'] = w**3 * h**(r-3) * collocate(domain, -f*g3[_], points, self.root+1, self.size)
 
         self._piola.add('v')
-
-        self.finalize()
+        self.finalize(domain=domain, geometry=geom)
 
     def _physical_geometry(self, mu):
         return (mu['w'], mu['h']) * self.geometry

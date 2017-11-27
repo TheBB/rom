@@ -3,6 +3,8 @@ from itertools import count
 import numpy as np
 from nutils import function as fn, log, plot, _, matrix
 
+from bbflow.affine import integrate
+
 
 __all__ = ['stokes', 'navierstokes']
 
@@ -51,27 +53,19 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     stokes_mat += case['convection'](mu, lift=1) + case['convection'](mu, lift=2)
     stokes_rhs -= case['convection'](mu, lift=(1,2))
 
-    vmass = case.mass('v', mu)
+    vmass = case.norm('v', 'h1s', mu=mu)
 
-    if case.fast_tensors:
-        def conv(lhs):
-            a = case['convection'](mu, contraction=(None, lhs, None))
-            b = case['convection'](mu, contraction=(None, None, lhs))
-            c = case['convection'](mu, contraction=(None, lhs, lhs))
-            return a + b, c
-    else:
-        def conv(lhs):
-            a, b, c = (
-                case['convection'](mu, contraction=(None, lhs, None)) +
-                case['convection'](mu, contraction=(None, None, lhs)) +
-                case['convection'](mu, contraction=(None, lhs, lhs))
-            ).get()
-            return a + b, c
+    def conv(lhs):
+        c = case['convection']
+        r = c(mu, contraction=(None, lhs, lhs))
+        l = c(mu, contraction=(None, lhs, None)) + c(mu, contraction=(None, None, lhs))
+        r, l = integrate(r, l)
+        return r, l
 
     for it in count(1):
-        _lhs, _rhs = conv(lhs)
-        rhs = stokes_rhs - stokes_mat.matvec(lhs) - _rhs
-        ns_mat = stokes_mat + _lhs
+        r, l = conv(lhs)
+        rhs = stokes_rhs - stokes_mat.matvec(lhs) - r
+        ns_mat = stokes_mat + l
 
         update = ns_mat.solve(rhs, constrain=case.cons)
         lhs += update
@@ -89,12 +83,13 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
 
 def supremizer(case, mu, rhs):
     vinds, pinds = case.basis_indices(['v', 'p'])
-    bmx = case['divergence'](mu).core[np.ix_(vinds,pinds)]
     length = len(rhs)
+
+    bmx = case['divergence'](mu).core[np.ix_(vinds,pinds)]
     rhs = bmx.dot(rhs[pinds])
-    mass = matrix.ScipyMatrix(case['vmass'](case.parameter()).core[np.ix_(vinds,vinds)])
-    cons = case.cons[vinds]
-    lhs = mass.solve(rhs, constrain=cons)
+    mx = matrix.ScipyMatrix(case['v-h1s'](mu).core[np.ix_(vinds,vinds)])
+
+    lhs = mx.solve(rhs, constrain=case.cons[vinds])
     lhs.resize((length,))
     return lhs
 

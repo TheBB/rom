@@ -2,20 +2,37 @@ import numpy as np
 import pytest
 from nutils import mesh, function as fn, log, _, plot
 
+from bbflow import affine
 import bbflow.cases as cases
 
 
-case = cases.airfoil(nelems=2, lift=False)
+def mk_case(override):
+    pspace = np.linspace(0, 2*np.pi, 4)
+    rspace = np.linspace(0, 1, 3)
+    domain, refgeom = mesh.rectilinear([rspace, pspace], periodic=(1,))
+    r, ang = refgeom
+    geom = fn.asarray((
+        (1 + 10 * r) * fn.cos(ang),
+        (1 + 10 * r) * fn.sin(ang),
+    ))
+    return cases.airfoil(override=override, mesh=(domain, refgeom, geom), lift=False, amax=10, rmax=10)
+
+cases = {True: mk_case(True), False: mk_case(False)}
+
+@pytest.fixture(params=[True, False])
+def case(request):
+    return cases[request.param]
+
 
 @pytest.fixture
 def mu():
     return {
-        'angle': np.pi * 19 / 180,
+        'angle': np.pi * 10 / 180,
         'viscosity': 1.0,
         'velocity': 1.0,
     }
 
-def piola_bases(mu):
+def piola_bases(mu, case):
     trfgeom = case.physical_geometry(mu)
     refgeom = case.meta['refgeom']
 
@@ -31,12 +48,12 @@ def piola_bases(mu):
     return vbasis, pbasis
 
 
-def test_bases(mu):
+def test_bases(mu, case):
     domain, vbasis, pbasis = case.domain, case.basis('v'), case.basis('p')
     trfgeom = case.physical_geometry(mu)
     refgeom = case.meta['refgeom']
 
-    a_vbasis, a_pbasis = piola_bases(mu)
+    a_vbasis, a_pbasis = piola_bases(mu, case)
 
     J = trfgeom.grad(case.geometry)
     detJ = fn.determinant(J)
@@ -62,53 +79,41 @@ def test_bases(mu):
     np.testing.assert_almost_equal(vdiff, 0.0)
 
 
-def test_divergence_matrix(mu):
-    p_vbasis, p_pbasis = piola_bases(mu)
+def test_divergence_matrix(mu, case):
+    p_vbasis, p_pbasis = piola_bases(mu, case)
     trfgeom = case.physical_geometry(mu)
 
     itg = -fn.outer(p_pbasis, p_vbasis.div(trfgeom))
     phys_mx = case.domain.integrate(itg + itg.T, geometry=trfgeom, ischeme='gauss9')
 
-    test_mx = case.integrate('divergence', mu)
-    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
-
-    itg = case.integrand('divergence', mu)
-    test_mx = case.domain.integrate(itg, geometry=case.geometry, ischeme='gauss9')
+    test_mx = case['divergence'](mu)
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
 
 
-def test_laplacian_matrix(mu):
-    p_vbasis, p_pbasis = piola_bases(mu)
+def test_laplacian_matrix(mu, case):
+    p_vbasis, p_pbasis = piola_bases(mu, case)
     trfgeom = case.physical_geometry(mu)
 
     itg = fn.outer(p_vbasis.grad(trfgeom)).sum([-1, -2])
     phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
-    test_mx = case.integrate('laplacian', mu)
-    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
-
-    itg = case.integrand('laplacian', mu)
-    test_mx = case.domain.integrate(itg, geometry=case.geometry, ischeme='gauss9')
+    test_mx = case['laplacian'](mu)
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
 
 
-def test_mass_matrix(mu):
-    p_vbasis, p_pbasis = piola_bases(mu)
+def test_mass_matrix(mu, case):
+    p_vbasis, p_pbasis = piola_bases(mu, case)
     trfgeom = case.physical_geometry(mu)
 
-    itg = fn.outer(p_vbasis).sum([-1])
+    itg = fn.outer(p_vbasis.grad(trfgeom)).sum([-1, -2])
     phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
-    test_mx = case.integrate('vmass', mu)
-    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
-
-    itg = case.integrand('vmass', mu)
-    test_mx = case.domain.integrate(itg, geometry=case.geometry, ischeme='gauss9')
+    test_mx = case['v-h1s'](mu)
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
 
 
-def test_convection(mu):
-    p_vbasis, p_pbasis = piola_bases(mu)
+def test_convection(mu, case):
+    p_vbasis, p_pbasis = piola_bases(mu, case)
     trfgeom = case.physical_geometry(mu)
 
     a, b, c = [np.random.rand(p_vbasis.shape[0]) for __ in range(3)]
@@ -119,5 +124,5 @@ def test_convection(mu):
     itg = (w[:,_] * u[_,:] * v[:,:]).sum([-1, -2])
     phys_conv = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
-    test_conv = case.integrate('convection', mu, contraction=(a,b,c)).get()
+    test_conv, = affine.integrate(case['convection'](mu, contraction=(a,b,c), wrap=False))
     np.testing.assert_almost_equal(phys_conv, test_conv)

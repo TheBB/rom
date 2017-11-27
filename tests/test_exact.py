@@ -1,7 +1,8 @@
 import numpy as np
 from nutils import function as fn
+import pytest
 
-from bbflow.cases import cavity, channel, exact
+from bbflow import cases
 from bbflow.solvers import stokes, navierstokes
 
 
@@ -17,54 +18,66 @@ def _check_exact(case, mu, lhs):
     np.testing.assert_almost_equal(verr, 0.0)
     np.testing.assert_almost_equal(perr, 0.0)
 
+@pytest.fixture()
+def cavity():
+    return cases.cavity(nel=2)
 
-def test_cavity_stokes():
-    case = cavity(nel=2)
-    lhs = stokes(case, ())
-    _check_exact(case, (), lhs)
+@pytest.fixture()
+def e_exact():
+    return cases.exact(nel=3, degree=3, power=3)
+
+@pytest.fixture()
+def a_exact():
+    return cases.exact(nel=3, degree=3, power=4)
+
+@pytest.fixture(params=[(1, 1), (2, 1.5), (1.14, 1.98)])
+def mu(request):
+    return request.param
+
+@pytest.fixture(params=[True, False])
+def channel(request):
+    return cases.channel(nel=2, override=request.param)
+
+@pytest.fixture(params=[stokes, navierstokes])
+def solver(request):
+    return request.param
 
 
-def test_channel_stokes():
-    case = channel(nel=2)
-    lhs = stokes(case, ())
-    _check_exact(case, (), lhs)
+def test_cavity_stokes(cavity):
+    lhs = stokes(cavity, ())
+    _check_exact(cavity, (), lhs)
 
 
-def test_channel_navierstokes():
-    case = channel(nel=2)
-    lhs = stokes(case, ())
-    _check_exact(case, (), lhs)
+def test_channel(channel, solver):
+    lhs = solver(channel, ())
+    _check_exact(channel, (), lhs)
 
 
-def test_exact_stokes():
-    ecase = exact(nel=3, degree=3, power=3)
-    acase = exact(nel=3, degree=3, power=4)
+def test_exact_stokes(e_exact, a_exact, mu):
+    mu = e_exact.parameter(*mu)
 
-    for mu in [(1, 1), (2, 1.5), (1.14, 1.98)]:
-        mu = ecase.parameter(*mu)
+    elhs = stokes(e_exact, mu)
+    alhs = stokes(a_exact, mu)
+    _check_exact(e_exact, mu, elhs)
 
-        elhs = stokes(ecase, mu)
-        alhs = stokes(acase, mu)
-        _check_exact(ecase, mu, elhs)
+    # Solenoidal in physical coordinates
+    pgeom = e_exact.physical_geometry(mu)
+    vdiv = e_exact.solution(elhs, mu, 'v').div(pgeom)
+    vdiv = np.sqrt(e_exact.domain.integrate(vdiv**2, geometry=pgeom, ischeme='gauss9'))
+    np.testing.assert_almost_equal(0.0, vdiv)
 
-        # Solenoidal in physical coordinates
-        pgeom = ecase.physical_geometry(mu)
-        vdiv = ecase.solution(elhs, mu, 'v').div(pgeom)
-        vdiv = np.sqrt(ecase.domain.integrate(vdiv**2, geometry=pgeom, ischeme='gauss9'))
-        np.testing.assert_almost_equal(0.0, vdiv)
+    pgeom = a_exact.physical_geometry(mu)
+    vdiv = a_exact.solution(alhs, mu, 'v').div(pgeom)
+    vdiv = np.sqrt(a_exact.domain.integrate(vdiv**2, geometry=pgeom, ischeme='gauss9'))
+    np.testing.assert_almost_equal(0.0, vdiv)
 
-        pgeom = acase.physical_geometry(mu)
-        vdiv = acase.solution(alhs, mu, 'v').div(pgeom)
-        vdiv = np.sqrt(acase.domain.integrate(vdiv**2, geometry=pgeom, ischeme='gauss9'))
-        np.testing.assert_almost_equal(0.0, vdiv)
+    # Solenoidal in reference coordinates
+    rgeom = e_exact.geometry
+    vdiv = e_exact.basis('v').dot(elhs).div(rgeom)
+    vdiv = np.sqrt(e_exact.domain.integrate(vdiv**2, geometry=rgeom, ischeme='gauss9'))
+    np.testing.assert_almost_equal(0.0, vdiv)
 
-        # Solenoidal in reference coordinates
-        rgeom = ecase.geometry
-        vdiv = ecase.basis('v').dot(elhs).div(rgeom)
-        vdiv = np.sqrt(ecase.domain.integrate(vdiv**2, geometry=rgeom, ischeme='gauss9'))
-        np.testing.assert_almost_equal(0.0, vdiv)
-
-        rgeom = acase.geometry
-        vdiv = acase.basis('v').dot(alhs).div(rgeom)
-        vdiv = np.sqrt(acase.domain.integrate(vdiv**2, geometry=rgeom, ischeme='gauss9'))
-        np.testing.assert_almost_equal(0.0, vdiv)
+    rgeom = a_exact.geometry
+    vdiv = a_exact.basis('v').dot(alhs).div(rgeom)
+    vdiv = np.sqrt(a_exact.domain.integrate(vdiv**2, geometry=rgeom, ischeme='gauss9'))
+    np.testing.assert_almost_equal(0.0, vdiv)

@@ -10,7 +10,7 @@ from operator import itemgetter, attrgetter
 from namedlist import namedlist
 
 from bbflow.util import multiple_to_single
-from bbflow.affine import AffineRepresentation, Integrand, mu
+from bbflow.affine import mu, Integrand, AffineRepresentation
 
 
 Parameter = namedtuple('Parameter', ['position', 'name', 'min', 'max', 'default'])
@@ -19,20 +19,17 @@ Parameter = namedtuple('Parameter', ['position', 'name', 'min', 'max', 'default'
 class Case:
 
     def __init__(self, domain, geom):
-        super().__init__()
-
         self.meta = {}
         self.parameters = OrderedDict()
         self._fixed_values = {}
 
         self._bases = OrderedDict()
-        self._integrables = {}
+        self._integrables = OrderedDict()
         self._lifts = []
         self._piola = set()
 
         self.domain = domain
         self.geometry = geom
-        self.fast_tensors = False
 
     def __iter__(self):
         yield from self._integrables
@@ -41,8 +38,28 @@ class Case:
         return key in self._integrables
 
     def __getitem__(self, key):
-        assert key in self
-        return partial(self.integrate, key)
+        return self._integrables[key]
+
+    def __setitem__(self, key, value):
+        if Integrand.acceptable(value):
+            value = Integrand.make(value)
+        if not isinstance(value, AffineRepresentation):
+            value = AffineRepresentation([mu(1.0)], [value])
+        self._integrables[key] = value
+
+    def __str__(self):
+        s = f'       {"Name": <17} {"Terms": >5}   Shape\n'
+        for name, integrable in self._integrables.items():
+            opt = 'Y' if integrable.optimized else 'N'
+            shp = '×'.join(str(s) for s in integrable.shape)
+            fb = '*' if integrable.fallback else ' '
+            s += f'[{opt}] {fb} {name: <17} {len(integrable): >5}   {shp}\n'
+            for axes, sub in integrable._lift_contractions.items():
+                opt = 'Y' if sub.optimized else 'N'
+                shp = '×'.join(str(s) for s in sub.shape)
+                sub_name = f'{name}[' + ','.join(map(str, sorted(axes))) + ']'
+                s += f'[{opt}]     {sub_name: <15} {len(integrable): >5}   {shp}\n'
+        return s[:-1]
 
     @property
     def size(self):
@@ -58,6 +75,7 @@ class Case:
             default = (min + max) / 2
         self.parameters[name] = Parameter(len(self.parameters), name, min, max, default)
         self._fixed_values[name] = None
+        return mu[name]
 
     def parameter(self, *args, **kwargs):
         mu, index = [], 0
@@ -114,6 +132,12 @@ class Case:
             return self._physical_geometry(mu)
         return self.geometry
 
+    def jacobian(self, mu=None):
+        return self.physical_geometry(mu).grad(self.geometry)
+
+    def jacobian_inverse(self, mu=None):
+        return fn.inverse(self.physical_geometry(mu).grad(self.geometry))
+
     def add_basis(self, name, function, length):
         self._bases[name] = (function, length)
 
@@ -169,84 +193,36 @@ class Case:
         lift[np.where(np.isnan(lift))] = 0.0
         self._lifts.append((lift, scale))
 
-    def add_integrand(self, name, integrand, scale=None, domain=None, symmetric=False):
-        if name not in self._integrables:
-            self._integrables[name] = AffineRepresentation(name)
-        if symmetric:
-            integrand = integrand + integrand.T
-        if scale is None:
-            scale = mu(1.0)
-        integrand = Integrand.make(integrand, domain)
-        self._integrables[name].append(integrand, scale)
-
-    def add_collocate(self, name, equation, points, index=None, scale=None, symmetric=False):
-        if index is None:
-            index = self.root
-        ncomps = equation.shape[-1]
-
-        elements = [self.domain.elements[eid] for eid, __ in points]
-        kwargs = [{
-            '_transforms': (elem.transform, elem.opposite),
-            '_points': np.array([pt]),
-        } for elem, (__, pt) in zip(elements, points)]
-        data = np.array([equation.eval(**kwg)[0] for kwg in kwargs])
-
-        if equation.ndim == 2:
-            data = np.transpose(data, (0, 2, 1))
-            data = np.reshape(data, (ncomps * len(points), data.shape[-1]))
-            data = sp.sparse.coo_matrix(data)
-            data = sp.sparse.csr_matrix((data.data, (data.row + index, data.col)), shape=(self.size,)*2)
-        elif equation.ndim == 1:
-            data = np.hstack([np.zeros((index,)), data.flatten()])
-
-        self.add_integrand(name, data, scale=scale, symmetric=symmetric)
-
-    def finalize(self):
-        for integrable in self._integrables.values():
-            for lift, scale in self._lifts:
-                integrable.contract_lifts(lift, scale)
-
     @log.title
-    def cache(self):
-        for integrable in self._integrables.values():
-            integrable.cache(self)
+    def finalize(self, override=False, **kwargs):
+        new_itgs = {}
+        for name, itg in self._integrables.items():
+            with log.context(name):
+                itg.cache_main(override=override, **kwargs)
+                for lift, scale in self._lifts:
+                    itg.contract_lifts(lift, scale)
+                itg.cache_lifts(override=override, **kwargs)
+            new_itgs[name] = itg
+        self._integrables = new_itgs
 
-    def uncache(self):
-        for integrable in self._integrables.values():
-            integrable.uncache()
-
-    @log.title
-    def integrate(self, name, mu, lift=None, contraction=None, override=False, wrap=True):
-        if isinstance(lift, int):
-            lift = (lift,)
-        assert name in self._integrables
-        value = self._integrables[name].integrate(
-            self, mu, lift=lift, contraction=contraction, override=override,
-        )
-        if wrap:
-            if isinstance(value, np.ndarray) and value.ndim == 2:
-                return matrix.NumpyMatrix(value)
-            if isinstance(value, sp.sparse.spmatrix):
-                return matrix.ScipyMatrix(value)
-        return value
-
-    def integrand(self, name, mu, lift=None):
-        if isinstance(lift, int):
-            lift = (lift,)
-        assert name in self._integrables
-        return self._integrables[name].integrand(self, mu, lift=lift)
-
-    def mass(self, field, mu=None):
+    def norm(self, field, type='l2', mu=None):
         if mu is None:
             mu = self.parameter()
-        intname = field + 'mass'
-        if intname in self._integrables:
-            return self.integrate(intname, mu)
-        integrand = fn.outer(self.basis(field))
-        while len(integrand.shape) > 2:
-            integrand = integrand.sum(-1)
+        intname = f'{field}-{type}'
+        if intname in self:
+            return self[intname](mu)
+
+        assert False
+        itg = self.basis(field)
         geom = self.physical_geometry(mu)
-        return self.domain.integrate(integrand, geometry=geom, ischeme='gauss9')
+        if type == 'h1s':
+            itg = itg.grad(geom)
+        else:
+            assert type == 'l2'
+        itg = fn.outer(itg)
+        while itg.ndim > 2:
+            itg = itg.sum([-1])
+        return self.domain.integrate(itg, geometry=geom, ischeme='gauss9')
 
     def _lift(self, mu):
         return sum(lift * scl(mu) for lift, scl in self._lifts)
@@ -263,7 +239,6 @@ class Case:
     def exact(self, mu, field):
         assert self.has_exact
         sol = self._exact(mu, field)
-        print(type(sol))
         if field in self._piola:
             J = self.physical_geometry(mu).grad(self.geometry)
             sol = fn.matmat(sol, J.transpose())
@@ -282,7 +257,6 @@ class ProjectedCase:
 
     def __init__(self, case, projection, lengths, fields=None):
         assert not isinstance(case, ProjectedCase)
-        super().__init__()
 
         if fields is None:
             fields = list(case._bases)
@@ -294,24 +268,19 @@ class ProjectedCase:
         self.cons = np.empty((projection.shape[0],))
         self.cons[:] = np.nan
 
-        self._integrables = OrderedDict([
-            (name, integrable.project(case, projection))
-            for name, integrable in case._integrables.items()
-        ])
-
-        case.uncache()
-
-        self.fast_tensors = True
+        self._integrables = OrderedDict()
+        for name, itg in case._integrables.items():
+            with log.context(name):
+                self._integrables[name] = itg.project(projection)
 
     def __iter__(self):
-        yield from self.case
+        yield from self._integrables
 
     def __contains__(self, key):
-        return key in self.case
+        return key in self._integrables
 
     def __getitem__(self, key):
-        assert key in self
-        return partial(self.integrate, key)
+        return self._integrables[key]
 
     @multiple_to_single('name')
     def basis_indices(self, name):
@@ -322,20 +291,6 @@ class ProjectedCase:
             else:
                 break
         return np.arange(start, start + length, dtype=np.int)
-
-    def integrate(self, name, mu, lift=None, contraction=None, override=False, wrap=True):
-        if isinstance(lift, int):
-            lift = (lift,)
-        assert name in self._integrables
-        value = self._integrables[name].integrate(
-            self, mu, lift=lift, contraction=contraction, override=override,
-        )
-        if wrap:
-            if isinstance(value, np.ndarray) and value.ndim == 2:
-                return matrix.NumpyMatrix(value)
-            if isinstance(value, sp.sparse.spmatrix):
-                return matrix.ScipyMatrix(value)
-        return value
 
     @property
     def has_exact(self):
@@ -373,13 +328,13 @@ class ProjectedCase:
         basis = self.case.basis(name)
         return fn.matmat(self.projection, basis)
 
-    def mass(self, field, mu=None):
+    def norm(self, field, type='l2', mu=None):
         if mu is None:
             mu = self.parameter()
-        intname = field + 'mass'
+        intname = f'{field}-{type}'
         if intname in self._integrables:
-            return self.integrate(intname, mu)
-        omass = self.case.mass(field, mu)
+            return self[intname](mu)
+        omass = self.case.norm(field, type=type, mu=mu)
         return self.projection.dot(omass).dot(self.projection.T)
 
     def exact(self, *args, **kwargs):

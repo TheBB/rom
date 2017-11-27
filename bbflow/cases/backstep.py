@@ -2,12 +2,14 @@ from functools import partial
 import numpy as np
 from nutils import mesh, function as fn, log, _
 
-from bbflow.cases.bases import mu, Case
+from bbflow.util import collocate, characteristic
+from bbflow.cases.bases import Case
+from bbflow.affine import NutilsDelayedIntegrand
 
 
 class backstep(Case):
 
-    def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True):
+    def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True, override=False):
         if nel_up is None:
             nel_up = int(10 * refine)
         if nel_length is None:
@@ -30,10 +32,10 @@ class backstep(Case):
 
         super().__init__(domain, geom)
 
-        self.add_parameter('viscosity', 20, 50)
-        self.add_parameter('length', 9, 12, 10)
-        self.add_parameter('height', 0.3, 2, 1)
-        self.add_parameter('velocity', 0.5, 1.2, 1)
+        NU = 1 / self.add_parameter('viscosity', 20, 50)
+        L = self.add_parameter('length', 9, 12, 10)
+        H = self.add_parameter('height', 0.3, 2, 1)
+        V = self.add_parameter('velocity', 0.5, 1.2, 1)
 
         # Bases
         bases = [
@@ -59,70 +61,80 @@ class backstep(Case):
         # Lifting function
         __, y = self.geometry
         profile = fn.max(0, y*(1-y) * 4)[_] * (1, 0)
-        self.add_lift(profile, 'v', scale=mu['velocity'])
+        self.add_lift(profile, 'v', scale=V)
+
+        # Characteristic functions
+        cp0, cp1, cp2 = [characteristic(domain, (i,)) for i in range(3)]
+        cp12 = cp1 + cp2
 
         # Stokes divergence term
-        add = partial(self.add_integrand, 'divergence')
-        add(-fn.outer(vbasis.div(geom), pbasis), symmetric=True)
-        add(-fn.outer(vgrad[:,0,0], pbasis), mu['height']-1, domain=2, symmetric=True)
-        add(-fn.outer(vgrad[:,1,1], pbasis), mu['length']-1, domain=(1,2), symmetric=True)
+        self['divergence'] = (
+            - (H-1) * fn.add_T(fn.outer(vgrad[:,0,0], pbasis) * cp2)
+            - (L-1) * fn.add_T(fn.outer(vgrad[:,1,1], pbasis) * cp12)
+            - fn.add_T(fn.outer(vbasis.div(geom), pbasis))
+        )
 
         # Stokes laplacian term
-        add = partial(self.add_integrand, 'laplacian')
-        add(fn.outer(vgrad).sum([-1, -2]), 1/mu['viscosity'], domain=0)
-        add(fn.outer(vgrad[:,:,0]).sum(-1), 1/mu['viscosity']/mu['length'], domain=1)
-        add(fn.outer(vgrad[:,:,1]).sum(-1), mu['length']/mu['viscosity'], domain=1)
-        add(fn.outer(vgrad[:,:,0]).sum(-1), mu['height']/mu['viscosity']/mu['length'], domain=2)
-        add(fn.outer(vgrad[:,:,1]).sum(-1), mu['length']/mu['viscosity']/mu['height'], domain=2)
+        self['laplacian'] = (
+            + NU * fn.outer(vgrad).sum([-1, -2]) * cp0
+            + NU/L * fn.outer(vgrad[:,:,0]).sum(-1) * cp1
+            + NU*L * fn.outer(vgrad[:,:,1]).sum(-1) * cp1
+            + NU*H/L * fn.outer(vgrad[:,:,0]).sum(-1) * cp2
+            + NU*L/H * fn.outer(vgrad[:,:,1]).sum(-1) * cp2
+        )
 
         # Navier-stokes convective term
-        add = partial(self.add_integrand, 'convection')
-        itg = (vbasis[:,_,_,:,_] * vbasis[_,:,_,_,:] * vgrad[_,_,:,:,:]).sum([-1, -2])
-        add(itg, domain=0)
-        itg = (vbasis[:,_,_,:] * vbasis[_,:,_,_,0] * vgrad[_,_,:,:,0]).sum(-1)
-        add(itg, domain=1)
-        add(itg, mu['height'], domain=2)
-        itg = (vbasis[:,_,_,:] * vbasis[_,:,_,_,1] * vgrad[_,_,:,:,1]).sum(-1)
-        add(itg, mu['length'], domain=(1,2))
+        args = ('ijk', 'wuv')
+        kwargs = {'x': geom, 'w': vbasis, 'u': vbasis, 'v': vbasis}
+        self['convection'] = (
+            + H * NutilsDelayedIntegrand('c w_ia u_j0 v_ka,0', *args, **kwargs, c=cp2)
+            + L * NutilsDelayedIntegrand('c w_ia u_j1 v_ka,1', *args, **kwargs, c=cp12)
+            + NutilsDelayedIntegrand('c w_ia u_jb v_ka,b', *args, **kwargs, c=cp0)
+            + NutilsDelayedIntegrand('c w_ia u_j0 v_ka,0', *args, **kwargs, c=cp1)
+        )
 
-        # Mass matrices
-        add = partial(self.add_integrand, 'vmass')
-        add(fn.outer(vbasis, vbasis).sum(-1), domain=0)
-        add(fn.outer(vbasis, vbasis).sum(-1), mu['length'], domain=1)
-        add(fn.outer(vbasis, vbasis).sum(-1), mu['length']*mu['height'], domain=2)
-
-        add = partial(self.add_integrand, 'pmass')
-        add(fn.outer(pbasis, pbasis), domain=0)
-        add(fn.outer(pbasis, pbasis), mu['length'], domain=1)
-        add(fn.outer(pbasis, pbasis), mu['length']*mu['height'], domain=2)
+        # Norms
+        self['v-h1s'] = self['laplacian'] / NU
+        self['v-l2'] = (
+            + L * fn.outer(vbasis).sum(-1) * cp1
+            + L*H * fn.outer(vbasis).sum(-1) * cp2
+            + fn.outer(vbasis).sum(-1) * cp0
+        )
+        self['p-l2'] = (
+            + L * fn.outer(pbasis) * cp1
+            + L*H * fn.outer(pbasis) * cp2
+            + fn.outer(pbasis) * cp0
+        )
 
         if not stabilize:
-            self.finalize()
+            self.finalize(override=override, domain=domain, geometry=geom)
             return
 
         points = [(0, (0, 0)), (nel_up-1, (0, 1))]
         eqn = vbasis.laplace(geom)[:,0,_]
-        self.add_collocate('stab-lhs', eqn, points, scale=1/mu['viscosity'], symmetric=True)
+        colloc = collocate(domain, eqn, points, self.root, self.size)
+        self['stab-lhs'] = NU * (colloc + colloc.T)
         eqn = - pbasis.grad(geom)[:,0,_]
-        self.add_collocate('stab-lhs', eqn, points, symmetric=True)
+        colloc = collocate(domain, eqn, points, self.root, self.size)
+        self['stab-lhs'] += colloc + colloc.T
 
         points = [(nel_up**2 + nel_up*nel_length, (0, 0))]
         eqn = vbasis[:,0].grad(geom).grad(geom)
-        scl = 1/mu['viscosity']
-        self.add_collocate('stab-lhs', eqn[:,0,0,_], points, scale=scl/mu['length']**2,
-                           index=self.root+2, symmetric=True)
-        self.add_collocate('stab-lhs', eqn[:,1,1,_], points, scale=scl/mu['height']**2,
-                           index=self.root+2, symmetric=True)
+        colloc = collocate(domain, eqn[:,0,0,_], points, self.root+2, self.size)
+        self['stab-lhs'] += NU/L**2 * (colloc + colloc.T)
+        colloc = collocate(domain, eqn[:,1,1,_], points, self.root+2, self.size)
+        self['stab-lhs'] += NU/H**2 * (colloc + colloc.T)
         eqn = - pbasis.grad(geom)[:,0,_]
-        self.add_collocate('stab-lhs', eqn, points, scale=1/mu['length'], index=self.root+2, symmetric=True)
+        colloc = collocate(domain, - pbasis.grad(geom)[:,0,_], points, self.root+2, self.size)
+        self['stab-lhs'] += 1/L * (colloc + colloc.T)
 
         points = [(nel_up*(nel_up-1), (1, 0))]
-        eqn = vbasis.laplace(geom)[:,0,_]
-        self.add_collocate('stab-lhs', eqn, points, scale=1/mu['viscosity'], symmetric=True, index=self.root+3)
-        eqn = - pbasis.grad(geom)[:,0,_]
-        self.add_collocate('stab-lhs', eqn, points, symmetric=True, index=self.root+3)
+        colloc = collocate(domain, vbasis.laplace(geom)[:,0,_], points, self.root+3, self.size)
+        self['stab-lhs'] += NU * (colloc + colloc.T)
+        colloc = collocate(domain, -pbasis.grad(geom)[:,0,_], points, self.root+3, self.size)
+        self['stab-lhs'] += colloc + colloc.T
 
-        self.finalize()
+        self.finalize(override=override, domain=domain, geometry=geom)
 
     def _physical_geometry(self, mu):
         x, y = self.geometry
