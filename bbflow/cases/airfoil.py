@@ -4,9 +4,8 @@ from scipy.misc import factorial
 from nutils import mesh, function as fn, log, _, plot
 from os import path
 
-from bbflow.cases import mu
 from bbflow.cases.bases import Case
-from bbflow.affine import AffineRepresentation, Integrand, NutilsDelayedIntegrand
+from bbflow.affine import AffineRepresentation, Integrand, NutilsDelayedIntegrand, mu
 import bbflow.affine as af
 
 

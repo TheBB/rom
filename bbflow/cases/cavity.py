@@ -2,7 +2,6 @@ import numpy as np
 import scipy as sp
 from nutils import mesh, function as fn, log, _, plot
 
-from bbflow.cases import mu
 from bbflow.util import collocate
 from bbflow.cases.bases import Case
 

@@ -2,7 +2,6 @@ from functools import partial
 import numpy as np
 from nutils import mesh, function as fn, log, _
 
-from bbflow.cases import mu
 from bbflow.util import collocate, characteristic
 from bbflow.cases.bases import Case
 from bbflow.affine import NutilsDelayedIntegrand
@@ -62,7 +61,7 @@ class backstep(Case):
         # Lifting function
         __, y = self.geometry
         profile = fn.max(0, y*(1-y) * 4)[_] * (1, 0)
-        self.add_lift(profile, 'v', scale=mu['velocity'])
+        self.add_lift(profile, 'v', scale=V)
 
         # Characteristic functions
         cp0, cp1, cp2 = [characteristic(domain, (i,)) for i in range(3)]
