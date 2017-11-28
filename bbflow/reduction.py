@@ -22,14 +22,17 @@ def eigen(case, ensemble, fields=None):
     return retval
 
 
-def plot_spectrum(decomp, show=False, figsize=(10,10), plot_name='spectrum', index=0):
+def plot_spectrum(decomps, show=False, figsize=(10,10), plot_name='spectrum', index=0):
     with plot.PyPlot(plot_name, index=index, figsize=figsize) as plt:
-        for f, (evs, __) in decomp.items():
-            evs, __ = decomp[f]
-            plt.semilogy(range(1, len(evs) + 1), evs)
+        legend = []
+        for name, decomp in decomps:
+            for f, (evs, __) in decomp.items():
+                evs, __ = decomp[f]
+                plt.semilogy(range(1, len(evs) + 1), evs)
+                legend.append(f'{name} ({f})')
         plt.grid()
         plt.xlim(0, len(evs) + 1)
-        plt.legend(list(decomp))
+        plt.legend(legend)
         if show:
             plt.show()
 
