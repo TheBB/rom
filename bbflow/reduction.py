@@ -2,7 +2,7 @@ from collections import OrderedDict
 from itertools import repeat
 from multiprocessing import Pool
 import numpy as np
-from nutils import log, plot
+from nutils import log, plot, _
 from operator import itemgetter
 
 from bbflow.cases import ProjectedCase
@@ -22,19 +22,29 @@ def eigen(case, ensemble, fields=None):
     return retval
 
 
-def plot_spectrum(decomps, show=False, figsize=(10,10), plot_name='spectrum', index=0):
-    with plot.PyPlot(plot_name, index=index, figsize=figsize) as plt:
-        legend = []
-        for name, decomp in decomps:
-            for f, (evs, __) in decomp.items():
-                evs, __ = decomp[f]
-                plt.semilogy(range(1, len(evs) + 1), evs)
-                legend.append(f'{name} ({f})')
-        plt.grid()
-        plt.xlim(0, len(evs) + 1)
-        plt.legend(legend)
-        if show:
-            plt.show()
+def plot_spectrum(decomps, show=False, figsize=(10,10), plot_name='spectrum', index=0, formats=['png']):
+    max_shp = max(len(evs) for __, decomp in decomps for evs, __ in decomp.values())
+    data = [np.copy(evs) for __, decomp in decomps for evs, __ in decomp.values()]
+    for d in data:
+        d.resize((max_shp,))
+    data = np.vstack(data)
+    names = [f'{name} ({f})' for name, decomp in decomps for f in decomp]
+
+    if 'png' in formats:
+        with plot.PyPlot(plot_name, index=index, figsize=figsize) as plt:
+            for d in data:
+                plt.semilogy(range(1, max_shp + 1), d)
+            plt.grid()
+            plt.xlim(0, max_shp + 1)
+            plt.legend(names)
+            if show:
+                plt.show()
+
+    if 'csv' in formats:
+        data = np.vstack([np.arange(1, max_shp+1)[_,:], data]).T
+        filename = f'{plot_name}.csv'
+        np.savetxt(filename, data)
+        log.user(filename)
 
 
 def reduced_bases(case, ensemble, decomp, nmodes):
