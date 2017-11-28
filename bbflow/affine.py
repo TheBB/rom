@@ -506,18 +506,14 @@ class COOTensorIntegrand(Integrand):
         return self.assemblers[axes](data)
 
     def project(self, projection):
-        flat_index = np.ravel_multi_index(self.indices[:-1], self.shape[:-1])
-        flat_shape = (np.product(self.shape[:-1]), self.shape[-1])
-
-        # This looks awkward but is a lot faster than calling einsum
-        obj = sp.coo_matrix((self.data, (flat_index, self.indices[-1])), shape=flat_shape)
-        obj = obj.dot(projection.T)
-        obj = np.reshape(obj, self.shape[:-1] + (projection.shape[0],))
-        obj = np.tensordot(projection, obj, axes=1)
-        obj = obj.transpose(1, 0, 2)
-        obj = np.tensordot(projection, obj, axes=1)
-        obj = obj.transpose(1, 0, 2)
-        return NumpyArrayIntegrand(obj)
+        ass = util.CSRAssembler(self.shape[1:], self.indices[1], self.indices[2])
+        P, __ = projection.shape
+        ret = np.empty((P,)*3, self.data.dtype)
+        for i in log.iter('index', range(P), length=P):
+            data = self.data * projection[i, self.indices[0]]
+            mx = ass(data)
+            ret[i] = projection.dot(mx.dot(projection.T))
+        return NumpyArrayIntegrand(ret)
 
 
 class LazyIntegral:
