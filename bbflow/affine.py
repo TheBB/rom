@@ -308,7 +308,7 @@ class ScipyArrayIntegrand(ThinWrapperIntegrand):
         if pa is None:
             return NumpyArrayIntegrand(self.obj.dot(pb.T))
         elif pb is None:
-            return NumpyArrayIntegrand(self.obj.T.dot(pa).T)
+            return NumpyArrayIntegrand(self.obj.T.dot(pa.T).T)
         return NumpyArrayIntegrand(pa.dot(self.obj.dot(pb.T)))
 
 
