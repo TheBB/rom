@@ -256,12 +256,21 @@ class airfoil(Case):
         self['v-h1s'] = self['laplacian'] / NU
         self['p-l2'] = fn.outer(pbasis)
 
-        # # Pressure force
-        # for i in range(nterms):
-        #     self.add_integrand(
-        #         'pforce', pbasis[:,_] * fn.matmat(Rmat(i), geom.normal())[_,:],
-        #         mu['angle']**i, domain=domain.boundary['left'],
-        #     )
+        # Force on airfoil
+        if not piola:
+            self['force'] = AffineRepresentation()
+            for i in range(nterms):
+                self['force'] += ANG**i * pbasis[:,_] * fn.matmat(Rmat(i,theta), geom.normal())[_,:]
+            terms = [0 for __ in range(dterms)]
+            for i in range(nterms):
+                for j in range(nterms):
+                    terms[i+j] += fn.matmat(vgrad, Bminus(i,theta,Q).transpose(), Rmat(j,theta), geom.normal())
+            self['force'] -= AffineRepresentation(
+                [NU * ANG**i for i, __ in enumerate(terms)],
+                [Integrand.make(term) for term in terms],
+            )
+            self['force'].prop(domain=domain.boundary['left'])
+            self['force'].freeze(proj=(1,), lift=(1,))
 
         self.finalize(override=override, domain=domain, geometry=geom)
 
