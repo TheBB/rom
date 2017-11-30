@@ -663,6 +663,10 @@ class AffineRepresentation:
             self._integrands + integrands,
         )
 
+    def _extend_inplace(self, scales, integrands):
+        self._scales.extend(scales)
+        self._integrands.extend(integrands)
+
     def __repr__(self):
         return f'AffineRepresentation({len(self)}; {self.shape})'
 
@@ -702,7 +706,6 @@ class AffineRepresentation:
 
     def cache_lifts(self, override=False):
         for sub in log.iter('axes', list(self._lift_contractions.values())):
-            sub.prop(**self._properties)
             sub.cache_main(override=override)
 
     def ensure_shareable(self):
@@ -720,17 +723,22 @@ class AffineRepresentation:
         )))
 
         if not self._lift_contractions:
-            self._lift_contractions = {axes: AffineRepresentation() for axes in axes_combs}
+            for axes in axes_combs:
+                sub_rep = AffineRepresentation()
+                sub_rep.prop(**self._properties)
+                remaining_axes = [ax for ax in range(self.ndim) if ax not in axes]
+                frozen_axes = [i for i, ax in enumerate(remaining_axes) if ax in self._freeze_proj]
+                sub_rep.freeze(proj=frozen_axes)
+                self._lift_contractions[axes] = sub_rep
 
         for axes in log.iter('axes', axes_combs):
             contraction = [None] * self.ndim
             for ax in axes:
                 contraction[ax] = lift
             sub_rep = self._lift_contractions[axes]
-
             new_scales = [scl * scale**len(axes) for scl in self._scales]
             new_integrands = [itg.contract(contraction) for itg in self._integrands]
-            self._lift_contractions[axes] += AffineRepresentation(new_scales, new_integrands)
+            sub_rep._extend_inplace(new_scales, new_integrands)
 
     def project(self, projection):
         proj = (projection,) * (self.ndim - len(self._freeze_proj))
