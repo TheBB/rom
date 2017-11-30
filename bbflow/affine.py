@@ -166,6 +166,20 @@ class Integrand:
             raise NotImplementedError
         return Integrand._get_subclass(obj)(obj)
 
+    def __init__(self):
+        self._properties = {}
+
+    def prop(self, *args, **kwargs):
+        if args:
+            assert all(isinstance(arg, str) for arg in args)
+            if len(args) == 1:
+                return self._properties[args[0]]
+            return tuple(self._properties[arg] for arg in args)
+        for key, val in kwargs.items():
+            if key not in self._properties:
+                self._properties[key] = val
+        return self
+
     def __add__(self, other):
         if isinstance(other, _SCALARS):
             return mu(other) + self
@@ -189,6 +203,7 @@ class Integrand:
 class ThinWrapperIntegrand(Integrand):
 
     def __init__(self, obj):
+        super().__init__()
         self.obj = obj
 
     @property
@@ -242,7 +257,7 @@ class NumpyArrayIntegrand(ThinWrapperIntegrand):
     def get(self, contraction):
         return self._contract(contraction)
 
-    def cache(self, override=False, **kwargs):
+    def cache(self, override=False):
         return self
 
     def contract(self, contraction):
@@ -271,7 +286,7 @@ class ScipyArrayIntegrand(ThinWrapperIntegrand):
         assert all(c is None for c in contraction)
         return self.obj
 
-    def cache(self, override=False, **kwargs):
+    def cache(self, override=False):
         return self
 
     def contract(self, contraction):
@@ -301,27 +316,24 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
     def __init__(self, obj):
         assert obj.ndim <= 3
         super().__init__(obj)
-        self._cache_kwargs = {}
 
-    def cache(self, override=False, **kwargs):
+    def cache(self, override=False):
         if self.ndim >= 3 and override:
-            self._cache_kwargs.update(kwargs)
-            return self._highdim_cache(**kwargs)
+            return self._highdim_cache()
         elif self.ndim >= 3:
-            self._cache_kwargs.update(kwargs)
             return self
-        ischeme = kwargs.get('ischeme', 'gauss9')
-        value = kwargs['domain'].integrate(self.obj, geometry=kwargs['geometry'], ischeme=ischeme)
+        domain, geom = self.prop('domain', 'geometry')
+        value = domain.integrate(self.obj, geometry=geom, ischeme='gauss9')
         if isinstance(value, matrix.Matrix):
             value = value.core
         return Integrand.make(value)
 
-    def _highdim_cache(self, **kwargs):
+    def _highdim_cache(self):
         obj = self.obj
         while obj.ndim > 2:
             obj = fn.ravel(obj, 1)
-        ischeme = kwargs.get('ischeme', 'gauss9')
-        value = kwargs['domain'].integrate(obj, geometry=kwargs['geometry'], ischeme=ischeme)
+        domain, geom = self.prop('domain', 'geometry')
+        value = domain.integrate(obj, geometry=geom, ischeme='gauss9')
         value = sp.coo_matrix(value.core)
         indices = np.unravel_index(value.col, self.shape[1:])
         return COOTensorIntegrand(self.shape, value.row, *indices, value.data)
@@ -340,11 +352,10 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
             axes.append(i)
         return obj.sum(tuple(axes))
 
-    def get(self, contraction, **kwargs):
-        kwargs = dict(self._cache_kwargs, **kwargs)
+    def get(self, contraction):
         integrand = self._contract(contraction)
-        ischeme = kwargs.get('ischeme', 'gauss9')
-        return LazyNutilsIntegral(integrand, kwargs['domain'], kwargs['geometry'], ischeme)
+        domain, geom = self.prop('domain', 'geometry')
+        return LazyNutilsIntegral(integrand, domain, geom, 'gauss9')
 
     def contract(self, contraction):
         return NutilsArrayIntegrand(self._contract(contraction))
@@ -356,9 +367,8 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
             obj = obj[(s,)*i + (_,s,Ellipsis)]
             obj = obj * projection[(_,)*i + (s,s) + (_,) * (self.ndim - i - 1)]
             obj = obj.sum(i+1)
-        ischeme = self._cache_kwargs.get('ischeme', 'gauss9')
-        domain, geom = self._cache_kwargs['domain'], self._cache_kwargs['geometry']
-        retval = domain.integrate(obj, geometry=geom, ischeme=ischeme)
+        domain, geom = self.prop('domain', 'geometry')
+        retval = domain.integrate(obj, geometry=geom, ischeme='gauss9')
         if isinstance(retval, matrix.Matrix):
             retval = retval.core
         return NumpyArrayIntegrand(retval)
@@ -369,6 +379,7 @@ class NutilsDelayedIntegrand(Integrand):
     optimized = False
 
     def __init__(self, code, indices, variables, **kwargs):
+        super().__init__()
         self._code = code
         self._defaults = OrderedDict([(name, kwargs[name]) for name in variables])
         self._kwargs = {name: func for name, func in kwargs.items() if name not in variables}
@@ -377,8 +388,6 @@ class NutilsDelayedIntegrand(Integrand):
         if code is not None:
             self.shape = self._integrand().shape
             self.ndim = len(self.shape)
-
-        self._cache_kwargs = {}
 
     def _integrand(self, contraction=None, mu=None):
         if contraction is None:
@@ -399,9 +408,6 @@ class NutilsDelayedIntegrand(Integrand):
         index = tuple(0 if c is not None else slice(None) for c in contraction)
         return integrand[index]
 
-    def add_kwargs(self, **kwargs):
-        self._cache_kwargs.update(kwargs)
-
     def add(self, code, **kwargs):
         self._kwargs.update(kwargs)
         if self._code is None:
@@ -411,15 +417,14 @@ class NutilsDelayedIntegrand(Integrand):
         else:
             self._code = f'{self._code} + ({code})'
 
-    def cache(self, override=False, **kwargs):
+    def cache(self, override=False):
         if self.ndim >= 3 and not override:
-            self._cache_kwargs.update(kwargs)
             return self
-        return NutilsArrayIntegrand(self._integrand()).cache(override=override, **kwargs)
+        return NutilsArrayIntegrand(self._integrand()).prop(**self._properties).cache(override=override)
 
     def get(self, contraction, mu=None):
-        integrand = self._integrand(contraction, mu=mu)
-        return NutilsArrayIntegrand(integrand).get((None,)*integrand.ndim, **self._cache_kwargs)
+        itg = self._integrand(contraction, mu=mu)
+        return NutilsArrayIntegrand(itg).prop(**self._properties).get((None,) * itg.ndim)
 
     def contract(self, contraction):
         if all(c is None for c in contraction):
@@ -433,9 +438,8 @@ class NutilsDelayedIntegrand(Integrand):
         for name, func in self._defaults.items():
             setattr(ns, name, fn.matmat(projection, func))
         integrand = getattr(ns, self._evaluator)(self._code)
-        ischeme = self._cache_kwargs.get('ischeme', 'gauss9')
-        domain, geom = self._cache_kwargs['domain'], self._cache_kwargs['geometry']
-        retval = domain.integrate(integrand, geometry=geom, ischeme=ischeme)
+        domain, geom = self.prop('domain', 'geometry')
+        retval = domain.integrate(integrand, geometry=geom, ischeme='gauss9')
         if isinstance(retval, matrix.Matrix):
             retval = retval.core
         return NumpyArrayIntegrand(retval)
@@ -446,6 +450,7 @@ class COOTensorIntegrand(Integrand):
     optimized = True
 
     def __init__(self, shape, *args):
+        super().__init__()
         assert len(shape) == 3
         assert len(shape) == len(args) - 1
         self.shape = shape
@@ -583,6 +588,7 @@ class AffineRepresentation:
         self._integrands = integrands
         self._lift_contractions = {}
         self.fallback = None
+        self._properties = {}
 
     def __len__(self):
         return len(self._scales)
@@ -602,6 +608,14 @@ class AffineRepresentation:
         elif wrap and isinstance(retval, sp.spmatrix):
             return matrix.ScipyMatrix(retval)
         return retval
+
+    def prop(self, **kwargs):
+        for key, val in kwargs.items():
+            if key not in self._properties:
+                self._properties[key] = val
+        for itg in self._integrands:
+            itg.prop(**kwargs)
+        return self
 
     @property
     def optimized(self):
@@ -649,18 +663,19 @@ class AffineRepresentation:
     def __truediv__(self, other):
         return self * (1 / other)
 
-    def cache_main(self, override=False, **kwargs):
+    def cache_main(self, override=False):
         self._integrands = [
-            itg.cache(override=override, **kwargs)
+            itg.cache(override=override)
             for itg in log.iter('term', self._integrands)
         ]
         if self.optimized:
             self.fallback = None
         return self
 
-    def cache_lifts(self, override=False, **kwargs):
+    def cache_lifts(self, override=False):
         for sub in log.iter('axes', list(self._lift_contractions.values())):
-            sub.cache_main(override=override, **kwargs)
+            sub.prop(**self._properties)
+            sub.cache_main(override=override)
 
     def ensure_shareable(self):
         for itg in self._integrands:

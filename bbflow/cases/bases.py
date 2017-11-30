@@ -205,10 +205,11 @@ class Case:
         new_itgs = {}
         for name, itg in self._integrables.items():
             with log.context(name):
-                itg.cache_main(override=override, **kwargs)
+                itg.prop(**kwargs)
+                itg.cache_main(override=override)
                 for lift, scale in self._lifts:
                     itg.contract_lifts(lift, scale)
-                itg.cache_lifts(override=override, **kwargs)
+                itg.cache_lifts(override=override)
             new_itgs[name] = itg
         self._integrables = new_itgs
 

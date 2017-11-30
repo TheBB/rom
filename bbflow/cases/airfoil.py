@@ -244,7 +244,7 @@ class airfoil(Case):
             [ANG**i for i, __ in enumerate(terms)],
             [Integrand.make(term) for term in terms],
         )
-        fallback.add_kwargs(domain=domain, geometry=geom)
+        fallback.prop(domain=domain, geometry=geom)
         self['convection'].fallback = fallback
 
         # Mass matrices
