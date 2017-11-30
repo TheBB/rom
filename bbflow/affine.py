@@ -266,9 +266,11 @@ class NumpyArrayIntegrand(ThinWrapperIntegrand):
     def project(self, projection):
         obj = self.obj
         s = slice(None)
-        for i in range(self.ndim):
+        for i, p in enumerate(projection):
+            if p is None:
+                continue
             obj = obj[(s,)*i + (_,s,Ellipsis)]
-            obj = obj * projection[(_,)*i + (s,s) + (_,) * (self.ndim - i - 1)]
+            obj = obj * p[(_,)*i + (s,s) + (_,) * (self.ndim - i - 1)]
             obj = obj.sum(i+1)
         return NumpyArrayIntegrand(obj)
 
@@ -302,7 +304,12 @@ class ScipyArrayIntegrand(ThinWrapperIntegrand):
         return NumpyArrayIntegrand(self.obj.T.dot(ca))
 
     def project(self, projection):
-        return NumpyArrayIntegrand(projection.dot(self.obj.dot(projection.T)))
+        pa, pb = projection
+        if pa is None:
+            return NumpyArrayIntegrand(self.obj.dot(pb.T))
+        elif pb is None:
+            return NumpyArrayIntegrand(self.obj.T.dot(pa).T)
+        return NumpyArrayIntegrand(pa.dot(self.obj.dot(pb.T)))
 
 
 class NutilsArrayIntegrand(ThinWrapperIntegrand):
@@ -363,9 +370,11 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
     def project(self, projection):
         obj = self.obj
         s = slice(None)
-        for i in range(self.ndim):
+        for i, p in enumerate(projection):
+            if p is None:
+                continue
             obj = obj[(s,)*i + (_,s,Ellipsis)]
-            obj = obj * projection[(_,)*i + (s,s) + (_,) * (self.ndim - i - 1)]
+            obj = obj * p[(_,)*i + (s,s) + (_,) * (self.ndim - i - 1)]
             obj = obj.sum(i+1)
         domain, geom = self.prop('domain', 'geometry')
         retval = domain.integrate(obj, geometry=geom, ischeme='gauss9')
@@ -435,8 +444,10 @@ class NutilsDelayedIntegrand(Integrand):
         ns = fn.Namespace()
         for name, func in self._kwargs.items():
             setattr(ns, name, func)
-        for name, func in self._defaults.items():
-            setattr(ns, name, fn.matmat(projection, func))
+        for p, (name, func) in zip(projection, self._defaults.items()):
+            if p is not None:
+                func = fn.matmat(p, func)
+            setattr(ns, name, func)
         integrand = getattr(ns, self._evaluator)(self._code)
         domain, geom = self.prop('domain', 'geometry')
         retval = domain.integrate(integrand, geometry=geom, ischeme='gauss9')
@@ -511,13 +522,16 @@ class COOTensorIntegrand(Integrand):
         return self.assemblers[axes](data)
 
     def project(self, projection):
+        # TODO: Remove this condition
+        assert all(p is not None for p in projection)
+        pa, pb, pc = projection
+        P, __ = pa.shape
         ass = util.CSRAssembler(self.shape[1:], self.indices[1], self.indices[2])
-        P, __ = projection.shape
-        ret = np.empty((P,)*3, self.data.dtype)
+        ret = np.empty((P, pb.shape[0], pc.shape[0]), self.data.dtype)
         for i in log.iter('index', range(P), length=P):
-            data = self.data * projection[i, self.indices[0]]
+            data = self.data * pa[i, self.indices[0]]
             mx = ass(data)
-            ret[i] = projection.dot(mx.dot(projection.T))
+            ret[i] = pb.dot(mx.dot(pc.T))
         return NumpyArrayIntegrand(ret)
 
 
@@ -570,6 +584,14 @@ def integrate(*args):
 
 class AffineRepresentation:
 
+    @staticmethod
+    def expand(items, frozen, ndim):
+        ret = list(items)
+        for i in sorted(frozen):
+            ret.insert(i, None)
+        assert len(ret) == ndim
+        return tuple(ret)
+
     def __init__(self, scales=None, integrands=None):
         if isinstance(scales, AffineRepresentation):
             integrands = list(scales._integrands)
@@ -588,6 +610,8 @@ class AffineRepresentation:
         self._integrands = integrands
         self._lift_contractions = {}
         self.fallback = None
+        self._freeze_proj = set()
+        self._freeze_lift = {0}
         self._properties = {}
 
     def __len__(self):
@@ -608,6 +632,10 @@ class AffineRepresentation:
         elif wrap and isinstance(retval, sp.spmatrix):
             return matrix.ScipyMatrix(retval)
         return retval
+
+    def freeze(self, proj=(), lift=()):
+        self._freeze_proj = set(proj)
+        self._freeze_lift = set(lift)
 
     def prop(self, **kwargs):
         for key, val in kwargs.items():
@@ -685,9 +713,10 @@ class AffineRepresentation:
         if self.ndim == 1:
             return
 
+        free_axes = [i for i in range(self.ndim) if i not in self._freeze_lift]
         axes_combs = list(map(frozenset, chain.from_iterable(
-            combinations(range(1, self.ndim), naxes)
-            for naxes in range(1, self.ndim)
+            combinations(free_axes, naxes+1)
+            for naxes in range(len(free_axes))
         )))
 
         if not self._lift_contractions:
@@ -704,10 +733,10 @@ class AffineRepresentation:
             self._lift_contractions[axes] += AffineRepresentation(new_scales, new_integrands)
 
     def project(self, projection):
-        new = AffineRepresentation(
-            self._scales,
-            [itg.project(projection) for itg in log.iter('term', self._integrands)]
-        )
+        proj = (projection,) * (self.ndim - len(self._freeze_proj))
+        proj = AffineRepresentation.expand(proj, self._freeze_proj, self.ndim)
+        integrands = [itg.project(proj) for itg in log.iter('term', self._integrands)]
+        new = AffineRepresentation(self._scales, integrands)
         for axes, rep in log.iter('axes', list(self._lift_contractions.items())):
             new._lift_contractions[axes] = rep.project(projection)
         return new
