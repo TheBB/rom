@@ -47,14 +47,15 @@ def plot_spectrum(decomps, show=False, figsize=(10,10), plot_name='spectrum', in
         log.user(filename)
 
 
-def reduced_bases(case, ensemble, decomp, nmodes):
+def reduced_bases(case, ensemble, decomp, nmodes, meta=False):
     nsnapshots = ensemble.shape[0]
 
     if isinstance(nmodes, int):
         nmodes = (nmodes,) * len(decomp)
 
-    bases = OrderedDict()
+    bases, metadata = OrderedDict(), {}
     for num, (field, (evs, eigvecs)) in zip(nmodes, decomp.items()):
+        metadata[f'err-{field}'] = np.sqrt(1.0 - np.sum(evs[:num]) / np.sum(evs))
         reduced = ensemble.T.dot(eigvecs[:,:num]) / np.sqrt(evs[:num])
         indices = case.basis_indices(field)
         mask = np.ones(reduced.shape[0], dtype=np.bool)
@@ -63,6 +64,8 @@ def reduced_bases(case, ensemble, decomp, nmodes):
 
         bases[field] = reduced.T
 
+    if meta:
+        return bases, metadata
     return bases
 
 
@@ -82,7 +85,7 @@ def infsup(case, quadrule):
     return bound
 
 
-def make_reduced(case, basis, *extra_bases):
+def make_reduced(case, basis, *extra_bases, meta=None):
     for extra_basis in extra_bases:
         for name, mx in extra_basis.items():
             if name in basis:
@@ -94,5 +97,8 @@ def make_reduced(case, basis, *extra_bases):
     projection = np.vstack([mx for mx in basis.values()])
     projcase = ProjectedCase(case, projection, lengths, fields=list(basis))
 
+    if meta:
+        projcase.meta.update(meta)
     projcase.meta['nmodes'] = dict(zip(basis, lengths))
+
     return projcase
