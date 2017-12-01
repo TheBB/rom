@@ -372,7 +372,7 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
         return LazyNutilsIntegral(integrand, domain, geom, 'gauss9')
 
     def contract(self, contraction):
-        return NutilsArrayIntegrand(self._contract(contraction))
+        return NutilsArrayIntegrand(self._contract(contraction)).prop(**self._properties)
 
     def project(self, projection):
         obj = self.obj
@@ -445,7 +445,7 @@ class NutilsDelayedIntegrand(Integrand):
     def contract(self, contraction):
         if all(c is None for c in contraction):
             return self
-        return NutilsArrayIntegrand(self._integrand(contraction))
+        return NutilsArrayIntegrand(self._integrand(contraction)).prop(**self._properties)
 
     def project(self, projection):
         ns = fn.Namespace()
