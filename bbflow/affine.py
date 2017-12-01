@@ -284,9 +284,14 @@ class ScipyArrayIntegrand(ThinWrapperIntegrand):
         return isinstance(obj, sp.spmatrix)
 
     def get(self, contraction):
-        # TODO: Fix this assumption
-        assert all(c is None for c in contraction)
-        return self.obj
+        if all(c is None for c in contraction):
+            return self.obj
+        ca, cb = contraction
+        if ca is None:
+            return self.obj.dot(cb)
+        elif cb is None:
+            return self.obj.T.dot(ca)
+        return pa.dot(self.obj.dot(pb.T))
 
     def cache(self, override=False):
         return self
@@ -304,6 +309,8 @@ class ScipyArrayIntegrand(ThinWrapperIntegrand):
         return NumpyArrayIntegrand(self.obj.T.dot(ca))
 
     def project(self, projection):
+        if all(p is None for p in projection):
+            return self
         pa, pb = projection
         if pa is None:
             return NumpyArrayIntegrand(self.obj.dot(pb.T))
