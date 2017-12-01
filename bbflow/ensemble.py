@@ -38,12 +38,12 @@ def make_ensemble(case, solver, quadrule, weights=False, parallel=False, args=No
     return solutions
 
 
-def errors(locase, mass, hifi, lofi, scheme):
+def errors(hicase, locase, hifi, lofi, mass, scheme):
     abs_err, rel_err = 0.0, 0.0
     for hilhs, lolhs, (mu, weight) in zip(hifi, lofi, scheme):
         mu = locase.parameter(*mu)
         lolhs = locase.solution_vector(lolhs, mu=mu)
-        hilhs = locase.case.solution_vector(hilhs, mu=mu)
+        hilhs = hicase.solution_vector(hilhs, mu=mu)
         diff = hilhs - lolhs
         err = np.sqrt(mass.matvec(diff).dot(diff))
         abs_err += weight * err
