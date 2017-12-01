@@ -6,7 +6,7 @@ from nutils import log, core
 from bbflow import util
 
 
-@util.parallel_log()
+@util.parallel_log(return_time=True)
 def _solve(case, solver, pt, weights, args):
     mu, wt = pt
     lhs = solver(case, mu, *args)
@@ -15,7 +15,7 @@ def _solve(case, solver, pt, weights, args):
     return lhs
 
 
-def make_ensemble(case, solver, quadrule, weights=False, parallel=False, args=None):
+def make_ensemble(case, solver, quadrule, weights=False, parallel=False, args=None, return_time=False):
     quadrule = [(case.parameter(*mu), wt) for mu, wt in quadrule]
     if args is None:
         args = repeat(())
@@ -31,7 +31,11 @@ def make_ensemble(case, solver, quadrule, weights=False, parallel=False, args=No
         args = zip(count(), repeat(case), repeat(solver), quadrule, repeat(weights), args)
         pool = Pool()
         solutions = list(pool.imap(_solve, args))
-    return np.array(solutions)
+    meantime = sum(t for t, __ in solutions) / len(solutions)
+    solutions = np.array([s for __, s in solutions])
+    if return_time:
+        return meantime, solutions
+    return solutions
 
 
 def errors(locase, mass, hifi, lofi, scheme):

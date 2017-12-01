@@ -75,14 +75,17 @@ class time:
         return self._time
 
 
-def parallel_log(verbose=3):
+def parallel_log(verbose=3, return_time=False):
     def decorator(func):
         @functools.wraps(func)
         def inner(args):
             __verbose__ = verbose
             count, *args = args
-            with log.context(f'{current_process().name}'), log.context(f'{count}'), time():
-                return func(*args)
+            with log.context(f'{current_process().name}'), log.context(f'{count}'), time() as t:
+                retval = func(*args)
+            if return_time:
+                return t.seconds, retval
+            return retval
         return inner
     return decorator
 
