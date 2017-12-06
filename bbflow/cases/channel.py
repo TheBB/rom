@@ -53,7 +53,7 @@ class channel(Case):
         colloc = collocate(domain, eqn, points, self.root, self.size)
         self['stab-lhs'] = colloc + colloc.T
 
-        self.finalize(override=override, domain=domain, geometry=geom)
+        self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
 
     def _exact(self, mu, field):
         return self._exact_solutions[field]

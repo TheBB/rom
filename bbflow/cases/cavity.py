@@ -61,7 +61,7 @@ class cavity(Case):
 
         self['stab-rhs'] = collocate(domain, force[0,_], points, self.root+1, self.size)
 
-        self.finalize(domain=domain, geometry=geom)
+        self.finalize(domain=domain, geometry=geom, ischeme='gauss9')
 
     def _exact(self, mu, field):
         return self._exact_solutions[field]

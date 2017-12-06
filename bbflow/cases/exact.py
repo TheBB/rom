@@ -103,7 +103,7 @@ class exact(Case):
         self['stab-rhs'] = w**3 * h**(r-3) * collocate(domain, -f*g3[_], points, self.root+1, self.size)
 
         self._piola.add('v')
-        self.finalize(domain=domain, geometry=geom)
+        self.finalize(domain=domain, geometry=geom, ischeme='gauss9')
 
     def _physical_geometry(self, mu):
         return (mu['w'], mu['h']) * self.geometry

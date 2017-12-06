@@ -107,7 +107,7 @@ class backstep(Case):
         )
 
         if not stabilize:
-            self.finalize(override=override, domain=domain, geometry=geom)
+            self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
             return
 
         points = [(0, (0, 0)), (nel_up-1, (0, 1))]
@@ -134,7 +134,7 @@ class backstep(Case):
         colloc = collocate(domain, -pbasis.grad(geom)[:,0,_], points, self.root+3, self.size)
         self['stab-lhs'] += colloc + colloc.T
 
-        self.finalize(override=override, domain=domain, geometry=geom)
+        self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
 
     def _physical_geometry(self, mu):
         x, y = self.geometry

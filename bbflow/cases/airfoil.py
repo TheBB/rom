@@ -244,7 +244,7 @@ class airfoil(Case):
             [ANG**i for i, __ in enumerate(terms)],
             [Integrand.make(term) for term in terms],
         )
-        fallback.prop(domain=domain, geometry=geom)
+        fallback.prop(domain=domain, geometry=geom, ischeme='gauss9')
         self['convection'].fallback = fallback
 
         # Mass matrices
@@ -272,7 +272,7 @@ class airfoil(Case):
             self['force'].prop(domain=domain.boundary['left'])
             self['force'].freeze(proj=(1,), lift=(1,))
 
-        self.finalize(override=override, domain=domain, geometry=geom)
+        self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
 
     def _physical_geometry(self, mu):
         return fn.matmat(rotmat(mu['angle'] * self.theta), self.geometry)

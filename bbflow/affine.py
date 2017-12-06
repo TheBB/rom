@@ -336,8 +336,8 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
             return self._highdim_cache()
         elif self.ndim >= 3:
             return self
-        domain, geom = self.prop('domain', 'geometry')
-        value = domain.integrate(self.obj, geometry=geom, ischeme='gauss9')
+        domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
+        value = domain.integrate(self.obj, geometry=geom, ischeme=ischeme)
         if isinstance(value, matrix.Matrix):
             value = value.core
         return Integrand.make(value)
@@ -346,8 +346,8 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
         obj = self.obj
         while obj.ndim > 2:
             obj = fn.ravel(obj, 1)
-        domain, geom = self.prop('domain', 'geometry')
-        value = domain.integrate(obj, geometry=geom, ischeme='gauss9')
+        domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
+        value = domain.integrate(obj, geometry=geom, ischeme=ischeme)
         value = sp.coo_matrix(value.core)
         indices = np.unravel_index(value.col, self.shape[1:])
         return COOTensorIntegrand(self.shape, value.row, *indices, value.data)
@@ -368,8 +368,8 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
 
     def get(self, contraction):
         integrand = self._contract(contraction)
-        domain, geom = self.prop('domain', 'geometry')
-        return LazyNutilsIntegral(integrand, domain, geom, 'gauss9')
+        domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
+        return LazyNutilsIntegral(integrand, domain, geom, ischeme)
 
     def contract(self, contraction):
         return NutilsArrayIntegrand(self._contract(contraction)).prop(**self._properties)
@@ -383,8 +383,8 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
             obj = obj[(s,)*i + (_,s,Ellipsis)]
             obj = obj * p[(_,)*i + (s,s) + (_,) * (self.ndim - i - 1)]
             obj = obj.sum(i+1)
-        domain, geom = self.prop('domain', 'geometry')
-        retval = domain.integrate(obj, geometry=geom, ischeme='gauss9')
+        domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
+        retval = domain.integrate(obj, geometry=geom, ischeme=ischeme)
         if isinstance(retval, matrix.Matrix):
             retval = retval.core
         return NumpyArrayIntegrand(retval)
@@ -456,8 +456,8 @@ class NutilsDelayedIntegrand(Integrand):
                 func = fn.matmat(p, func)
             setattr(ns, name, func)
         integrand = getattr(ns, self._evaluator)(self._code)
-        domain, geom = self.prop('domain', 'geometry')
-        retval = domain.integrate(integrand, geometry=geom, ischeme='gauss9')
+        domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
+        retval = domain.integrate(integrand, geometry=geom, ischeme=ischeme)
         if isinstance(retval, matrix.Matrix):
             retval = retval.core
         return NumpyArrayIntegrand(retval)
@@ -556,7 +556,7 @@ class LazyNutilsIntegral(LazyIntegral):
         assert all(arg._ischeme == ischeme for arg in args[1:])
         return domain.integrate([arg._obj for arg in args], geometry=geom, ischeme=ischeme)
 
-    def __init__(self, obj, domain, geometry, ischeme='gauss9'):
+    def __init__(self, obj, domain, geometry, ischeme):
         self._obj = obj
         self._domain = domain
         self._geometry = geometry
