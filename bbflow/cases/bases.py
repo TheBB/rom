@@ -296,6 +296,10 @@ class ProjectedCase:
     def __getitem__(self, key):
         return self._integrables[key]
 
+    @property
+    def size(self):
+        return self.projection.shape[0]
+
     @multiple_to_single('name')
     def basis_indices(self, name):
         start = 0
