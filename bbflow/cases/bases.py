@@ -55,7 +55,7 @@ class Case:
         self._integrables[key] = value
 
     def __str__(self):
-        s = f'       {"Name": <17} {"Terms": >5}   Shape\n'
+        s = f'      {"Name": <17} {"Terms": >5}   Shape\n'
         for name, integrable in self._integrables.items():
             opt = 'Y' if integrable.optimized else 'N'
             shp = '×'.join(str(s) for s in integrable.shape)
