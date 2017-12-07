@@ -22,7 +22,7 @@ def eigen(case, ensemble, fields=None):
     return retval
 
 
-def plot_spectrum(decomps, show=False, figsize=(10,10), plot_name='spectrum', index=0, formats=['png']):
+def plot_spectrum(decomps, show=False, figsize=(10,10), plot_name='spectrum', formats=['png']):
     max_shp = max(len(evs) for __, decomp in decomps for evs, __ in decomp.values())
     data = [np.copy(evs) for __, decomp in decomps for evs, __ in decomp.values()]
     for d in data:
@@ -31,7 +31,7 @@ def plot_spectrum(decomps, show=False, figsize=(10,10), plot_name='spectrum', in
     names = [f'{name} ({f})' for name, decomp in decomps for f in decomp]
 
     if 'png' in formats:
-        with plot.PyPlot(plot_name, index=index, figsize=figsize) as plt:
+        with plot.PyPlot(plot_name, index='', ndigits=0, figsize=figsize) as plt:
             for d in data:
                 plt.semilogy(range(1, max_shp + 1), d)
             plt.grid()
