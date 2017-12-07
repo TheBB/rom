@@ -4,6 +4,10 @@ __pycache__
 *.egg-info/
 /.cache
 *.png
+
 *.case
-.ipynb_checkpoints
+*.rcase
+*.ens
 *.csv
+*.png
+.ipynb_checkpoints
