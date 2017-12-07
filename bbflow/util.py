@@ -8,21 +8,37 @@ import pickle
 import scipy.sparse as sp
 import scipy.sparse._sparsetools as sptools
 import sharedmem
+import string
 from nutils import log
+
+
+def make_filename(func, fmt, *args, **kwargs):
+    signature = inspect.signature(func)
+    arguments = [arg for __, arg, __, __ in string.Formatter().parse(fmt) if arg is not None]
+    binding = signature.bind(*args, **kwargs)
+    format_dict = {}
+    for argname in arguments:
+        if signature.parameters[argname].annotation is bool:
+            prefix = '' if binding.arguments[argname] else 'no-'
+            format_dict[argname] = f'{prefix}{argname}'
+        else:
+            format_dict[argname] = binding.arguments[argname]
+    return fmt.format(**format_dict)
 
 
 def pickle_cache(fmt):
     def decorator(func):
-        signature = inspect.signature(func)
         @functools.wraps(func)
         def inner(*args, **kwargs):
-            binding = signature.bind(*args, **kwargs)
-            filename = fmt.format(**binding.arguments)
+            filename = make_filename(func, fmt, *args, **kwargs)
             if exists(filename):
+                log.user(f'{func.__name__}: reading from {filename}')
                 with open(filename, 'rb') as f:
                     return pickle.load(f)
+            log.user(f'{func.__name__}: {filename} not found')
             obj = func(*args, **kwargs)
             with open(filename, 'wb') as f:
+                log.user(f'{func.__name__}: writing to {filename}')
                 pickle.dump(obj, f)
             return obj
         return inner
