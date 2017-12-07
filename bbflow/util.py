@@ -31,14 +31,16 @@ def pickle_cache(fmt):
         @functools.wraps(func)
         def inner(*args, **kwargs):
             filename = make_filename(func, fmt, *args, **kwargs)
-            if exists(filename):
-                log.user(f'{func.__name__}: reading from {filename}')
-                with open(filename, 'rb') as f:
-                    return pickle.load(f)
-            log.user(f'{func.__name__}: {filename} not found')
+            with log.context(func.__name__):
+                if exists(filename):
+                    log.user(f'reading from {filename}')
+                    with open(filename, 'rb') as f:
+                        return pickle.load(f)
+                log.user(f'{filename} not found')
             obj = func(*args, **kwargs)
+            with log.context(func.__name__):
+                log.user(f'writing to {filename}')
             with open(filename, 'wb') as f:
-                log.user(f'{func.__name__}: writing to {filename}')
                 pickle.dump(obj, f)
             return obj
         return inner
