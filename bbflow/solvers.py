@@ -13,10 +13,7 @@ class IterationCountError(Exception):
     pass
 
 
-def stokes(case, mu):
-    assert 'divergence' in case
-    assert 'laplacian' in case
-
+def _stokes_assemble(case, mu):
     matrix = case['divergence'](mu, sym=True) + case['laplacian'](mu)
     rhs = - case['divergence'](mu, lift=0) - case['laplacian'](mu, lift=1)
     if 'forcing' in case:
@@ -26,6 +23,13 @@ def stokes(case, mu):
         rhs -= case['stab-lhs'](mu, lift=1)
     if 'stab-rhs' in case:
         rhs += case['stab-rhs'](mu)
+    return matrix, rhs
+
+def stokes(case, mu):
+    assert 'divergence' in case
+    assert 'laplacian' in case
+
+    matrix, rhs = _stokes_assemble(case, mu)
     lhs = matrix.solve(rhs, constrain=case.cons)
 
     return lhs
@@ -39,15 +43,7 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     domain = case.domain
     geom = case.physical_geometry(mu)
 
-    stokes_mat = case['divergence'](mu, sym=True) + case['laplacian'](mu)
-    stokes_rhs = - case['divergence'](mu, lift=0) - case['laplacian'](mu, lift=1)
-    if 'forcing' in case:
-        stokes_rhs += case['forcing'](mu)
-    if 'stab-lhs' in case:
-        stokes_mat += case['stab-lhs'](mu, sym=True)
-        stokes_rhs -= case['stab-lhs'](mu, lift=1)
-    if 'stab-rhs' in case:
-        stokes_rhs += case['stab-rhs'](mu)
+    stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
     lhs = stokes_mat.solve(stokes_rhs, constrain=case.cons)
 
     stokes_mat += case['convection'](mu, lift=1) + case['convection'](mu, lift=2)
