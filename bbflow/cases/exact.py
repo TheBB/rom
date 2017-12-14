@@ -91,7 +91,6 @@ class exact(FlowCase):
 
         self['divergence'] = - h * w * (fn.outer(vx_x, pbasis) + fn.outer(vy_y, pbasis))
         self['v-h1s'] = AffineRepresentation(self['laplacian'])
-        self['vdiv'] = w * h * fn.outer(vbasis.div(geom))
         self['p-l2'] = h * w * fn.outer(pbasis, pbasis)
 
         points = [(0, (0, 0)), (nel-1, (0, 1)), (nel*(nel-1), (1, 0)), (nel**2-1, (1, 1))]

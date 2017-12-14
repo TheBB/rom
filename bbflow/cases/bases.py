@@ -267,12 +267,19 @@ class Case:
 
 class FlowCase(Case):
     """While `Case` is problem-agnostic, `FlowCase` implements some useful
-    defaults for flow problems.
+    defaults and asserts for flow problems.
     """
 
     def finalize(self, *args, **kwargs):
-        if 'divergence' in self:
-            self['divergence'].freeze(lift=(1,))
+        assert set(self._bases) == {'v', 'p'}
+        assert 'divergence' in self
+        assert 'laplacian' in self
+        for name in self:
+            assert name in {
+                'divergence', 'laplacian', 'convection', 'v-h1s', 'v-l2', 'p-l2',
+                'stab-lhs', 'stab-rhs', 'force', 'forcing',
+            }
+        self['divergence'].freeze(lift=(1,))
         super().finalize(*args, **kwargs)
 
 
