@@ -56,8 +56,8 @@ class cavity(FlowCase):
         points = [(0, (0, 0)), (nel-1, (0, 1)), (nel*(nel-1), (1, 0)), (nel**2-1, (1, 1))]
         eqn = (pbasis.grad(geom) - vbasis.laplace(geom))[:,0,_]
         colloc = collocate(domain, eqn, points, self.root+1, self.size)
-        self['stab-lhs'] = colloc + colloc.T
-        self['stab-lhs'] += fn.add_T(fn.outer(lbasis, pbasis))
+        self['stab-lhs'] = colloc
+        self['stab-lhs'] += fn.outer(lbasis, pbasis)
 
         self['stab-rhs'] = collocate(domain, force[0,_], points, self.root+1, self.size)
 

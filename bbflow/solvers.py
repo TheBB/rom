@@ -22,7 +22,7 @@ def stokes(case, mu):
     if 'forcing' in case:
         rhs += case['forcing'](mu)
     if 'stab-lhs' in case:
-        matrix += case['stab-lhs'](mu)
+        matrix += case['stab-lhs'](mu, sym=True)
         rhs -= case['stab-lhs'](mu, lift=1)
     if 'stab-rhs' in case:
         rhs += case['stab-rhs'](mu)
@@ -44,7 +44,7 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     if 'forcing' in case:
         stokes_rhs += case['forcing'](mu)
     if 'stab-lhs' in case:
-        stokes_mat += case['stab-lhs'](mu)
+        stokes_mat += case['stab-lhs'](mu, sym=True)
         stokes_rhs -= case['stab-lhs'](mu, lift=1)
     if 'stab-rhs' in case:
         stokes_rhs += case['stab-rhs'](mu)

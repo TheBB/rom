@@ -35,15 +35,15 @@ def get_reduced(piola: bool = False, nred: int = 10, fast: int = None, num: int 
     case = get_case(fast, piola)
     scheme, solutions, supremizers = get_ensemble(fast, piola, num)
 
-    if piola:
-        eig_sol = reduction.eigen(case, solutions, fields=['v'])
-        rb_sol, meta = reduction.reduced_bases(case, solutions, eig_sol, (nred,), meta=True)
-        eig_sup, rb_sup = {}, {}
-    else:
-        eig_sol = reduction.eigen(case, solutions, fields=['v', 'p'])
-        rb_sol, meta = reduction.reduced_bases(case, solutions, eig_sol, (nred, nred), meta=True)
-        eig_sup = reduction.eigen(case, supremizers, fields=['v'])
-        rb_sup = reduction.reduced_bases(case, supremizers, eig_sup, (nred,))
+    # if piola:
+    #     eig_sol = reduction.eigen(case, solutions, fields=['v'])
+    #     rb_sol, meta = reduction.reduced_bases(case, solutions, eig_sol, (nred,), meta=True)
+    #     eig_sup, rb_sup = {}, {}
+    # else:
+    eig_sol = reduction.eigen(case, solutions, fields=['v', 'p'])
+    rb_sol, meta = reduction.reduced_bases(case, solutions, eig_sol, (nred, nred), meta=True)
+    eig_sup = reduction.eigen(case, supremizers, fields=['v'])
+    rb_sup = reduction.reduced_bases(case, supremizers, eig_sup, (nred,))
 
     reduction.plot_spectrum(
         [('solutions', eig_sol), ('supremizers', eig_sup)],
@@ -59,8 +59,8 @@ def force_err(hicase, locase, hifi, lofi, scheme):
     abs_err, rel_err = np.zeros(2), np.zeros(2)
     for hilhs, lolhs, (mu, weight) in zip(hifi, lofi, scheme):
         mu = locase.parameter(*mu)
-        hiforce = hicase['force'](mu, contraction=(hilhs,None))
-        loforce = locase['force'](mu, contraction=(lolhs,None))
+        hiforce = hicase['force'](mu, cont=(hilhs,None))
+        loforce = locase['force'](mu, cont=(lolhs,None))
         err = np.abs(hiforce - loforce)
         abs_err += weight * err
         rel_err += weight * err / np.abs(hiforce)

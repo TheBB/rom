@@ -95,11 +95,12 @@ class exact(FlowCase):
         self['p-l2'] = h * w * fn.outer(pbasis, pbasis)
 
         points = [(0, (0, 0)), (nel-1, (0, 1)), (nel*(nel-1), (1, 0)), (nel**2-1, (1, 1))]
-        colloc = [collocate(domain, eqn[:,_], points, self.root+1, self.size) for eqn in [p_x, -vx_xx, -vx_yy]]
-        ca, cb, cc = [c + c.T for c in colloc]
-
+        ca, cb, cc = [
+            collocate(domain, eqn[:,_], points, self.root+1, self.size)
+            for eqn in [p_x, -vx_xx, -vx_yy]
+        ]
         self['stab-lhs'] = 1/w * ca + 1/w * cb + w/h**2 * cc
-        self['stab-lhs'] += fn.add_T(fn.outer(lbasis, pbasis))
+        self['stab-lhs'] += fn.outer(lbasis, pbasis)
         self['stab-rhs'] = w**3 * h**(r-3) * collocate(domain, -f*g3[_], points, self.root+1, self.size)
 
         self._piola.add('v')

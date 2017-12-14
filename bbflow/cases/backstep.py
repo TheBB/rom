@@ -121,18 +121,18 @@ class backstep(FlowCase):
         points = [(nel_up**2 + nel_up*nel_length, (0, 0))]
         eqn = vbasis[:,0].grad(geom).grad(geom)
         colloc = collocate(domain, eqn[:,0,0,_], points, self.root+2, self.size)
-        self['stab-lhs'] += NU/L**2 * (colloc + colloc.T)
+        self['stab-lhs'] += NU/L**2 * colloc.T
         colloc = collocate(domain, eqn[:,1,1,_], points, self.root+2, self.size)
-        self['stab-lhs'] += NU/H**2 * (colloc + colloc.T)
+        self['stab-lhs'] += NU/H**2 * colloc
         eqn = - pbasis.grad(geom)[:,0,_]
         colloc = collocate(domain, - pbasis.grad(geom)[:,0,_], points, self.root+2, self.size)
-        self['stab-lhs'] += 1/L * (colloc + colloc.T)
+        self['stab-lhs'] += 1/L * colloc
 
         points = [(nel_up*(nel_up-1), (1, 0))]
         colloc = collocate(domain, vbasis.laplace(geom)[:,0,_], points, self.root+3, self.size)
-        self['stab-lhs'] += NU * (colloc + colloc.T)
+        self['stab-lhs'] += NU * colloc
         colloc = collocate(domain, -pbasis.grad(geom)[:,0,_], points, self.root+3, self.size)
-        self['stab-lhs'] += colloc + colloc.T
+        self['stab-lhs'] += colloc
 
         self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
 

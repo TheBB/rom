@@ -50,8 +50,7 @@ class channel(FlowCase):
 
         points = [(0, (0,0)), (nel-1, (0,1))]
         eqn = (vbasis.laplace(geom) - pbasis.grad(geom))[:,0,_]
-        colloc = collocate(domain, eqn, points, self.root, self.size)
-        self['stab-lhs'] = colloc + colloc.T
+        self['stab-lhs'] = collocate(domain, eqn, points, self.root, self.size)
 
         self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
 
