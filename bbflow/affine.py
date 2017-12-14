@@ -624,16 +624,16 @@ class AffineRepresentation:
     def __len__(self):
         return len(self._scales)
 
-    def __call__(self, pval, lift=None, contraction=None, wrap=True):
+    def __call__(self, pval, lift=None, cont=None, wrap=True):
         if isinstance(lift, int):
             lift = (lift,)
         if lift is not None:
-            return self._lift_contractions[frozenset(lift)](pval, contraction=contraction, wrap=wrap)
-        if contraction is None:
-            contraction = (None,) * self.ndim
+            return self._lift_contractions[frozenset(lift)](pval, cont=cont, wrap=wrap)
+        if cont is None:
+            cont = (None,) * self.ndim
         if self.fallback:
-            return self.fallback.get(contraction, mu=pval)
-        retval = sum(scl(pval) * itg.get(contraction) for scl, itg in zip(self._scales, self._integrands))
+            return self.fallback.get(cont, mu=pval)
+        retval = sum(scl(pval) * itg.get(cont) for scl, itg in zip(self._scales, self._integrands))
         if wrap and isinstance(retval, np.ndarray) and retval.ndim == 2:
             return matrix.NumpyMatrix(retval)
         elif wrap and isinstance(retval, sp.spmatrix):

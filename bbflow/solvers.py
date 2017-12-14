@@ -57,8 +57,8 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
 
     def conv(lhs):
         c = case['convection']
-        r = c(mu, contraction=(None, lhs, lhs))
-        l = c(mu, contraction=(None, lhs, None)) + c(mu, contraction=(None, None, lhs))
+        r = c(mu, cont=(None, lhs, lhs))
+        l = c(mu, cont=(None, lhs, None)) + c(mu, cont=(None, None, lhs))
         r, l = integrate(r, l)
         return r, l
 

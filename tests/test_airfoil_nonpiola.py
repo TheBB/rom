@@ -68,5 +68,5 @@ def test_convection(mu, case):
     itg = (w[:,_] * u[_,:] * v[:,:]).sum([-1, -2])
     phys_conv = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
-    test_conv = affine.integrate(case['convection'](mu, contraction=(a,b,c)))
+    test_conv = affine.integrate(case['convection'](mu, cont=(a,b,c)))
     np.testing.assert_almost_equal(phys_conv, test_conv)
