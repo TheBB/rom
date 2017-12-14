@@ -3,10 +3,10 @@ import scipy as sp
 from nutils import mesh, function as fn, log, _, plot
 
 from bbflow.util import collocate
-from bbflow.cases.bases import Case
+from bbflow.cases.bases import FlowCase
 
 
-class cavity(Case):
+class cavity(FlowCase):
 
     def __init__(self, refine=1, degree=4, nel=None):
         if nel is None:
@@ -48,7 +48,7 @@ class cavity(Case):
         self._exact_solutions = {'v': velocity, 'p': pressure}
 
         self['forcing'] = (vbasis * force[_,:]).sum(-1)
-        self['divergence'] = -fn.add_T(fn.outer(vbasis.div(geom), pbasis))
+        self['divergence'] = - fn.outer(vbasis.div(geom), pbasis)
         self['laplacian'] = fn.outer(vbasis.grad(geom)).sum((-1, -2))
         self['v-h1s'] = fn.outer(vbasis.grad(geom)).sum([-1, -2])
         self['p-l2'] = fn.outer(pbasis)

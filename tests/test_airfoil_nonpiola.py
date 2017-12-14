@@ -38,8 +38,8 @@ def test_divergence_matrix(mu, case):
     vbasis, pbasis = case.basis('v'), case.basis('p')
     trfgeom = case.physical_geometry(mu)
 
-    itg = -fn.outer(pbasis, vbasis.div(trfgeom))
-    phys_mx = case.domain.integrate(itg + itg.T, geometry=trfgeom, ischeme='gauss9')
+    itg = -fn.outer(vbasis.div(trfgeom), pbasis)
+    phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
     test_mx = case['divergence'](mu)
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())

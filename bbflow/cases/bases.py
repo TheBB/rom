@@ -265,6 +265,17 @@ class Case:
         return patches.dot([1 if i in dom else 0 for i in range(len(patches))])
 
 
+class FlowCase(Case):
+    """While `Case` is problem-agnostic, `FlowCase` implements some useful
+    defaults for flow problems.
+    """
+
+    def finalize(self, *args, **kwargs):
+        if 'divergence' in self:
+            self['divergence'].freeze(lift=(1,))
+        super().finalize(*args, **kwargs)
+
+
 class ProjectedCase:
 
     def __init__(self, case, projection, lengths, fields=None):

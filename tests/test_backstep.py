@@ -25,7 +25,7 @@ def test_divergence_matrix(case, mu):
     geom = case.physical_geometry(mu)
 
     itg = - fn.outer(vbasis.div(geom), pbasis)
-    phys_mx = domain.integrate(itg + itg.T, geometry=geom, ischeme='gauss9')
+    phys_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
 
     test_mx = case['divergence'](mu, wrap=False)
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
@@ -150,7 +150,7 @@ def test_lift(case, mu):
     lift = case._lift(mu)
 
     dmx = case['divergence'](mu, wrap=False)
-    np.testing.assert_almost_equal(dmx.dot(lift), case['divergence'](mu, lift=1, wrap=False))
+    np.testing.assert_almost_equal(dmx.T.dot(lift), case['divergence'](mu, lift=0, wrap=False))
 
     lmx = case['laplacian'](mu, wrap=False)
     np.testing.assert_almost_equal(lmx.dot(lift), case['laplacian'](mu, lift=1, wrap=False))

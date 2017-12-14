@@ -3,11 +3,11 @@ import numpy as np
 from nutils import mesh, function as fn, log, _
 
 from bbflow.util import collocate, characteristic
-from bbflow.cases.bases import Case
+from bbflow.cases.bases import FlowCase
 from bbflow.affine import NutilsDelayedIntegrand
 
 
-class backstep(Case):
+class backstep(FlowCase):
 
     def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True, override=False):
         if nel_up is None:
@@ -69,9 +69,9 @@ class backstep(Case):
 
         # Stokes divergence term
         self['divergence'] = (
-            - (H-1) * fn.add_T(fn.outer(vgrad[:,0,0], pbasis) * cp2)
-            - (L-1) * fn.add_T(fn.outer(vgrad[:,1,1], pbasis) * cp12)
-            - fn.add_T(fn.outer(vbasis.div(geom), pbasis))
+            - (H-1) * (fn.outer(vgrad[:,0,0], pbasis) * cp2)
+            - (L-1) * (fn.outer(vgrad[:,1,1], pbasis) * cp12)
+            - (fn.outer(vbasis.div(geom), pbasis))
         )
 
         # Stokes laplacian term

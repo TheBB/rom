@@ -3,11 +3,11 @@ import scipy as sp
 from nutils import mesh, function as fn, log, _, plot
 
 from bbflow.util import collocate
-from bbflow.cases.bases import Case
+from bbflow.cases.bases import FlowCase
 from bbflow.affine import AffineRepresentation
 
 
-class exact(Case):
+class exact(FlowCase):
 
     def __init__(self, refine=1, degree=3, nel=None, power=3):
         if nel is None:
@@ -89,7 +89,7 @@ class exact(Case):
             + w * h * fn.outer(vy_y, vy_y)
         )
 
-        self['divergence'] = - h * w * fn.add_T(fn.outer(vx_x, pbasis) + fn.outer(vy_y, pbasis))
+        self['divergence'] = - h * w * (fn.outer(vx_x, pbasis) + fn.outer(vy_y, pbasis))
         self['v-h1s'] = AffineRepresentation(self['laplacian'])
         self['vdiv'] = w * h * fn.outer(vbasis.div(geom))
         self['p-l2'] = h * w * fn.outer(pbasis, pbasis)

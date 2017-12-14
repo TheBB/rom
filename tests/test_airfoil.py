@@ -83,8 +83,8 @@ def test_divergence_matrix(mu, case):
     p_vbasis, p_pbasis = piola_bases(mu, case)
     trfgeom = case.physical_geometry(mu)
 
-    itg = -fn.outer(p_pbasis, p_vbasis.div(trfgeom))
-    phys_mx = case.domain.integrate(itg + itg.T, geometry=trfgeom, ischeme='gauss9')
+    itg = -fn.outer(p_vbasis.div(trfgeom), p_pbasis)
+    phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
     test_mx = case['divergence'](mu)
     np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())

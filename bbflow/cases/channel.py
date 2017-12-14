@@ -3,11 +3,11 @@ import scipy as sp
 from nutils import mesh, function as fn, log, _, plot
 
 from bbflow.util import collocate
-from bbflow.cases.bases import Case
+from bbflow.cases.bases import FlowCase
 from bbflow.affine import NutilsDelayedIntegrand
 
 
-class channel(Case):
+class channel(FlowCase):
 
     def __init__(self, refine=1, degree=3, nel=None, override=False):
         if nel is None:
@@ -39,7 +39,7 @@ class channel(Case):
 
         self._exact_solutions = {'v': profile, 'p': 4 - 2*x}
 
-        self['divergence'] = -fn.add_T(fn.outer(vbasis.div(geom), pbasis))
+        self['divergence'] = - fn.outer(vbasis.div(geom), pbasis)
         self['laplacian'] = fn.outer(vbasis.grad(geom)).sum((-1, -2))
         self['v-h1s'] = fn.outer(vbasis.grad(geom)).sum([-1, -2])
         self['p-l2'] = fn.outer(pbasis)

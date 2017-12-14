@@ -4,7 +4,7 @@ from scipy.misc import factorial
 from nutils import mesh, function as fn, log, _, plot
 from os import path
 
-from bbflow.cases.bases import Case
+from bbflow.cases.bases import FlowCase
 from bbflow.affine import AffineRepresentation, Integrand, NutilsDelayedIntegrand, mu
 import bbflow.affine as af
 
@@ -132,7 +132,7 @@ def intermediate(geom, rmin, rmax, nterms):
     return theta, Q
 
 
-class airfoil(Case):
+class airfoil(FlowCase):
 
     def __init__(self, override=False, mesh=None,
                  nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, piola=True):
@@ -175,15 +175,15 @@ class airfoil(Case):
                 for j in range(nterms):
                     itg = fn.matmat(vbasis, Bplus(j, theta, Q).transpose()).grad(geom)
                     itg = (itg * Bminus(i, theta, Q)).sum([-1, -2])
-                    terms[i+j] += fn.outer(pbasis, itg)
+                    terms[i+j] += fn.outer(itg, pbasis)
         else:
             terms = [
-                fn.outer(pbasis, (vgrad * Bminus(i, theta, Q)).sum([-1, -2]))
+                fn.outer((vgrad * Bminus(i, theta, Q)).sum([-1, -2]), pbasis)
                 for i in range(nterms)
             ]
         self['divergence'] = AffineRepresentation(
             [-ANG**i for i, __ in enumerate(terms)],
-            [Integrand.make(fn.add_T(term)) for term in terms],
+            [Integrand.make(term) for term in terms],
         )
 
         # Stokes laplacian term

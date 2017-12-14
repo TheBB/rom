@@ -17,8 +17,8 @@ def stokes(case, mu):
     assert 'divergence' in case
     assert 'laplacian' in case
 
-    matrix = case['divergence'](mu) + case['laplacian'](mu)
-    rhs = - case['divergence'](mu, lift=1) - case['laplacian'](mu, lift=1)
+    matrix = case['divergence'](mu, sym=True) + case['laplacian'](mu)
+    rhs = - case['divergence'](mu, lift=0) - case['laplacian'](mu, lift=1)
     if 'forcing' in case:
         rhs += case['forcing'](mu)
     if 'stab-lhs' in case:
@@ -39,8 +39,8 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     domain = case.domain
     geom = case.physical_geometry(mu)
 
-    stokes_mat = case['divergence'](mu) + case['laplacian'](mu)
-    stokes_rhs = - case['divergence'](mu, lift=1) - case['laplacian'](mu, lift=1)
+    stokes_mat = case['divergence'](mu, sym=True) + case['laplacian'](mu)
+    stokes_rhs = - case['divergence'](mu, lift=0) - case['laplacian'](mu, lift=1)
     if 'forcing' in case:
         stokes_rhs += case['forcing'](mu)
     if 'stab-lhs' in case:
