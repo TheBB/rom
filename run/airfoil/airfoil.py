@@ -109,7 +109,7 @@ def rsolve(angle, velocity, piola, nred, index):
         lhs = solvers.navierstokes(case, mu)
     solvers.plots(
         case, mu, lhs, colorbar=False, figsize=(10,10), fields=['v', 'p'],
-        plot_name='full', index=index, axes=False
+        plot_name='red', index=index, axes=False
     )
 
 
