@@ -148,7 +148,7 @@ class airfoil(FlowCase):
         NU = 1 / self.add_parameter('viscosity', 1.0, 1000.0)
 
         if nterms is None:
-            nterms = nterms_rotmat_taylor(np.pi * amax / 180, 1e-13)
+            nterms = nterms_rotmat_taylor(np.pi * amax / 180, 1e-10)
             log.user('nterms:', nterms)
         else:
             log.user('error: {:.2e}'.format(error_rotmat_taylor(nterms, np.pi * amax / 180)))
