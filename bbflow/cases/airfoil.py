@@ -257,20 +257,29 @@ class airfoil(FlowCase):
         self['p-l2'] = fn.outer(pbasis)
 
         # Force on airfoil
-        if not piola:
-            self['force'] = AffineRepresentation()
+        if piola:
+            terms = [0 for __ in range(3*nterms - 2)]
             for i in range(nterms):
-                self['force'] += ANG**i * pbasis[:,_] * fn.matmat(Rmat(i,theta), geom.normal())[_,:]
+                for j in range(nterms):
+                    for k in range(nterms):
+                        terms[i+j+k] += fn.matmat(
+                            fn.matmat(vbasis, Bplus(i,theta,Q).transpose()).grad(geom),
+                            Bminus(j,theta,Q).transpose(), Rmat(k,theta), geom.normal()
+                        )
+        else:
             terms = [0 for __ in range(dterms)]
             for i in range(nterms):
                 for j in range(nterms):
                     terms[i+j] += fn.matmat(vgrad, Bminus(i,theta,Q).transpose(), Rmat(j,theta), geom.normal())
-            self['force'] -= AffineRepresentation(
-                [NU * ANG**i for i, __ in enumerate(terms)],
-                [Integrand.make(term) for term in terms],
-            )
-            self['force'].prop(domain=domain.boundary['left'])
-            self['force'].freeze(proj=(1,), lift=(1,))
+        self['force'] = AffineRepresentation()
+        for i in range(nterms):
+            self['force'] += ANG**i * pbasis[:,_] * fn.matmat(Rmat(i,theta), geom.normal())[_,:]
+        self['force'] -= AffineRepresentation(
+            [NU * ANG**i for i, __ in enumerate(terms)],
+            [Integrand.make(term) for term in terms],
+        )
+        self['force'].prop(domain=domain.boundary['left'])
+        self['force'].freeze(proj=(1,), lift=(1,))
 
         self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
 
