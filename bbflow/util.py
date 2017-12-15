@@ -3,13 +3,61 @@ import functools
 import time as timemod
 from multiprocessing import current_process
 import numpy as np
+import h5py
 from os.path import exists
 import pickle
+import random
 import scipy.sparse as sp
 import scipy.sparse._sparsetools as sptools
 import sharedmem
 import string
 from nutils import log
+
+
+_h5file = None
+
+
+def h5pickle():
+    return _h5file is not None
+
+
+def dump_array(obj):
+    assert h5pickle()
+    key = ''.join(random.choices('0123456789abcdef', k=16))
+    while key in _h5file:
+        key = ''.join(random.choices('0123456789abcdef', k=16))
+    _h5file.create_dataset(key, data=obj)
+    return key
+
+
+def load_array(key):
+    assert h5pickle()
+    assert key in _h5file
+    return np.array(_h5file[key])
+
+
+def dump(obj, filename):
+    global _h5file
+    _h5file = h5py.File(filename, 'w')
+
+    bytedata = np.fromstring(pickle.dumps(obj), dtype=np.uint8)
+    _h5file.create_dataset('bytedata', data=bytedata)
+
+    _h5file.close()
+    _h5file = None
+
+
+def load(filename):
+    global _h5file
+    _h5file = h5py.File(filename, 'r')
+
+    bytedata = np.array(_h5file['bytedata']).tostring()
+    obj = pickle.loads(bytedata)
+
+    _h5file.close()
+    _h5file = None
+
+    return obj
 
 
 def make_filename(func, fmt, *args, **kwargs):
@@ -34,14 +82,12 @@ def pickle_cache(fmt):
             with log.context(func.__name__):
                 if exists(filename):
                     log.user(f'reading from {filename}')
-                    with open(filename, 'rb') as f:
-                        return pickle.load(f)
+                    return load(filename)
                 log.user(f'{filename} not found')
             obj = func(*args, **kwargs)
             with log.context(func.__name__):
                 log.user(f'writing to {filename}')
-            with open(filename, 'wb') as f:
-                pickle.dump(obj, f)
+            dump(obj, filename)
             return obj
         return inner
     return decorator
@@ -174,6 +220,29 @@ class CSRAssembler:
         self.shape = shape
         self.idx_dtype = idx_dtype
 
+    def __getstate__(self):
+        if not h5pickle():
+            return self.__dict__
+        return {
+            'shape': self.shape,
+            'idx_dtype': self.idx_dtype,
+            'row': dump_array(self.row),
+            'col': dump_array(self.col),
+            'order': dump_array(self.order),
+            'inds': dump_array(self.inds)
+        }
+
+    def __setstate__(self, state):
+        if not h5pickle():
+            self.__dict__.update(state)
+            return
+        self.shape = state['shape']
+        self.idx_dtype = state['idx_dtype']
+        self.row = load_array(state['row'])
+        self.col = load_array(state['col'])
+        self.order = load_array(state['order'])
+        self.inds = load_array(state['inds'])
+
     def __call__(self, data):
         data = np.add.reduceat(data[self.order], self.inds)
 
@@ -206,6 +275,25 @@ class VectorAssembler:
 
         self.order, self.inds = order, inds
         self.shape = shape
+
+    def __getstate__(self):
+        if not h5pickle():
+            return self.__dict__
+        return {
+            'shape': self.shape,
+            'row': dump_array(self.row),
+            'order': dump_array(self.order),
+            'inds': dump_array(self.inds)
+        }
+
+    def __setstate__(self, state):
+        if not h5pickle():
+            self.__dict__.update(state)
+            return
+        self.shape = state['shape']
+        self.row = load_array(state['row'])
+        self.order = load_array(state['order'])
+        self.inds = load_array(state['inds'])
 
     def __call__(self, data):
         data = np.add.reduceat(data[self.order], self.inds)

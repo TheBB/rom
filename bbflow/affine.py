@@ -488,6 +488,27 @@ class COOTensorIntegrand(Integrand):
             (1,2): util.VectorAssembler((shape[0],), indices[0])
         }
 
+    def __getstate__(self):
+        if not util.h5pickle():
+            return self.__dict__
+        return {
+            'shape': self.shape,
+            'ndim': self.ndim,
+            'data': util.dump_array(self.data),
+            'indices': [util.dump_array(i) for i in self.indices],
+            'assemblers': self.assemblers,
+        }
+
+    def __setstate__(self, state):
+        if not util.h5pickle():
+            self.__dict__.update(state)
+            return
+        self.shape = state['shape']
+        self.ndim = state['ndim']
+        self.data = util.load_array(state['data'])
+        self.indices = tuple(util.load_array(key) for key in state['indices'])
+        self.assemblers = state['assemblers']
+
     def ensure_shareable(self):
         self.indices = tuple(util.shared_array(i) for i in self.indices)
         self.data = util.shared_array(self.data)
