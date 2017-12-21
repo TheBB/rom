@@ -85,6 +85,67 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     return lhs
 
 
+def blocksolve(vv, sv, sp, rhs, V, S, P):
+    lhs = np.zeros_like(rhs)
+    lhs[V] = vv.solve(rhs[V])
+    lhs[P] = sp.solve(rhs[S] - sv.matvec(lhs[V]))
+    return lhs
+
+
+def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
+    for itg in ['laplacian-vv', 'laplacian-sv', 'divergence-sp',
+                'convection-vvv', 'convection-svv', 'convection']:
+        assert itg in case
+
+    domain = case.domain
+    geom = case.physical_geometry(mu)
+
+    stokes_rhs = _stokes_rhs(case, mu)
+
+    nn = case.size // 3
+    V = np.arange(nn)
+    S = np.arange(nn,2*nn)
+    P = np.arange(2*nn,3*nn)
+
+    mvv = case['laplacian-vv'](mu)
+    msv = case['laplacian-sv'](mu)
+    msp = case['divergence-sp'](mu)
+    lhs = blocksolve(mvv, msv, msp, stokes_rhs, V, S, P)
+
+    mvv += case['convection-vvv'](mu, lift=1) + case['convection-vvv'](mu, lift=2)
+    msv += case['convection-svv'](mu, lift=1) + case['convection-svv'](mu, lift=2)
+
+    stokes_rhs -= case['convection'](mu, lift=(1,2))
+
+    vmass = case.norm('v', 'h1s', mu=mu)
+
+    for it in count(1):
+        cc = case['convection-vvv']
+        nvv = mvv + cc(mu, cont=(None, lhs[V], None)) + cc(mu, cont=(None, None, lhs[V]))
+        cc = case['convection-svv']
+        nsv = msv + cc(mu, cont=(None, lhs[V], None)) + cc(mu, cont=(None, None, lhs[V]))
+
+        rhs = np.array(stokes_rhs)
+        rhs[V] -= mvv.matvec(lhs[V])
+        rhs[S] -= msv.matvec(lhs[V])
+        rhs[S] -= msp.matvec(lhs[P])
+        rhs[V] -= case['convection-vvv'](mu, cont=(None,lhs[V],lhs[V]))
+        rhs[S] -= case['convection-svv'](mu, cont=(None,lhs[V],lhs[V]))
+
+        update = blocksolve(nvv, nsv, msp, rhs, V, S, P)
+        lhs += update
+
+        update_norm = np.sqrt(vmass.matvec(update).dot(update))
+        log.info('update: {:.2e}'.format(update_norm))
+        if update_norm < newton_tol:
+            break
+
+        if it > maxit:
+            raise IterationCountError
+
+    return lhs
+
+
 def supremizer(case, mu, rhs):
     vinds, pinds = case.basis_indices(['v', 'p'])
     length = len(rhs)
