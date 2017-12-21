@@ -86,6 +86,7 @@ def infsup(case, quadrule):
 
 
 def make_reduced(case, basis, *extra_bases, meta=None):
+    basis = dict(basis)
     for extra_basis in extra_bases:
         for name, mx in extra_basis.items():
             if name in basis:
