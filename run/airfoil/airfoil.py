@@ -13,7 +13,7 @@ def main():
 
 @util.pickle_cache('airfoil-{fast}-{piola}.case')
 def get_case(fast: bool = False, piola: bool = False):
-    case = cases.airfoil(override=fast, amax=35, nterms=7, piola=piola)
+    case = cases.airfoil(override=fast, amax=35, piola=piola)
     case.restrict(viscosity=6.0)
     return case
 
