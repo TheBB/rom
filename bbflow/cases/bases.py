@@ -314,6 +314,9 @@ class ProjectedCase:
     def __getitem__(self, key):
         return self._integrables[key]
 
+    def __setitem__(self, key, value):
+        self._integrables[key] = value
+
     @property
     def size(self):
         return self.projection.shape[0]
