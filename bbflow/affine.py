@@ -770,11 +770,15 @@ class AffineRepresentation:
             new_integrands = [itg.contract(contraction) for itg in self._integrands]
             sub_rep._extend_inplace(new_scales, new_integrands)
 
-    def project(self, projection):
-        proj = (projection,) * (self.ndim - len(self._freeze_proj))
+    def project(self, proj):
+        if not isinstance(proj, (tuple, list)):
+            proj = (proj,) * (self.ndim - len(self._freeze_proj))
+        assert len(proj) == self.ndim - len(self._freeze_proj)
         proj = AffineRepresentation.expand(proj, self._freeze_proj, self.ndim)
         integrands = [itg.project(proj) for itg in log.iter('term', self._integrands)]
         new = AffineRepresentation(self._scales, integrands)
         for axes, rep in log.iter('axes', list(self._lift_contractions.items())):
-            new._lift_contractions[axes] = rep.project(projection)
+            remaining_axes = [i for i in range(self.ndim) if i not in axes]
+            _proj = [proj[i] for i in remaining_axes if proj[i] is not None]
+            new._lift_contractions[axes] = rep.project(_proj)
         return new
