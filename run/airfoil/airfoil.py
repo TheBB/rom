@@ -146,27 +146,48 @@ def reduce(fast, piola, num, nred):
 @click.option('--piola/--no-piola', default=False)
 @click.argument('nred', nargs=-1, type=int)
 def results(fast, piola, nred):
+def _results(fast: bool = False, piola: bool = False, block: bool = False, nred=10):
     tcase = get_case(fast=fast, piola=piola)
     tcase.ensure_shareable()
 
-    scheme = list(quadrature.full(tcase.ranges(), 3))
+    scheme = list(quadrature.full(tcase.ranges(), 5))
     ttime, tsol = ens.make_ensemble(tcase, solvers.navierstokes, scheme, parallel=True, return_time=True)
 
-    results = []
+    if not piola:
+        block = False
+
+    res = []
     for nr in nred:
-        rcase = get_reduced(piola=False, nred=nr)
-        rtime, rsol = ens.make_ensemble(rcase, solvers.navierstokes, scheme, return_time=True)
+        rcase = get_reduced(piola=piola, nred=nr)
+        solver = solvers.navierstokes_block if block else solvers.navierstokes
+        rtime, rsol = ens.make_ensemble(rcase, solver, scheme, return_time=True)
         mu = tcase.parameter()
         verrs = ens.errors(tcase, rcase, tsol, rsol, tcase['v-h1s'](mu), scheme)
         perrs = ens.errors(tcase, rcase, tsol, rsol, tcase['p-l2'](mu), scheme)
         absf, relf = force_err(tcase, rcase, tsol, rsol, scheme)
-        results.append([
-            rcase.size, rcase.meta['err-v'], rcase.meta['err-p'],
+        res.append([
+            rcase.size // 3, rcase.meta['err-v'], rcase.meta['err-p'],
             *verrs, *perrs, *absf, *relf, ttime / rtime
         ])
 
-    results = np.array(results)
-    np.savetxt('airfoil-results.csv', results)
+    res = np.array(res)
+    np.savetxt(
+        util.make_filename(
+            _results, 'airfoil-results-{piola}-{block}.csv',
+            piola=piola, block=block,
+        ),
+        res
+    )
+
+
+@main.command()
+@click.option('--fast/--no-fast', default=False)
+@click.option('--piola/--no-piola', default=False)
+@click.option('--block/--no-block', default=False)
+@click.argument('nred', nargs=-1, type=int)
+def results(fast, piola, block, nred):
+    return _results(fast=fast, piola=piola, block=block, nred=nred)
+
 
 if __name__ == '__main__':
     main()
