@@ -13,17 +13,25 @@ class IterationCountError(Exception):
     pass
 
 
-def _stokes_assemble(case, mu):
+def _stokes_matrix(case, mu):
     matrix = case['divergence'](mu, sym=True) + case['laplacian'](mu)
+    if 'stab-lhs' in case:
+        matrix += case['stab-lhs'](mu, sym=True)
+    return matrix
+
+def _stokes_rhs(case, mu):
     rhs = - case['divergence'](mu, lift=0) - case['laplacian'](mu, lift=1)
     if 'forcing' in case:
         rhs += case['forcing'](mu)
     if 'stab-lhs' in case:
-        matrix += case['stab-lhs'](mu, sym=True)
         rhs -= case['stab-lhs'](mu, lift=1)
     if 'stab-rhs' in case:
         rhs += case['stab-rhs'](mu)
-    return matrix, rhs
+    return rhs
+
+def _stokes_assemble(case, mu):
+    return _stokes_matrix(case, mu), _stokes_rhs(case, mu)
+
 
 def stokes(case, mu):
     assert 'divergence' in case
