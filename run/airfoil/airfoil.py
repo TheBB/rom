@@ -35,11 +35,6 @@ def get_reduced(piola: bool = False, nred: int = 10, fast: int = None, num: int 
     case = get_case(fast, piola)
     scheme, solutions, supremizers = get_ensemble(fast, piola, num)
 
-    # if piola:
-    #     eig_sol = reduction.eigen(case, solutions, fields=['v'])
-    #     rb_sol, meta = reduction.reduced_bases(case, solutions, eig_sol, (nred,), meta=True)
-    #     eig_sup, rb_sup = {}, {}
-    # else:
     eig_sol = reduction.eigen(case, solutions, fields=['v', 'p'])
     rb_sol, meta = reduction.reduced_bases(case, solutions, eig_sol, (nred, nred), meta=True)
     eig_sup = reduction.eigen(case, supremizers, fields=['v'])
@@ -52,6 +47,18 @@ def get_reduced(piola: bool = False, nred: int = 10, fast: int = None, num: int 
     )
 
     projcase = reduction.make_reduced(case, rb_sol, rb_sup, meta=meta)
+
+    if piola:
+        with log.context('block project'):
+            with log.context('convection'):
+                projcase['convection-vvv'] = case['convection'].project(rb_sol['v'])
+                projcase['convection-svv'] = case['convection'].project((rb_sup['v'], rb_sol['v'], rb_sol['v']))
+            with log.context('laplacian'):
+                projcase['laplacian-vv'] = case['laplacian'].project(rb_sol['v'])
+                projcase['laplacian-sv'] = case['laplacian'].project((rb_sup['v'], rb_sol['v']))
+            with log.context('divergence'):
+                projcase['divergence-sp'] = case['divergence'].project((rb_sup['v'], rb_sol['p']))
+
     return projcase
 
 
@@ -106,7 +113,11 @@ def rsolve(angle, velocity, piola, nred, index):
     angle = -angle / 180 * np.pi
     mu = case.parameter(angle=angle, velocity=velocity)
     with util.time():
-        lhs = solvers.navierstokes(case, mu)
+        try:
+            lhs = solvers.navierstokes_block(case, mu)
+        except AssertionError:
+            lhs = solvers.navierstokes(case, mu)
+    with util.time():
     solvers.plots(
         case, mu, lhs, colorbar=False, figsize=(10,10), fields=['v', 'p'],
         plot_name='red', index=index, axes=False
