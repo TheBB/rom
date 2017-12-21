@@ -141,11 +141,41 @@ def reduce(fast, piola, num, nred):
     get_reduced(piola, nred, fast, num)
 
 
+def _bfuns(fast: bool = False, piola: bool = False, num=8):
+    __, solutions, supremizers = get_ensemble(fast, piola, num)
+    case = get_case(fast, piola)
+
+    eig_sol = reduction.eigen(case, solutions, fields=['v', 'p'])
+    rb_sol = reduction.reduced_bases(case, solutions, eig_sol, (12, 12))
+    eig_sup = reduction.eigen(case, supremizers, fields=['v'])
+    rb_sup = reduction.reduced_bases(case, supremizers, eig_sup, (12,))
+
+    for i in range(6):
+        solvers.plots(
+            case, case.parameter(), rb_sol['v'][i], colorbar=False, figsize=(13,8), fields=['v'],
+            axes=False, xlim=(-4,9), ylim=(-4,4), density=3, lift=False,
+            plot_name=util.make_filename(_bfuns, 'bfun-v-{piola}', piola=piola), index=i,
+        )
+        solvers.plots(
+            case, case.parameter(), rb_sol['p'][i], colorbar=False, figsize=(10,10), fields=['p'],
+            axes=False, xlim=(-2,2), ylim=(-2,2), lift=False,
+            plot_name=util.make_filename(_bfuns, 'bfun-p-{piola}', piola=piola), index=i,
+        )
+        solvers.plots(
+            case, case.parameter(), rb_sup['v'][i], colorbar=False, figsize=(10,10), fields=['v'],
+            axes=False, density=2, lift=False,
+            plot_name=util.make_filename(_bfuns, 'bfun-s-{piola}', piola=piola), index=i,
+        )
+
+
 @main.command()
 @click.option('--fast/--no-fast', default=False)
 @click.option('--piola/--no-piola', default=False)
-@click.argument('nred', nargs=-1, type=int)
-def results(fast, piola, nred):
+@click.option('--num', '-n', default=8)
+def bfuns(fast, piola, num):
+    _bfuns(fast=fast, piola=piola, num=num)
+
+
 def _results(fast: bool = False, piola: bool = False, block: bool = False, nred=10):
     tcase = get_case(fast=fast, piola=piola)
     tcase.ensure_shareable()
