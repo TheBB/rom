@@ -117,7 +117,6 @@ def rsolve(angle, velocity, piola, nred, index):
             lhs = solvers.navierstokes_block(case, mu)
         except AssertionError:
             lhs = solvers.navierstokes(case, mu)
-    with util.time():
     solvers.plots(
         case, mu, lhs, colorbar=False, figsize=(10,10), fields=['v', 'p'],
         plot_name='red', index=index, axes=False
