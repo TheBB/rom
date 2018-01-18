@@ -39,8 +39,8 @@ def Bplus(i, theta, Q):
     return Rmat(i, theta) + fn.matmat(Rmat(i-1, theta), P, Q)
 
 
-def mk_mesh(nelems, radius):
-    fname = path.join(path.dirname(__file__), '../data/NACA0015.cpts')
+def mk_mesh(nelems, radius, fname='NACA0015', cylrot=0.0):
+    fname = path.join(path.dirname(__file__), f'../data/{fname}.cpts')
     cpts = np.loadtxt(fname) - (0.5, 0.0)
 
     pspace = np.linspace(0, 2*np.pi, cpts.shape[0] + 1)
@@ -48,7 +48,7 @@ def mk_mesh(nelems, radius):
     domain, refgeom = mesh.rectilinear([rspace, pspace], periodic=(1,))
     basis = domain.basis('spline', degree=3)
 
-    angle = np.linspace(0, 2*np.pi, cpts.shape[0], endpoint=False)
+    angle = np.linspace(0, 2*np.pi, cpts.shape[0], endpoint=False) - cylrot
     angle = np.hstack([[angle[-1]], angle[:-1]])
     upts = radius * np.vstack([np.cos(angle), np.sin(angle)]).T
 
@@ -135,9 +135,10 @@ def intermediate(geom, rmin, rmax, nterms):
 class airfoil(FlowCase):
 
     def __init__(self, override=False, mesh=None,
-                 nelems=30, rmax=10, rmin=1, amax=25, lift=True, nterms=None, piola=True):
+                 fname='NACA0015', cylrot=0.0, nelems=30, rmax=10, rmin=1,
+                 amax=25, lift=True, nterms=None, piola=True):
         if mesh is None:
-            domain, refgeom, geom = mk_mesh(nelems, rmax)
+            domain, refgeom, geom = mk_mesh(nelems, rmax, fname=fname, cylrot=cylrot)
         else:
             domain, refgeom, geom = mesh
         super().__init__(domain, geom)
