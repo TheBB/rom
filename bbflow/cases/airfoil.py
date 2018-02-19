@@ -59,14 +59,30 @@ def mk_mesh(nelems, radius, fname='NACA0015', cylrot=0.0):
     return domain, refgeom, geom
 
 
-def mk_bases(case):
-    J = case.geometry.grad(case.meta['refgeom'])
-    detJ = fn.determinant(J)
-    bases = [
-        case.domain.basis('spline', degree=(3,2))[:,_] * J[:,0] / detJ,
-        case.domain.basis('spline', degree=(2,3))[:,_] * J[:,1] / detJ,
-        case.domain.basis('spline', degree=2) / detJ,
-    ]
+def mk_bases(case, piola):
+    if piola:
+        J = case.geometry.grad(case.meta['refgeom'])
+        detJ = fn.determinant(J)
+        bases = [
+            case.domain.basis('spline', degree=(3,2))[:,_] * J[:,0] / detJ,
+            case.domain.basis('spline', degree=(2,3))[:,_] * J[:,1] / detJ,
+            case.domain.basis('spline', degree=2) / detJ,
+        ]
+    else:
+        nr, na = case.domain.shape
+        rkts = np.arange(nr+1)
+        pkts = np.arange(na+1)
+        rmul = [2] * len(rkts)
+        rmul[0] = 3
+        rmul[-1] = 3
+        pmul = [2] * len(pkts)
+
+        thbasis = case.domain.basis(
+            'spline', degree=(2,2),
+            knotvalues=[rkts,pkts], knotmultiplicities=[rmul,pmul],
+        )
+        bases = [thbasis[:,_]*(1,0), thbasis[:,_]*(0,1), case.domain.basis('spline', degree=1)]
+
     vnbasis, vtbasis, pbasis = fn.chain(bases)
     vbasis = vnbasis + vtbasis
 
@@ -83,7 +99,7 @@ def mk_lift(case):
 
     cons = domain.boundary['left'].project((0,0), onto=vbasis, geometry=geom, ischeme='gauss1')
     cons = domain.boundary['right'].select(-x).project(
-        (1,0), onto=vbasis, geometry=geom, ischeme='gauss9', constrain=cons
+        (1,0), onto=vbasis, geometry=geom, ischeme='gauss9', constrain=cons,
     )
 
     mx = fn.outer(vbasis.grad(geom)).sum([-1, -2])
@@ -164,7 +180,7 @@ class airfoil(FlowCase):
             self._piola.add('v')
 
         # Add bases and construct a lift function
-        vbasis, pbasis = mk_bases(self)
+        vbasis, pbasis = mk_bases(self, piola)
         vgrad = vbasis.grad(geom)
         if lift:
             mk_lift(self)
