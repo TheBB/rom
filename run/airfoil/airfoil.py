@@ -30,25 +30,28 @@ def get_ensemble(fast: bool = False, piola: bool = False, num: int = 10):
     return scheme, solutions, supremizers
 
 
-@util.pickle_cache('airfoil-{piola}-{nred}.rcase')
-def get_reduced(piola: bool = False, nred: int = 10, fast: int = None, num: int = None):
+@util.pickle_cache('airfoil-{piola}-{sups}-{nred}.rcase')
+def get_reduced(piola: bool = False, sups: bool = False, nred: int = 10, fast: int = None, num: int = None):
     case = get_case(fast, piola)
     scheme, solutions, supremizers = get_ensemble(fast, piola, num)
 
     eig_sol = reduction.eigen(case, solutions, fields=['v', 'p'])
     rb_sol, meta = reduction.reduced_bases(case, solutions, eig_sol, (nred, nred), meta=True)
-    eig_sup = reduction.eigen(case, supremizers, fields=['v'])
-    rb_sup = reduction.reduced_bases(case, supremizers, eig_sup, (nred,))
+    if sups:
+        eig_sup = reduction.eigen(case, supremizers, fields=['v'])
+        rb_sup = reduction.reduced_bases(case, supremizers, eig_sup, (nred,))
+        reduction.plot_spectrum(
+            [('solutions', eig_sol), ('supremizers', eig_sup)],
+            plot_name=util.make_filename(get_reduced, 'airfoil-spectrum-{piola}', piola=piola),
+            formats=['png', 'csv'],
+        )
 
-    reduction.plot_spectrum(
-        [('solutions', eig_sol), ('supremizers', eig_sup)],
-        plot_name=util.make_filename(get_reduced, 'airfoil-spectrum-{piola}', piola=piola),
-        formats=['png', 'csv'],
-    )
+    if sups:
+        projcase = reduction.make_reduced(case, rb_sol, rb_sup, meta=meta)
+    else:
+        projcase = reduction.make_reduced(case, rb_sol, meta=meta)
 
-    projcase = reduction.make_reduced(case, rb_sol, rb_sup, meta=meta)
-
-    if piola:
+    if piola and sups:
         with log.context('block project'):
             with log.context('convection'):
                 projcase['convection-vvv'] = case['convection'].project(rb_sol['v'])
@@ -106,10 +109,11 @@ def solve(angle, velocity, fast, piola, index):
 @click.option('--angle', default=0.0)
 @click.option('--velocity', default=1.0)
 @click.option('--piola/--no-piola', default=False)
+@click.option('--sups/--no-sups', default=True)
 @click.option('--nred', '-r', default=10)
 @click.option('--index', '-i', default=0)
-def rsolve(angle, velocity, piola, nred, index):
-    case = get_reduced(piola=piola, nred=nred)
+def rsolve(angle, velocity, piola, sups, nred, index):
+    case = get_reduced(piola=piola, sups=sups, nred=nred)
     angle = -angle / 180 * np.pi
     mu = case.parameter(angle=angle, velocity=velocity)
     with util.time():
@@ -134,10 +138,40 @@ def ensemble(fast, piola, num):
 @main.command()
 @click.option('--fast/--no-fast', default=False)
 @click.option('--piola/--no-piola', default=False)
+@click.option('--sups/--no-sups', default=True)
 @click.option('--num', '-n', default=8)
 @click.option('--nred', '-r', default=10)
-def reduce(fast, piola, num, nred):
-    get_reduced(piola, nred, fast, num)
+def reduce(fast, piola, sups, num, nred):
+    get_reduced(piola, sups, nred, fast, num)
+
+
+def _divs(fast: bool = False, piola: bool = False, num=8):
+    __, solutions, supremizers = get_ensemble(fast, piola, num)
+    case = get_case(fast, piola)
+
+    angles = np.linspace(-35, 35, 15) * np.pi / 180
+
+    eig_sol = reduction.eigen(case, solutions, fields=['v', 'p'])
+    rb_sol = reduction.reduced_bases(case, solutions, eig_sol, (20, 20))
+
+    results = []
+    for angle in angles:
+        log.user(f'angle = {angle}')
+
+        mu = case.parameter(angle=angle)
+        geom = case.physical_geometry(mu)
+
+        divs = []
+        for i in range(10):
+            vsol, = case.solution(rb_sol['v'][i], mu, ['v'], lift=True)
+            div = np.sqrt(case.domain.integrate(vsol.div(geom)**2, geometry=geom, ischeme='gauss9'))
+            log.user(f'{i}: {div:.2e}')
+            divs.append(div)
+
+        results.append([angle*180/np.pi, max(divs), np.mean(divs)])
+
+    results = np.array(results)
+    np.savetxt(util.make_filename(_divs, 'airfoil-divs-{piola}.csv', piola=piola), results)
 
 
 def _bfuns(fast: bool = False, piola: bool = False, num=8):
@@ -175,7 +209,7 @@ def bfuns(fast, piola, num):
     _bfuns(fast=fast, piola=piola, num=num)
 
 
-def _results(fast: bool = False, piola: bool = False, block: bool = False, nred=10):
+def _results(fast: bool = False, piola: bool = False, sups: bool = False, block: bool = False, nred=10):
     tcase = get_case(fast=fast, piola=piola)
     tcase.ensure_shareable()
 
@@ -187,7 +221,7 @@ def _results(fast: bool = False, piola: bool = False, block: bool = False, nred=
 
     res = []
     for nr in nred:
-        rcase = get_reduced(piola=piola, nred=nr)
+        rcase = get_reduced(piola=piola, sups=sups, nred=nr)
         solver = solvers.navierstokes_block if block else solvers.navierstokes
         rtime, rsol = ens.make_ensemble(rcase, solver, scheme, return_time=True)
         mu = tcase.parameter()
@@ -202,8 +236,8 @@ def _results(fast: bool = False, piola: bool = False, block: bool = False, nred=
     res = np.array(res)
     np.savetxt(
         util.make_filename(
-            _results, 'airfoil-results-{piola}-{block}.csv',
-            piola=piola, block=block,
+            _results, 'airfoil-results-{piola}-{sups}-{block}.csv',
+            piola=piola, sups=sups, block=block,
         ),
         res
     )
@@ -212,10 +246,11 @@ def _results(fast: bool = False, piola: bool = False, block: bool = False, nred=
 @main.command()
 @click.option('--fast/--no-fast', default=False)
 @click.option('--piola/--no-piola', default=False)
+@click.option('--sups/--no-sups', default=True)
 @click.option('--block/--no-block', default=False)
 @click.argument('nred', nargs=-1, type=int)
-def results(fast, piola, block, nred):
-    return _results(fast=fast, piola=piola, block=block, nred=nred)
+def results(fast, piola, sups, block, nred):
+    return _results(fast=fast, piola=piola, sups=sups, block=block, nred=nred)
 
 
 if __name__ == '__main__':
