@@ -1,9 +1,10 @@
 import click
 import numpy as np
-from nutils import function as fn, _, log, plot, matrix
+from nutils import function as fn, _, log, plot, matrix, config
 from os import path
 import vtk
 from vtk.util.numpy_support import vtk_to_numpy
+import multiprocessing
 
 from bbflow import cases, solvers, util, quadrature, reduction, ensemble as ens
 from bbflow.cases.airfoil import rotmat
@@ -330,52 +331,5 @@ def results(fast, piola, block, imported, nred):
 
 
 if __name__ == '__main__':
-    main()
-
-    # for i in [1,2,3,4,5,6,7,8,9,10,12,14,16,18,20]:
-    #     # get_reduced(piola=True, imported=True, nred=i, fast=True)
-    #     get_reduced(piola=False, imported=True, nred=i, fast=True)
-    #     # get_reduced(piola=True, imported=False, nred=i, fast=True)
-    #     get_reduced(piola=False, imported=False, nred=i, fast=True)
-
-    # P = True
-    # I = 9
-    # J = 10
-
-    # case = get_case(fast=True, piola=P)
-    # scheme, femsol, __ = get_ensemble(piola=P, imported=False)
-    # __, fvmsol, __ = get_ensemble(piola=P, imported=True)
-
-    # vh1 = case['v-h1s'](case.parameter())
-    # pl2 = case['p-l2'](case.parameter())
-
-    # results = []
-
-    # while I < len(femsol):
-    #     mu, weight = scheme[I]
-    #     mu = case.parameter(*mu)
-    #     print(mu)
-
-    #     fvsol = fvmsol[I] / weight
-    #     fesol = femsol[I] / weight
-    #     diff = fvsol - fesol
-
-    #     verr = np.sqrt(vh1.matvec(diff).dot(diff) / vh1.matvec(fvsol).dot(fvsol))
-    #     perr = np.sqrt(pl2.matvec(diff).dot(diff) / pl2.matvec(fvsol).dot(fvsol))
-
-    #     results.append([mu['angle'], verr, perr])
-
-    #     # solvers.plots(case, mu, diff, plot_name='diff-full', colorbar=True, fields=['v'], lift=False)
-    #     # solvers.plots(case, mu, diff, plot_name='diff-zoom', colorbar=True, fields=['v'], lift=False,
-    #     #               xlim=(-1, 3), ylim=(-1, 1), figsize=(10, 6), density=0.001)
-    #     # solvers.plots(case, mu, diff, plot_name='diff-full', colorbar=True, fields=['p'], lift=False,
-    #     #               clim=(-10, 10))
-    #     # solvers.plots(case, mu, diff, plot_name='diff-zoom', colorbar=True, fields=['p'], lift=False,
-    #     #               xlim=(-1, 1), ylim=(-1, 1), clim=(-10, 10), figsize=(10, 6), density=5)
-
-    #     I += J
-
-    # if P:
-    #     np.savetxt('err-vs-angle-piola.csv', np.array(results))
-    # else:
-    #     np.savetxt('err-vs-angle-no-piola.csv', np.array(results))
+    with config(nprocs=multiprocessing.cpu_count()):
+        main()

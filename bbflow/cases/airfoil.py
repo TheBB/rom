@@ -238,11 +238,11 @@ class airfoil(FlowCase):
                     w = fn.matmat(vbasis, Bplus(j, theta, Q).transpose())
                     Bname, Cname = f'B{i}B{j}', f'C{i}C{j}'
                     terms[i+j].add(
-                        f'?ww_ia u_jb ?vv_ka,b | ?ww_ij = w_ia {Bname}_ja | ?vv_ij = v_ia {Cname}_ja',
+                        f'(?ww_ia u_jb ?vv_ka,b)(ww_ij = w_ia {Bname}_ja, vv_ij = v_ia {Cname}_ja)',
                         **{Bname: Bplus(j,theta,Q), Cname: Bplus(i,theta,Q)},
                     )
             fallback = NutilsDelayedIntegrand(
-                '?ww_ia u_jb ?vv_ka,b | ?ww_ij = w_ia J_ja | ?vv_ij = v_ia J_ja', 'ijk', 'wuv',
+                '(?ww_ia u_jb ?vv_ka,b)(ww_ij = w_ia J_ja, vv_ij = v_ia J_ja)', 'ijk', 'wuv',
                 x=geom, w=vbasis, u=vbasis, v=vbasis, J=self.jacobian,
             )
         else:
@@ -250,11 +250,11 @@ class airfoil(FlowCase):
             for i in range(nterms):
                 u = fn.matmat(vbasis, Bminus(i, theta, Q))
                 terms.append(NutilsDelayedIntegrand(
-                    'w_ia ?uu_jb v_ka,b | ?uu_ij = u_ia B_aj', 'ijk', 'wuv',
+                    '(w_ia ?uu_jb v_ka,b)(uu_ij = u_ia B_aj)', 'ijk', 'wuv',
                     x=geom, w=vbasis, u=vbasis, v=vbasis, B=Bminus(i,theta,Q),
                 ))
             fallback = NutilsDelayedIntegrand(
-                'w_ia ?uu_jb v_ka,b | ?uu_ij = u_ia J_ja', 'ijk', 'wuv',
+                '(w_ia ?uu_jb v_ka,b)(uu_ij = u_ia J_ja)', 'ijk', 'wuv',
                 x=geom, w=vbasis, u=vbasis, v=vbasis, J=self.jacobian_inverse,
             )
         self['convection'] = AffineRepresentation(
@@ -298,6 +298,7 @@ class airfoil(FlowCase):
         self['force'].prop(domain=domain.boundary['left'])
         self['force'].freeze(proj=(1,), lift=(1,))
 
+        log.user('finalizing')
         self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
 
     def _physical_geometry(self, mu):

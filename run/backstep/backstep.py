@@ -1,5 +1,7 @@
 import click
-from nutils import log
+from nutils import log, config
+import multiprocessing
+
 from bbflow import cases, solvers, util, quadrature, reduction, ensemble as ens
 
 
@@ -93,4 +95,5 @@ def reduce(fast, num, nred):
 
 
 if __name__ == '__main__':
-    main()
+    with config(nprocs=multiprocessing.cpu_count()):
+        main()

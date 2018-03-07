@@ -1,7 +1,8 @@
 import click
 import numpy as np
-from nutils import function as fn, _, log, plot, matrix
+from nutils import function as fn, _, log, plot, matrix, config
 from bbflow import cases, solvers, util, quadrature, reduction, ensemble as ens
+import multiprocessing
 
 from bbflow.cases.airfoil import rotmat
 
@@ -254,4 +255,5 @@ def results(fast, piola, sups, block, nred):
 
 
 if __name__ == '__main__':
-    main()
+    with config(nprocs=multiprocessing.cpu_count()):
+        main()
