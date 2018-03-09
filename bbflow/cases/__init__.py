@@ -5,3 +5,4 @@ from bbflow.cases.backstep import backstep
 from bbflow.cases.cavity import cavity
 from bbflow.cases.channel import channel
 from bbflow.cases.exact import exact
+from bbflow.cases.tshape import tshape

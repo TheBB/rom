@@ -8,14 +8,13 @@ from bbflow import cases, util, affine
 
 @pytest.fixture(params=[True, False])
 def case(request):
-    return cases.backstep(nel_length=2, nel_up=2, override=request.param)
+    return cases.tshape(nel_length=2, nel_up=2, override=request.param)
 
 @pytest.fixture
 def mu():
     return {
         'viscosity': 1.0,
-        'length': 10.0,
-        'height': 1.5,
+        'height': 2.5,
         'velocity': 1.0,
     }
 
