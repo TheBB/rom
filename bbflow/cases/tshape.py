@@ -1,44 +1,48 @@
 from nutils import mesh, function as fn, log, _
 
 from bbflow.cases.bases import FlowCase
-from bbflow.util import characteristic
+from bbflow.util import collocate, characteristic
 from bbflow.affine import NutilsDelayedIntegrand
 
 
 class tshape(FlowCase):
 
-    def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None, override=True):
+    def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True, override=True):
         if nel_up is None:
-            nel_up = int(10 * refine)
+            nel_up = int(50 * refine)
         if nel_length is None:
-            nel_length = int(10 * refine)
+            nel_length = int(50 * refine)
+        nel_up_mid = nel_up // 5
+        nel_length_out = 2 * nel_length // 5
 
         domain, geom = mesh.multipatch(
             patches=[[[0,1],[4,5]], [[1,2],[5,6]], [[2,3],[6,7]], [[5,6],[8,9]]],
             nelems={
                 (0,1): nel_up, (4,5): nel_up, (2,3): nel_up, (6,7): nel_up,
-                (1,2): nel_up, (5,6): nel_up, (8,9): nel_up,
+                (1,2): nel_up_mid, (5,6): nel_up_mid, (8,9): nel_up_mid,
                 (0,4): nel_length, (1,5): nel_length, (2,6): nel_length, (3,7): nel_length,
-                (5,8): nel_length, (6,9): nel_length,
+                (5,8): nel_length_out, (6,9): nel_length_out,
             },
             patchverts=[
+                [-5,0], [-5,1], [-5,2], [-5,3],
                 [0,0], [0,1], [0,2], [0,3],
-                [1,0], [1,1], [1,2], [1,3],
                 [2,1], [2,2],
             ]
         )
 
         super().__init__(domain, geom)
 
-        NU = self.add_parameter('viscosity', 1, 1)
-        H = self.add_parameter('height', 2, 2)
-        V = self.add_parameter('velocity', 1, 1)
+        NU = 1 / self.add_parameter('viscosity', 20, 50)
+        H = self.add_parameter('height', 1, 5)
+        V = self.add_parameter('velocity', 1, 5)
 
         bases = [
             domain.basis('spline', degree=(degree, degree-1)),  # vx
             domain.basis('spline', degree=(degree-1, degree)),  # vy
             domain.basis('spline', degree=degree-1)             # pressure
         ]
+        if stabilize:
+            bases.append([0] * 4)
         basis_lens = [len(b) for b in bases]
         vxbasis, vybasis, pbasis, *__ = fn.chain(bases)
         vbasis = vxbasis[:,_] * (1,0) + vybasis[:,_] * (0,1)
@@ -95,6 +99,25 @@ class tshape(FlowCase):
             + H * fn.outer(pbasis) * cp02
             + fn.outer(pbasis) * cp13
         )
+
+        if not stabilize:
+            self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
+            return
+
+        points = [
+            (0, (0, 0)),
+            (nel_up*(nel_length-1), (1, 0)),
+            (nel_up*nel_length + nel_up_mid*nel_length + nel_up - 1, (0, 1)),
+            (nel_up*nel_length*2 + nel_up_mid*nel_length - 1, (1, 1))
+        ]
+        eqn = vbasis[:,0].grad(geom).grad(geom)
+        colloc = collocate(domain, eqn[:,0,0,_], points, self.root, self.size)
+        self['stab-lhs'] = NU * (colloc + colloc.T)
+        colloc = collocate(domain, eqn[:,1,1,_], points, self.root, self.size)
+        self['stab-lhs'] += NU/H**2 * (colloc + colloc.T)
+        eqn = -pbasis.grad(geom)[:,0,_]
+        colloc = collocate(domain, eqn, points, self.root, self.size)
+        self['stab-lhs'] += colloc + colloc.T
 
         self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
 

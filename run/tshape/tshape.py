@@ -1,16 +1,17 @@
 import click
 from nutils import log, config
 import multiprocessing
+import numpy as np
 
 from bbflow import cases, solvers, util, quadrature, reduction, ensemble as ens
 
 
-@util.pickle_cache('backstep-{fast}.case')
+@util.pickle_cache('tshape-{fast}.case')
 def get_case(fast: bool = False):
-    return cases.backstep(override=fast)
+    return cases.tshape(override=fast)
 
 
-@util.pickle_cache('backstep-{num}.ens')
+@util.pickle_cache('tshape-{num}.ens')
 def get_ensemble(num: int = 10, fast: bool = False):
     case = get_case(fast)
     scheme = list(quadrature.full(case.ranges(), num))
@@ -21,7 +22,7 @@ def get_ensemble(num: int = 10, fast: bool = False):
     return scheme, solutions, supremizers
 
 
-@util.pickle_cache('backstep-{nred}.rcase')
+@util.pickle_cache('tshape-{nred}.rcase')
 def get_reduced(nred: int = 10, fast: bool = False, num: int = 10):
     case = get_case(fast)
     scheme, solutions, supremizers = get_ensemble(num, fast)
@@ -33,7 +34,7 @@ def get_reduced(nred: int = 10, fast: bool = False, num: int = 10):
 
     reduction.plot_spectrum(
         [('solutions', eig_sol), ('supremizers', eig_sup)],
-        plot_name='backstep-spectrum', formats=['png', 'csv'],
+        plot_name='tshape-spectrum', formats=['png', 'csv'],
     )
 
     projcase = reduction.make_reduced(case, rb_sol, rb_sup)
@@ -48,35 +49,34 @@ def main():
 @main.command()
 @click.option('--fast/--no-fast', default=False)
 def disp(fast):
-    print(get_case(fast))
-
-
-@main.command()
-@click.option('--viscosity', default=20.0)
-@click.option('--velocity', default=1.0)
-@click.option('--height', default=1.0)
-@click.option('--length', default=10.0)
-@click.option('--fast/--no-fast', default=False)
-def solve(viscosity, velocity, height, length, fast):
     case = get_case(fast)
-    mu = case.parameter(viscosity=viscosity, velocity=velocity, height=height, length=length)
-    with util.time():
-        lhs = solvers.navierstokes(case, mu)
-    solvers.plots(case, mu, lhs, colorbar=True, figsize=(15,3), fields=['v', 'p'], plot_name='full')
+    print(case)
 
 
 @main.command()
-@click.option('--viscosity', default=20.0)
+@click.option('--viscosity', default=1.0)
 @click.option('--velocity', default=1.0)
 @click.option('--height', default=1.0)
-@click.option('--length', default=10.0)
-@click.option('--nred', '-r', default=10)
-def rsolve(viscosity, velocity, height, length, nred):
-    case = get_reduced(nred=nred)
-    mu = case.parameter(viscosity=viscosity, velocity=velocity, height=height, length=length)
+@click.option('--fast/--no-fast', default=False)
+def solve(viscosity, velocity, height, fast):
+    case = get_case(fast)
+    mu = case.parameter(viscosity=viscosity, velocity=velocity, height=height)
     with util.time():
         lhs = solvers.navierstokes(case, mu)
-    solvers.plots(case, mu, lhs, colorbar=True, figsize=(15,3), fields=['v', 'p'], plot_name='red')
+    solvers.plots(case, mu, lhs, colorbar=True, figsize=(10,10), fields=['v','p'], plot_name='full')
+
+
+@main.command()
+@click.option('--viscosity', default=1.0)
+@click.option('--velocity', default=1.0)
+@click.option('--height', default=1.0)
+@click.option('--nred', '-r', default=10)
+def rsolve(viscosity, velocity, height, nred):
+    case = get_reduced(nred=nred)
+    mu = case.parameter(viscosity=viscosity, velocity=velocity, height=height)
+    with util.time():
+        lhs = solvers.navierstokes(case, mu)
+    solvers.plots(case, mu, lhs, colorbar=True, figsize=(10,10), fields=['v', 'p'], plot_name='red')
 
 
 @main.command()
