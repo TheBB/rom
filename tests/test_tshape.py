@@ -8,7 +8,7 @@ from bbflow import cases, util, affine
 
 @pytest.fixture(params=[True, False])
 def case(request):
-    return cases.tshape(nel_length=2, nel_up=2, override=request.param)
+    return cases.tshape(nel_length=2, nel_up=2, nel_up_mid=2, nel_length_out=2, override=request.param)
 
 @pytest.fixture
 def mu():

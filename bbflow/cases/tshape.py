@@ -7,13 +7,16 @@ from bbflow.affine import NutilsDelayedIntegrand
 
 class tshape(FlowCase):
 
-    def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True, override=True):
+    def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None, nel_up_mid=None, nel_length_out=None,
+                 stabilize=True, override=True):
         if nel_up is None:
             nel_up = int(50 * refine)
         if nel_length is None:
             nel_length = int(50 * refine)
-        nel_up_mid = nel_up // 5
-        nel_length_out = 2 * nel_length // 5
+        if nel_up_mid is None:
+            nel_up_mid = nel_up // 5
+        if nel_length_out is None:
+            nel_length_out = 2 * nel_length // 5
 
         domain, geom = mesh.multipatch(
             patches=[[[0,1],[4,5]], [[1,2],[5,6]], [[2,3],[6,7]], [[5,6],[8,9]]],
