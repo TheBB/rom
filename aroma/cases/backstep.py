@@ -2,9 +2,9 @@ from functools import partial
 import numpy as np
 from nutils import mesh, function as fn, log, _
 
-from bbflow.util import collocate, characteristic
-from bbflow.cases.bases import FlowCase
-from bbflow.affine import NutilsDelayedIntegrand
+from aroma.util import collocate, characteristic
+from aroma.cases.bases import FlowCase
+from aroma.affine import NutilsDelayedIntegrand
 
 
 class backstep(FlowCase):

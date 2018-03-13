@@ -1,10 +1,10 @@
 import click
 import numpy as np
 from nutils import function as fn, _, log, plot, matrix, config
-from bbflow import cases, solvers, util, quadrature, reduction, ensemble as ens
+from aroma import cases, solvers, util, quadrature, reduction, ensemble as ens
 import multiprocessing
 
-from bbflow.cases.airfoil import rotmat
+from aroma.cases.airfoil import rotmat
 
 
 @click.group()

@@ -5,7 +5,7 @@ import numpy as np
 from nutils import log, plot, _
 from operator import itemgetter
 
-from bbflow.cases import ProjectedCase
+from aroma.cases import ProjectedCase
 
 
 def eigen(case, ensemble, fields=None):

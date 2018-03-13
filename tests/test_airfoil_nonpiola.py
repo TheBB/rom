@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 from nutils import mesh, function as fn, log, _, plot
 
-from bbflow import affine
-import bbflow.cases as cases
+from aroma import affine
+import aroma.cases as cases
 
 
 def mk_case(override):

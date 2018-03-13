@@ -2,8 +2,8 @@ import numpy as np
 import scipy as sp
 from nutils import mesh, function as fn, log, _, plot
 
-from bbflow.util import collocate
-from bbflow.cases.bases import FlowCase
+from aroma.util import collocate
+from aroma.cases.bases import FlowCase
 
 
 class cavity(FlowCase):

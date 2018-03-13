@@ -2,9 +2,9 @@ import numpy as np
 import scipy as sp
 from nutils import mesh, function as fn, log, _, plot
 
-from bbflow.util import collocate
-from bbflow.cases.bases import FlowCase
-from bbflow.affine import AffineRepresentation
+from aroma.util import collocate
+from aroma.cases.bases import FlowCase
+from aroma.affine import AffineRepresentation
 
 
 class exact(FlowCase):

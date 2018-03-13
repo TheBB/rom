@@ -2,7 +2,7 @@ import click
 from nutils import log, config
 import multiprocessing
 
-from bbflow import cases, solvers, util, quadrature, reduction, ensemble as ens
+from aroma import cases, solvers, util, quadrature, reduction, ensemble as ens
 
 
 @util.pickle_cache('backstep-{fast}.case')

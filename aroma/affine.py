@@ -6,7 +6,7 @@ import numpy as np
 import scipy.sparse as sp
 from nutils import function as fn, matrix, _, log
 
-from bbflow import util
+from aroma import util
 
 
 _SCALARS = (

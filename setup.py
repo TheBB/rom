@@ -3,13 +3,13 @@
 from setuptools import setup
 
 setup(
-    name='ROM',
-    version='1.0.0',
+    name='Aroma',
+    version='1.1.0',
     maintainer='Eivind Fonn',
     maintainer_email='evfonn@gmail.com',
-    packages=['bbflow'],
+    packages=['aroma'],
     package_data={
-        'bbflow': ['data/*.cpts'],
+        'aroma': ['data/*.cpts'],
     },
     install_requires=[
         'click',

@@ -1,8 +1,8 @@
 from nutils import mesh, function as fn, log, _
 
-from bbflow.cases.bases import FlowCase
-from bbflow.util import collocate, characteristic
-from bbflow.affine import NutilsDelayedIntegrand
+from aroma.cases.bases import FlowCase
+from aroma.util import collocate, characteristic
+from aroma.affine import NutilsDelayedIntegrand
 
 
 class tshape(FlowCase):

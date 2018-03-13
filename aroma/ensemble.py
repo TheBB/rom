@@ -3,7 +3,7 @@ from multiprocessing import Pool
 import numpy as np
 from nutils import log, core
 
-from bbflow import util
+from aroma import util
 
 
 @util.parallel_log(return_time=True)

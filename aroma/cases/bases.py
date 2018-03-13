@@ -8,8 +8,8 @@ import scipy as sp
 from nutils import function as fn, matrix, _, plot, log
 from operator import itemgetter, attrgetter
 
-from bbflow.util import multiple_to_single
-from bbflow.affine import mu, Integrand, AffineRepresentation
+from aroma.util import multiple_to_single
+from aroma.affine import mu, Integrand, AffineRepresentation
 
 
 Parameter = namedtuple('Parameter', ['position', 'name', 'min', 'max', 'default'])

@@ -2,8 +2,8 @@ import numpy as np
 from nutils import function as fn
 import pytest
 
-from bbflow import cases
-from bbflow.solvers import stokes, navierstokes
+from aroma import cases
+from aroma.solvers import stokes, navierstokes
 
 
 def _check_exact(case, mu, lhs):

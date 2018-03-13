@@ -6,8 +6,8 @@ import vtk
 from vtk.util.numpy_support import vtk_to_numpy
 import multiprocessing
 
-from bbflow import cases, solvers, util, quadrature, reduction, ensemble as ens
-from bbflow.cases.airfoil import rotmat
+from aroma import cases, solvers, util, quadrature, reduction, ensemble as ens
+from aroma.cases.airfoil import rotmat
 
 
 @click.group()

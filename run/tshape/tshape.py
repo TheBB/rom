@@ -3,7 +3,7 @@ from nutils import log, config
 import multiprocessing
 import numpy as np
 
-from bbflow import cases, solvers, util, quadrature, reduction, ensemble as ens
+from aroma import cases, solvers, util, quadrature, reduction, ensemble as ens
 
 
 @util.pickle_cache('tshape-{fast}.case')

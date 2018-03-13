@@ -3,7 +3,7 @@ from nutils import mesh, function as fn, log, _
 import pickle
 import pytest
 
-from bbflow import cases, util, affine
+from aroma import cases, util, affine
 
 
 @pytest.fixture(params=[True, False])
