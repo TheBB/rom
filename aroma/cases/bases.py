@@ -58,6 +58,15 @@ class Case:
         return ret
 
     def __init__(self, domain, geom):
+        """Construct and initialize a Case object.
+
+        This function should be overridden (and called) by subclasses.
+
+        :param domain: The computational domain (discretization)
+        :type domain: nutils.topology.Topology
+        :param geom: The reference geometry
+        :type geom: nutils.function.Array
+        """
         self.meta = {}
         self.parameters = OrderedDict()
         self._fixed_values = {}
@@ -102,14 +111,29 @@ class Case:
 
     @property
     def size(self):
+        """The total number of degrees of freedom."""
         basis, __ = next(iter(self._bases.values()))
         return basis.shape[0]
 
     @property
     def root(self):
+        """The number of degrees of freedom associated with "visible"
+        basis functions, i.e. not counting Lagrange multipliers and
+        the like.
+        """
         return sum(length for __, length in self._bases.values())
 
     def add_parameter(self, name, min, max, default=None):
+        """Add a new parameter to this case.
+
+        :param str name: The name of the new paramater
+        :param float min: The minimal value of the parameter
+        :param float max: The maximal value of the parameter
+        :param float default: The default value if none specified
+            (defaults to the mean of `max` and `min`)
+        :return: The function associated with this parameter
+        :rtype: aroma.affine.mu
+        """
         if default is None:
             default = (min + max) / 2
         self.parameters[name] = Parameter(len(self.parameters), name, min, max, default)
@@ -117,6 +141,22 @@ class Case:
         return mu[name]
 
     def parameter(self, *args, **kwargs):
+        """parameter(val, ..., name=val, ...)
+
+        Obtain a parameter vector from individual values. Parameter
+        values may be specified as positional or keyword arguments,
+        but keywords are preferred.
+
+        Unspecified parameters are given default values.
+
+        The return value is an object that supports indexing either
+        with parameter indices or names. This should be considered an
+        implementation detail: it is generally not useful to interact
+        with the parameter object directly.
+
+        :return: A parameter vector containing values for each
+            parameter.
+        """
         mu, index = [], 0
         for param in self.parameters.values():
             fixed = self._fixed_values[param.name]
@@ -137,6 +177,9 @@ class Case:
         return retval
 
     def ranges(self):
+        """Returns the valid ranges for all parameters as a list of
+        (min, max)-tuples.
+        """
         return [
             (p.min, p.max)
             for p in self.parameters.values()
@@ -144,27 +187,52 @@ class Case:
         ]
 
     def restrict(self, **kwargs):
+        """restrict(name=val, ...)
+
+        This method is used to restrict the values of some
+        parameters. Pass a value of `None` to lift an earlier
+        restriction.
+
+        Cases with restricted parameters work transparently as a case
+        with a parameter space of lower dimension.
+        """
         for name, value in kwargs.items():
             self._fixed_values[name] = value
 
     @property
     def has_exact(self):
+        """`True` if this case has an exact solution (i.e. a subclass has
+        implemented the ``_exact`` method).
+        """
         return hasattr(self, '_exact')
 
-    def plot_domain(self, mu=None, show=False, figsize=(10,10), index=None):
+    def plot_domain(self, mu=None, show=False, figsize=(10,10)):
+        """Create a plot of the domain associated with some parameter value.
+        This method is generally for debugging purposes.
+
+        The resulting figure is saved to `domain.png`.
+
+        :param mu: Parameter-value at which to plot the domain (if
+            `None`, plot the reference geometry)
+        :param bool show: If `True`, show the plot interactively
+        :param figsize: The figure size
+        """
         geometry = self.geometry
         if mu is not None:
             geometry = self.physical_geometry(mu)
         points, = self.domain.elem_eval([geometry], ischeme='bezier9', separate=True)
-        with plot.PyPlot('domain', figsize=figsize, index=index) as plt:
+        with plot.PyPlot('domain', figsize=figsize, ndigits=0) as plt:
             plt.mesh(points)
             if show:
                 plt.show()
 
-    def set_geometry(self, function):
-        self._geometry = function
-
     def physical_geometry(self, mu=None):
+        """Return the physical geometry associated with a parameter value.
+
+        :param mu: Parameter-value at which to compute the domain (if
+            `None`, use all default values)
+        :rtype: nutils.function.Array
+        """
         if hasattr(self, '_physical_geometry'):
             if mu is None:
                 mu = self.parameter()
@@ -172,15 +240,50 @@ class Case:
         return self.geometry
 
     def jacobian(self, mu=None):
+        """Return the Jacobian associated with a parameter value (the
+        derivative of the physical geometry with respect to the
+        reference geometry).
+
+        :rtype: nutils.function.Array
+        """
         return self.physical_geometry(mu).grad(self.geometry)
 
     def jacobian_inverse(self, mu=None):
+        """Return the inverse of the Jacobian associated with a given
+        parameter value.
+        """
         return fn.inverse(self.physical_geometry(mu).grad(self.geometry))
 
     def add_basis(self, name, function, length):
+        """Add a basis.
+
+        .. warning::
+           Bases must be added in the correct order, and
+           their degrees of freedom must be contiguous, starting at
+           zero.
+
+        :param str name: The name of the basis (usually, the name of
+            its associated field)
+        :param function: The basis object
+        :type function: nutils.function.Array
+        :param int length: The number of degrees of freedom in the basis
+
+        """
         self._bases[name] = (function, length)
 
     def basis(self, name, mu=None):
+        """Get a basis at a given parameter value.
+
+        In most cases, this just returns the same basis object that
+        was added in :func:`add_basis()
+        <aroma.cases.bases.Case.add_basis>`. If the parameter value is
+        given and the case object supports Piola transforms, it will
+        be applied.
+
+        :param str name: The basis to get
+        :param mu: The parameter value to get the basis at
+        :rtype: nutils.function.Array
+        """
         assert name in self._bases
         basis = self._bases[name][0]
         if mu is None or name not in self._piola:
@@ -190,6 +293,15 @@ class Case:
 
     @multiple_to_single('name')
     def basis_indices(self, name):
+        """Returns a list of indices at which a given basis is active.
+
+        If `name` is a list or a tuple, this method returns a list of
+        multiple results.
+
+        :param name: The basis name(s)
+        :type name: str or list of str
+        :rtype: np.array(dtype=int)
+        """
         start = 0
         for field, (__, length) in self._bases.items():
             if field != name:
@@ -199,12 +311,39 @@ class Case:
         return np.arange(start, start + length, dtype=np.int)
 
     def basis_shape(self, name):
+        """Returns the shape of a basis, i.e. the number of components, not
+        including the number of degrees of freedom.
+
+        :param str name: The basis name
+        :rtype: tuple of int
+        """
         basis = self.basis(name)
         if basis.ndim == 1:
             return ()
         return basis.shape[1:]
 
     def constrain(self, basisname, *boundaries, component=None):
+        """constrain(basisname, [boundary], [boundary_name, ...], component=None)
+
+        Constrain some components of a basis at Dirichlet boundaries.
+
+        If `boundary` is provided, it must be an instance of
+        `nutils.topology.Topology`. If, instead `boundary_name` are
+        provided, they must be valid indices of
+        `self.domain.boundary`. The calling conventions are exclusive.
+
+        Call this method as many times as necessary to establish all
+        Dirichlet conditons. Note that non-homogeneous conditions are
+        handled via explicit lift functions.
+
+        :param str basisname: The basis to constrain
+        :param boundary: The part of the domain to restrict
+        :type boundary: nutils.topology.Topology
+        :param str boundary_name: The part of the domain to restrict
+        :param int component: The component of the basis to restrict
+            (default: all components)
+
+        """
         if all(isinstance(bnd, str) for bnd in boundaries):
             boundary = self.domain.boundary[','.join(boundaries)]
         else:
@@ -224,6 +363,19 @@ class Case:
         )
 
     def add_lift(self, lift, basis=None, scale=None):
+        """Add a lifting term.
+
+        Call this method as many times as necessary to add all lifting
+        terms.
+
+        :param lift: The lifting function, either a numpy array or an
+            instance of `nutils.function.Array`, in which case the
+            function will be projected onto the given basis (relative
+            to the reference geometry)
+        :param str basis: The basis to project onto (if applicable)
+        :param scale: The scaling function associated with this term
+        :type scale: `aroma.affine.mu`
+        """
         if scale is None:
             scale = mu(1.0)
         if isinstance(lift, fn.Array):
@@ -234,6 +386,17 @@ class Case:
 
     @log.title
     def finalize(self, override=False, **kwargs):
+        """Finalize the case by precomputing as many parts of the affine
+        representations as possible.
+
+        This function should be called once and only once, after all
+        other setup is complete.
+
+        :param bool override: If `True`, will attempt to precompute
+            `all` affine representations. This may be very expensive!
+        :param kwargs: Additional properties passed onto the affine
+            representations (like quadrature schemes)
+        """
         new_itgs = {}
         for name, itg in self._integrables.items():
             with log.context(name):
@@ -246,10 +409,17 @@ class Case:
         self._integrables = new_itgs
 
     def ensure_shareable(self):
+        """Attempt to put as much data as possible into shared memory. This
+        should facilitate solving in parallel.
+        """
         for itg in self._integrables.values():
             itg.ensure_shareable()
 
     def norm(self, field, type='l2', mu=None):
+        """Return a norm matrix associated with a given field.
+
+        If this case
+        """
         if mu is None:
             mu = self.parameter()
         intname = f'{field}-{type}'
