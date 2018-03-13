@@ -1,12 +1,49 @@
-from functools import partial
+# Copyright (C) 2014 SINTEF ICT,
+# Applied Mathematics, Norway.
+#
+# Contact information:
+# E-mail: eivind.fonn@sintef.no
+# SINTEF Digital, Department of Applied Mathematics,
+# P.O. Box 4760 Sluppen,
+# 7045 Trondheim, Norway.
+#
+# This file is part of AROMA.
+#
+# AROMA is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# AROMA is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public
+# License along with AROMA. If not, see
+# <http://www.gnu.org/licenses/>.
+#
+# In accordance with Section 7(b) of the GNU General Public License, a
+# covered work must retain the producer line in every data file that
+# is created or manipulated using AROMA.
+#
+# Other Usage
+# You can be released from the requirements of the license by purchasing
+# a commercial license. Buying such a license is mandatory as soon as you
+# develop commercial activities involving the AROMA library without
+# disclosing the source code of your own applications.
+#
+# This file may be used in accordance with the terms contained in a
+# written agreement between you and SINTEF Digital.
+
+
 import numpy as np
 from scipy.misc import factorial
-from nutils import mesh, function as fn, log, _, plot
+from nutils import mesh, function as fn, log, _
 from os import path
 
 from aroma.cases.bases import FlowCase
 from aroma.affine import AffineRepresentation, Integrand, NutilsDelayedIntegrand, mu
-import aroma.affine as af
 
 
 def rotmat(angle):
@@ -16,9 +53,11 @@ def rotmat(angle):
     ])
 
 
-I = np.array([[1, 0], [0, 1]])
+eye = np.array([[1, 0], [0, 1]])
 P = np.array([[0, -1], [1, 0]])
-Ps = [I, P, -I, -P]
+Ps = [eye, P, -eye, -P]
+
+
 def Pmat(i):
     return Ps[i % 4]
 
@@ -108,7 +147,7 @@ def mk_lift(case):
     mx = domain.integrate(mx, geometry=geom, ischeme='gauss9')
     rhs = np.zeros(pbasis.shape)
     lhs = mx.solve(rhs, constrain=cons)
-    vsol, psol = vbasis.dot(lhs), pbasis.dot(lhs)
+    vsol = vbasis.dot(lhs)
 
     vdiv = vsol.div(geom)**2
     vdiv = np.sqrt(domain.integrate(vdiv, geometry=geom, ischeme='gauss9'))
@@ -161,7 +200,7 @@ class airfoil(FlowCase):
         self.meta['refgeom'] = refgeom
 
         ANG = self.add_parameter('angle', -np.pi*amax/180, np.pi*amax/180, 0.0)
-        V = self.add_parameter('velocity', 1.0, 20.0)
+        self.add_parameter('velocity', 1.0, 20.0)
         NU = 1 / self.add_parameter('viscosity', 1.0, 1000.0)
 
         if nterms is None:
@@ -234,8 +273,6 @@ class airfoil(FlowCase):
             ]
             for i in range(nterms):
                 for j in range(nterms):
-                    v = fn.matmat(vbasis, Bplus(i, theta, Q).transpose()).grad(geom)
-                    w = fn.matmat(vbasis, Bplus(j, theta, Q).transpose())
                     Bname, Cname = f'B{i}B{j}', f'C{i}C{j}'
                     terms[i+j].add(
                         f'(?ww_ia u_jb ?vv_ka,b)(ww_ij = w_ia {Bname}_ja, vv_ij = v_ia {Cname}_ja)',
@@ -248,7 +285,6 @@ class airfoil(FlowCase):
         else:
             terms = []
             for i in range(nterms):
-                u = fn.matmat(vbasis, Bminus(i, theta, Q))
                 terms.append(NutilsDelayedIntegrand(
                     '(w_ia ?uu_jb v_ka,b)(uu_ij = u_ia B_aj)', 'ijk', 'wuv',
                     x=geom, w=vbasis, u=vbasis, v=vbasis, B=Bminus(i,theta,Q),
@@ -287,7 +323,9 @@ class airfoil(FlowCase):
             terms = [0 for __ in range(dterms)]
             for i in range(nterms):
                 for j in range(nterms):
-                    terms[i+j] += fn.matmat(vgrad, Bminus(i,theta,Q).transpose(), Rmat(j,theta), geom.normal())
+                    terms[i+j] += fn.matmat(
+                        vgrad, Bminus(i,theta,Q).transpose(), Rmat(j,theta), geom.normal()
+                    )
         self['force'] = AffineRepresentation()
         for i in range(nterms):
             self['force'] += ANG**i * pbasis[:,_] * fn.matmat(Rmat(i,theta), geom.normal())[_,:]

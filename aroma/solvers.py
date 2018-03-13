@@ -1,7 +1,45 @@
-from functools import wraps
+# Copyright (C) 2014 SINTEF ICT,
+# Applied Mathematics, Norway.
+#
+# Contact information:
+# E-mail: eivind.fonn@sintef.no
+# SINTEF Digital, Department of Applied Mathematics,
+# P.O. Box 4760 Sluppen,
+# 7045 Trondheim, Norway.
+#
+# This file is part of AROMA.
+#
+# AROMA is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# AROMA is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public
+# License along with AROMA. If not, see
+# <http://www.gnu.org/licenses/>.
+#
+# In accordance with Section 7(b) of the GNU General Public License, a
+# covered work must retain the producer line in every data file that
+# is created or manipulated using AROMA.
+#
+# Other Usage
+# You can be released from the requirements of the license by purchasing
+# a commercial license. Buying such a license is mandatory as soon as you
+# develop commercial activities involving the AROMA library without
+# disclosing the source code of your own applications.
+#
+# This file may be used in accordance with the terms contained in a
+# written agreement between you and SINTEF Digital.
+
+
 from itertools import count
 import numpy as np
-from nutils import function as fn, log, plot, _, matrix
+from nutils import function as fn, log, plot, matrix
 
 from aroma.affine import integrate
 
@@ -19,6 +57,7 @@ def _stokes_matrix(case, mu):
         matrix += case['stab-lhs'](mu, sym=True)
     return matrix
 
+
 def _stokes_rhs(case, mu):
     rhs = - case['divergence'](mu, lift=0) - case['laplacian'](mu, lift=1)
     if 'forcing' in case:
@@ -28,6 +67,7 @@ def _stokes_rhs(case, mu):
     if 'stab-rhs' in case:
         rhs += case['stab-rhs'](mu)
     return rhs
+
 
 def _stokes_assemble(case, mu):
     return _stokes_matrix(case, mu), _stokes_rhs(case, mu)
@@ -48,9 +88,6 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     assert 'laplacian' in case
     assert 'convection' in case
 
-    domain = case.domain
-    geom = case.physical_geometry(mu)
-
     stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
     lhs = stokes_mat.solve(stokes_rhs, constrain=case.cons)
 
@@ -61,15 +98,15 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
 
     def conv(lhs):
         c = case['convection']
-        r = c(mu, cont=(None, lhs, lhs))
-        l = c(mu, cont=(None, lhs, None)) + c(mu, cont=(None, None, lhs))
-        r, l = integrate(r, l)
-        return r, l
+        rh = c(mu, cont=(None, lhs, lhs))
+        lh = c(mu, cont=(None, lhs, None)) + c(mu, cont=(None, None, lhs))
+        rh, lh = integrate(rh, lh)
+        return rh, lh
 
     for it in count(1):
-        r, l = conv(lhs)
-        rhs = stokes_rhs - stokes_mat.matvec(lhs) - r
-        ns_mat = stokes_mat + l
+        rh, lh = conv(lhs)
+        rhs = stokes_rhs - stokes_mat.matvec(lhs) - rh
+        ns_mat = stokes_mat + lh
 
         update = ns_mat.solve(rhs, constrain=case.cons)
         lhs += update
@@ -96,9 +133,6 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
     for itg in ['laplacian-vv', 'laplacian-sv', 'divergence-sp',
                 'convection-vvv', 'convection-svv', 'convection']:
         assert itg in case
-
-    domain = case.domain
-    geom = case.physical_geometry(mu)
 
     stokes_rhs = _stokes_rhs(case, mu)
 
@@ -186,10 +220,14 @@ def plots(case, mu, lhs, plot_name='solution', index=0, colorbar=False,
     )
 
     def modify(plt):
-        if show: plt.show()
-        if xlim: plt.xlim(*xlim)
-        if ylim: plt.ylim(*ylim)
-        if not axes: plt.axis('off')
+        if show:
+            plt.show()
+        if xlim:
+            plt.xlim(*xlim)
+        if ylim:
+            plt.ylim(*ylim)
+        if not axes:
+            plt.axis('off')
 
     def color(plt):
         if colorbar:
