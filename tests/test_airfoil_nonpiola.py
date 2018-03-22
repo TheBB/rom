@@ -35,7 +35,7 @@ def mu():
 
 
 def test_divergence_matrix(mu, case):
-    vbasis, pbasis = case.basis('v'), case.basis('p')
+    vbasis, pbasis = case.basis('v').obj, case.basis('p').obj
     trfgeom = case.physical_geometry(mu)
 
     itg = -fn.outer(vbasis.div(trfgeom), pbasis)
@@ -46,7 +46,7 @@ def test_divergence_matrix(mu, case):
 
 
 def test_laplacian_matrix(mu, case):
-    vbasis, pbasis = case.basis('v'), case.basis('p')
+    vbasis, pbasis = case.basis('v').obj, case.basis('p').obj
     trfgeom = case.physical_geometry(mu)
 
     itg = fn.outer(vbasis.grad(trfgeom)).sum([-1, -2])
@@ -57,7 +57,7 @@ def test_laplacian_matrix(mu, case):
 
 
 def test_convection(mu, case):
-    vbasis, pbasis = case.basis('v'), case.basis('p')
+    vbasis, pbasis = case.basis('v').obj, case.basis('p').obj
     trfgeom = case.physical_geometry(mu)
 
     a, b, c = [np.random.rand(vbasis.shape[0]) for __ in range(3)]

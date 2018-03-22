@@ -48,15 +48,31 @@ from aroma.affine import mu, Integrand, AffineRepresentation
 Parameter = namedtuple('Parameter', ['position', 'name', 'min', 'max', 'default'])
 
 
-class NutilsBasis:
+class Basis:
 
-    def __init__(self, obj, length):
-        self.obj = obj
+    def __init__(self, length):
         self.length = length
 
     @property
     def shape(self):
+        raise NotImplementedError
+
+    def dot(self, coeffs):
+        raise NotImplementedError
+
+
+class NutilsBasis(Basis):
+
+    def __init__(self, obj, length):
+        super().__init__(length)
+        self.obj = obj
+
+    @property
+    def shape(self):
         return self.obj.shape[1:]
+
+    def dot(self, coeffs):
+        return self.obj.dot(coeffs)
 
 
 class Case:
@@ -144,11 +160,12 @@ class Case:
         for name, value in kwargs.items():
             self._fixed_values[name] = value
 
-    def add_basis(self, name, obj, length):
-        self._bases[name] = NutilsBasis(obj, length)
+    def add_basis(self, name, basis):
+        assert isinstance(basis, Basis)
+        self._bases[name] = basis
 
     def basis(self, name, mu=None):
-        return self._bases[name].obj
+        return self._bases[name]
 
     @multiple_to_single('name')
     def basis_indices(self, name):
@@ -181,6 +198,11 @@ class Case:
 
     def solution_vector(self, lhs, mu, lift=True):
         return lhs + self.lift(mu) if lift else lhs
+
+    @multiple_to_single('field')
+    def solution(self, lhs, mu, field, lift=True):
+        lhs = self.solution_vector(lhs, mu, lift)
+        return self.basis(field, mu).dot(lhs)
 
     @log.title
     def finalize(self, override=False, **kwargs):
@@ -246,12 +268,16 @@ class NutilsCase(Case):
     def jacobian_inverse(self, mu=None):
         return fn.inverse(self.physical_geometry(mu).grad(self.geometry))
 
+    def add_basis(self, name, obj, length):
+        super().add_basis(name, NutilsBasis(obj, length))
+
     def basis(self, name, mu=None):
         basis = super().basis(name, mu=mu)
         if mu is None or name not in self._piola:
             return basis
         J = self.physical_geometry(mu).grad(self.geometry)
-        return fn.matmat(basis, J.transpose())
+        obj = fn.matmat(basis.obj, J.transpose())
+        return NutilsBasis(obj, basis.length)
 
     def constrain(self, basisname, *boundaries, component=None):
         if all(isinstance(bnd, str) for bnd in boundaries):
@@ -259,7 +285,7 @@ class NutilsCase(Case):
         else:
             boundary = boundaries[0]
 
-        basis = self.basis(basisname)
+        basis = self.basis(basisname).obj
         zero = np.zeros(self.basis_shape(basisname))
         if component is not None:
             basis = basis[...,component]
@@ -274,15 +300,10 @@ class NutilsCase(Case):
 
     def add_lift(self, lift, basis=None, scale=None):
         if isinstance(lift, fn.Array):
-            basis = self.basis(basis)
+            basis = self.basis(basis).obj
             lift = self.domain.project(lift, onto=basis, geometry=self.geometry, ischeme='gauss9')
         lift[np.where(np.isnan(lift))] = 0.0
         super().add_lift(lift, scale)
-
-    @multiple_to_single('field')
-    def solution(self, lhs, mu, field, lift=True):
-        lhs = self.solution_vector(lhs, mu, lift)
-        return self.basis(field, mu).dot(lhs)
 
     @multiple_to_single('field')
     def exact(self, mu, field):
