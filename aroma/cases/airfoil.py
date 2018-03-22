@@ -224,6 +224,11 @@ class airfoil(NutilsCase, FlowCase):
         if lift:
             mk_lift(self)
 
+        # Geometry terms
+        for i in range(1, nterms):
+            term = fn.matmat(Rmat(i, theta), self.geometry)
+            self.add_displacement(term, ANG**i)
+
         # Stokes divergence term
         if piola:
             terms = [0] * dterms
@@ -338,6 +343,3 @@ class airfoil(NutilsCase, FlowCase):
 
         log.user('finalizing')
         self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
-
-    def _physical_geometry(self, mu):
-        return fn.matmat(rotmat(mu['angle'] * self.theta), self.geometry)

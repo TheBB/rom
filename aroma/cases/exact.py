@@ -75,6 +75,9 @@ class exact(NutilsCase, FlowCase):
         self.add_basis('p', pbasis, basis_lens[2])
         self.extra_dofs = 5
 
+        self.add_displacement(fn.asarray((x, 0)), w - 1)
+        self.add_displacement(fn.asarray((0, y)), h - 1)
+
         self.constrain('v', 'left', 'top', 'bottom', 'right')
 
         r = power
@@ -142,9 +145,6 @@ class exact(NutilsCase, FlowCase):
 
         self._piola.add('v')
         self.finalize(domain=domain, geometry=geom, ischeme='gauss9')
-
-    def _physical_geometry(self, mu):
-        return (mu['w'], mu['h']) * self.geometry
 
     def _exact(self, mu, field):
         scale = mu['w']**(self.power-1) * mu['h']**(self.power-1)

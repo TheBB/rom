@@ -91,6 +91,12 @@ class backstep(NutilsCase, FlowCase):
         self.add_basis('p', pbasis, basis_lens[2])
         self.extra_dofs = 4 if stabilize else 0
 
+        x, y = geom
+        hx = fn.piecewise(x, (0,), 0, x)
+        hy = fn.piecewise(y, (0,), y, 0)
+        self.add_displacement(fn.asarray((hx, 0)), L-1)
+        self.add_displacement(fn.asarray((0, hy)), H-1)
+
         self.constrain(
             'v', 'patch0-bottom', 'patch0-top', 'patch0-left',
             'patch1-top', 'patch2-bottom', 'patch2-left'
@@ -99,7 +105,6 @@ class backstep(NutilsCase, FlowCase):
         vgrad = vbasis.grad(geom)
 
         # Lifting function
-        __, y = self.geometry
         profile = fn.max(0, y*(1-y) * 4)[_] * (1, 0)
         self.add_lift(profile, 'v', scale=V)
 
@@ -175,11 +180,3 @@ class backstep(NutilsCase, FlowCase):
         self['stab-lhs'] += colloc
 
         self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
-
-    def _physical_geometry(self, mu):
-        x, y = self.geometry
-        scale = (
-            fn.piecewise(x, (0,), 1, mu['length']),
-            fn.piecewise(y, (0,), mu['height'], 1),
-        )
-        return self.geometry * scale

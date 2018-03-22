@@ -77,7 +77,8 @@ class NutilsBasis(Basis):
 
 class Case:
 
-    def __init__(self):
+    def __init__(self, geometry):
+        self.geometry = geometry
         self.meta = {}
         self.parameters = OrderedDict()
         self.extra_dofs = 0
@@ -86,6 +87,7 @@ class Case:
         self._lifts = []
         self._bases = OrderedDict()
         self._cons = None
+        self._displacements = []
 
     def __iter__(self):
         yield from self._integrables
@@ -117,6 +119,12 @@ class Case:
                 s += f'[{opt}]     {sub_name: <15} {len(integrable): >5}   {shp}\n'
         return s[:-1]
 
+    def empty_copy(self):
+        ret = self.__class__.__new__(self.__class__)
+        ret.__dict__.update(self.__dict__)
+        ret._integrables = OrderedDict()
+        return ret
+
     @property
     def cons(self):
         if self._cons is None:
@@ -127,11 +135,22 @@ class Case:
     def constrain(self, value):
         self._cons = np.where(np.isnan(self.cons), value, self.cons)
 
-    def empty_copy(self):
-        ret = self.__class__.__new__(self.__class__)
-        ret.__dict__.update(self.__dict__)
-        ret._integrables = OrderedDict()
-        return ret
+    def add_displacement(self, disp, scale=None):
+        if scale is None:
+            scale = mu(1.0)
+        self._displacements.append((disp, scale))
+
+    def displacement(self, mu):
+        return sum(disp * scale(mu) for disp, scale in self._displacements)
+
+    def physical_geometry(self, mu=None):
+        if hasattr(self, '_physical_geometry'):
+            if mu is None:
+                mu = self.parameter()
+            return self._physical_geometry(mu)
+        if mu is not None:
+            return self.geometry + self.displacement(mu)
+        return self.geometry
 
     def add_parameter(self, name, min, max, default=None):
         if default is None:
@@ -245,12 +264,10 @@ class Case:
 
 class NutilsCase(Case):
 
-    def __init__(self, domain, geom):
-        super().__init__()
-
+    def __init__(self, domain, geometry):
+        super().__init__(geometry)
         self._piola = set()
         self.domain = domain
-        self.geometry = geom
 
     @property
     def has_exact(self):
@@ -265,13 +282,6 @@ class NutilsCase(Case):
             plt.mesh(points)
             if show:
                 plt.show()
-
-    def physical_geometry(self, mu=None):
-        if hasattr(self, '_physical_geometry'):
-            if mu is None:
-                mu = self.parameter()
-            return self._physical_geometry(mu)
-        return self.geometry
 
     def jacobian(self, mu=None):
         return self.physical_geometry(mu).grad(self.geometry)
