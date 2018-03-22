@@ -85,6 +85,7 @@ class Case:
         self._integrables = OrderedDict()
         self._lifts = []
         self._bases = OrderedDict()
+        self._cons = None
 
     def __iter__(self):
         yield from self._integrables
@@ -115,6 +116,16 @@ class Case:
                 sub_name = f'{name}[' + ','.join(map(str, sorted(axes))) + ']'
                 s += f'[{opt}]     {sub_name: <15} {len(integrable): >5}   {shp}\n'
         return s[:-1]
+
+    @property
+    def cons(self):
+        if self._cons is None:
+            self._cons = np.empty(self.size, dtype=float)
+            self._cons[:] = np.nan
+        return self._cons
+
+    def constrain(self, value):
+        self._cons = np.where(np.isnan(self.cons), value, self.cons)
 
     def empty_copy(self):
         ret = self.__class__.__new__(self.__class__)
@@ -291,12 +302,7 @@ class NutilsCase(Case):
             basis = basis[...,component]
             zero = zero[...,component]
 
-        kwargs = {}
-        if hasattr(self, 'cons'):
-            kwargs['constrain'] = self.cons
-        self.cons = boundary.project(
-            zero, onto=basis, geometry=self.geometry, ischeme='gauss2', **kwargs
-        )
+        super().constrain(boundary.project(zero, onto=basis, geometry=self.geometry, ischeme='gauss2'))
 
     def add_lift(self, lift, basis=None, scale=None):
         if isinstance(lift, fn.Array):
@@ -313,14 +319,6 @@ class NutilsCase(Case):
             J = self.physical_geometry(mu).grad(self.geometry)
             sol = fn.matmat(sol, J.transpose())
         return sol
-
-    def _indicator(self, dom):
-        if dom is None:
-            return 1
-        if isinstance(dom, int):
-            dom = (dom,)
-        patches = self.domain.basis_patch()
-        return patches.dot([1 if i in dom else 0 for i in range(len(patches))])
 
 
 class FlowCase:
