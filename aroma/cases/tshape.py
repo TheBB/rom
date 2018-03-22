@@ -93,6 +93,10 @@ class tshape(NutilsCase, FlowCase):
         self.add_basis('p', pbasis, basis_lens[2])
         self.extra_dofs = 4 if stabilize else 0
 
+        x, y = geom
+        hy = fn.piecewise(y, (1,2), y-1, 0, y-2)
+        self.add_displacement(fn.asarray((0, hy)), H-1)
+
         self.constrain(
             'v', 'patch0-bottom', 'patch0-left', 'patch0-right', 'patch1-left',
             'patch2-left', 'patch2-top', 'patch2-right', 'patch3-bottom', 'patch3-top',
@@ -101,7 +105,6 @@ class tshape(NutilsCase, FlowCase):
         vgrad = vbasis.grad(geom)
 
         # Lifting function
-        x, y = self.geometry
         profile = fn.max(0, y/3 * (1-y/3) * (1-x))[_] * (1, 0)
         self.add_lift(profile, 'v', scale=V)
 
@@ -163,9 +166,3 @@ class tshape(NutilsCase, FlowCase):
         self['stab-lhs'] += colloc + colloc.T
 
         self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
-
-    def _physical_geometry(self, mu):
-        x, y = self.geometry
-        scale = fn.piecewise(y, (1,2), mu['height'], 1, mu['height'])
-        offset = fn.piecewise(y, (1,2), 1-mu['height'], 0, 2*(1-mu['height']))
-        return fn.asarray((x, y*scale + offset))

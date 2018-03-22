@@ -60,6 +60,11 @@ def test_exact_stokes(e_exact, a_exact, mu):
     alhs = stokes(a_exact, mu)
     _check_exact(e_exact, mu, elhs)
 
+    # Size of physical geometry
+    pgeom = e_exact.physical_geometry(mu)
+    size = e_exact.domain.integrate(1, geometry=pgeom, ischeme='gauss9')
+    np.testing.assert_almost_equal(size, mu['w'] * mu['h'])
+
     # Solenoidal in physical coordinates
     pgeom = e_exact.physical_geometry(mu)
     vdiv = e_exact.solution(elhs, mu, 'v').div(pgeom)
