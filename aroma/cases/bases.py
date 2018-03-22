@@ -50,25 +50,12 @@ Parameter = namedtuple('Parameter', ['position', 'name', 'min', 'max', 'default'
 
 class Case:
 
-    @staticmethod
-    def empty_copy(case):
-        ret = case.__class__.__new__(case.__class__)
-        ret.__dict__.update(case.__dict__)
-        ret._integrables = OrderedDict()
-        return ret
-
-    def __init__(self, domain, geom):
+    def __init__(self):
         self.meta = {}
         self.parameters = OrderedDict()
         self._fixed_values = {}
-
-        self._bases = OrderedDict()
         self._integrables = OrderedDict()
         self._lifts = []
-        self._piola = set()
-
-        self.domain = domain
-        self.geometry = geom
 
     def __iter__(self):
         yield from self._integrables
@@ -100,14 +87,11 @@ class Case:
                 s += f'[{opt}]     {sub_name: <15} {len(integrable): >5}   {shp}\n'
         return s[:-1]
 
-    @property
-    def size(self):
-        basis, __ = next(iter(self._bases.values()))
-        return basis.shape[0]
-
-    @property
-    def root(self):
-        return sum(length for __, length in self._bases.values())
+    def empty_copy(self):
+        ret = self.__class__.__new__(self.__class__)
+        ret.__dict__.update(self.__dict__)
+        ret._integrables = OrderedDict()
+        return ret
 
     def add_parameter(self, name, min, max, default=None):
         if default is None:
@@ -147,6 +131,64 @@ class Case:
         for name, value in kwargs.items():
             self._fixed_values[name] = value
 
+    def add_lift(self, lift, scale=None):
+        if scale is None:
+            scale = mu(1.0)
+        self._lifts.append((lift, scale))
+
+    def lift(self, mu):
+        return sum(lift * scl(mu) for lift, scl in self._lifts)
+
+    def solution_vector(self, lhs, mu, lift=True):
+        return lhs + self.lift(mu) if lift else lhs
+
+    @log.title
+    def finalize(self, override=False, **kwargs):
+        if hasattr(self, 'verify'):
+            self.verify()
+        new_itgs = {}
+        for name, itg in self._integrables.items():
+            with log.context(name):
+                itg.prop(**kwargs)
+                itg.cache_main(override=override)
+                for lift, scale in self._lifts:
+                    itg.contract_lifts(lift, scale)
+                itg.cache_lifts(override=override)
+            new_itgs[name] = itg
+        self._integrables = new_itgs
+
+    def ensure_shareable(self):
+        for itg in self._integrables.values():
+            itg.ensure_shareable()
+
+    def norm(self, field, type='l2', mu=None):
+        if mu is None:
+            mu = self.parameter()
+        intname = f'{field}-{type}'
+        if intname in self:
+            return self[intname](mu)
+        raise KeyError(f'{intname} is not a valid norm')
+
+
+class NutilsCase(Case):
+
+    def __init__(self, domain, geom):
+        super().__init__()
+
+        self._bases = OrderedDict()
+        self._piola = set()
+        self.domain = domain
+        self.geometry = geom
+
+    @property
+    def size(self):
+        basis, __ = next(iter(self._bases.values()))
+        return basis.shape[0]
+
+    @property
+    def root(self):
+        return sum(length for __, length in self._bases.values())
+
     @property
     def has_exact(self):
         return hasattr(self, '_exact')
@@ -160,9 +202,6 @@ class Case:
             plt.mesh(points)
             if show:
                 plt.show()
-
-    def set_geometry(self, function):
-        self._geometry = function
 
     def physical_geometry(self, mu=None):
         if hasattr(self, '_physical_geometry'):
@@ -224,55 +263,11 @@ class Case:
         )
 
     def add_lift(self, lift, basis=None, scale=None):
-        if scale is None:
-            scale = mu(1.0)
         if isinstance(lift, fn.Array):
             basis = self.basis(basis)
             lift = self.domain.project(lift, onto=basis, geometry=self.geometry, ischeme='gauss9')
         lift[np.where(np.isnan(lift))] = 0.0
-        self._lifts.append((lift, scale))
-
-    @log.title
-    def finalize(self, override=False, **kwargs):
-        new_itgs = {}
-        for name, itg in self._integrables.items():
-            with log.context(name):
-                itg.prop(**kwargs)
-                itg.cache_main(override=override)
-                for lift, scale in self._lifts:
-                    itg.contract_lifts(lift, scale)
-                itg.cache_lifts(override=override)
-            new_itgs[name] = itg
-        self._integrables = new_itgs
-
-    def ensure_shareable(self):
-        for itg in self._integrables.values():
-            itg.ensure_shareable()
-
-    def norm(self, field, type='l2', mu=None):
-        if mu is None:
-            mu = self.parameter()
-        intname = f'{field}-{type}'
-        if intname in self:
-            return self[intname](mu)
-
-        assert False
-        itg = self.basis(field)
-        geom = self.physical_geometry(mu)
-        if type == 'h1s':
-            itg = itg.grad(geom)
-        else:
-            assert type == 'l2'
-        itg = fn.outer(itg)
-        while itg.ndim > 2:
-            itg = itg.sum([-1])
-        return self.domain.integrate(itg, geometry=geom, ischeme='gauss9')
-
-    def _lift(self, mu):
-        return sum(lift * scl(mu) for lift, scl in self._lifts)
-
-    def solution_vector(self, lhs, mu, lift=True):
-        return lhs + self._lift(mu) if lift else lhs
+        super().add_lift(lift, scale)
 
     @multiple_to_single('field')
     def solution(self, lhs, mu, field, lift=True):
@@ -297,12 +292,9 @@ class Case:
         return patches.dot([1 if i in dom else 0 for i in range(len(patches))])
 
 
-class FlowCase(Case):
-    """While `Case` is problem-agnostic, `FlowCase` implements some useful
-    defaults and asserts for flow problems.
-    """
+class FlowCase:
 
-    def finalize(self, *args, **kwargs):
+    def verify(self):
         assert set(self._bases) == {'v', 'p'}
         assert 'divergence' in self
         assert 'laplacian' in self
@@ -312,7 +304,6 @@ class FlowCase(Case):
                 'stab-lhs', 'stab-rhs', 'force', 'forcing',
             }
         self['divergence'].freeze(lift=(1,))
-        super().finalize(*args, **kwargs)
 
 
 class ProjectedCase:
@@ -335,7 +326,7 @@ class ProjectedCase:
                 with log.context(name):
                     self._integrables[name] = itg.project(projection)
 
-        self.case = Case.empty_copy(case)
+        self.case = case.empty_copy()
 
     def __iter__(self):
         yield from self._integrables

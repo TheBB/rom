@@ -41,10 +41,10 @@ import numpy as np
 from nutils import mesh, function as fn, _
 
 from aroma.util import collocate
-from aroma.cases.bases import FlowCase
+from aroma.cases.bases import FlowCase, NutilsCase
 
 
-class cavity(FlowCase):
+class cavity(NutilsCase, FlowCase):
 
     def __init__(self, refine=1, degree=4, nel=None):
         if nel is None:
@@ -53,7 +53,7 @@ class cavity(FlowCase):
         pts = np.linspace(0, 1, nel + 1)
         domain, geom = mesh.rectilinear([pts, pts])
 
-        super().__init__(domain, geom)
+        NutilsCase.__init__(self, domain, geom)
 
         bases = [
             domain.basis('spline', degree=(degree, degree-1)),  # vx

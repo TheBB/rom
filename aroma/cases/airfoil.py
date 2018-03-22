@@ -42,7 +42,7 @@ from scipy.misc import factorial
 from nutils import mesh, function as fn, log, _
 from os import path
 
-from aroma.cases.bases import FlowCase
+from aroma.cases.bases import FlowCase, NutilsCase
 from aroma.affine import AffineRepresentation, Integrand, NutilsDelayedIntegrand, mu
 
 
@@ -187,7 +187,7 @@ def intermediate(geom, rmin, rmax, nterms):
     return theta, Q
 
 
-class airfoil(FlowCase):
+class airfoil(NutilsCase, FlowCase):
 
     def __init__(self, override=False, mesh=None,
                  fname='NACA0015', cylrot=0.0, nelems=30, rmax=10, rmin=1,
@@ -196,7 +196,7 @@ class airfoil(FlowCase):
             domain, refgeom, geom = mk_mesh(nelems, rmax, fname=fname, cylrot=cylrot)
         else:
             domain, refgeom, geom = mesh
-        super().__init__(domain, geom)
+        NutilsCase.__init__(self, domain, geom)
         self.meta['refgeom'] = refgeom
 
         ANG = self.add_parameter('angle', -np.pi*amax/180, np.pi*amax/180, 0.0)

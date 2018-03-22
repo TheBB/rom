@@ -39,12 +39,12 @@
 
 from nutils import mesh, function as fn, _
 
-from aroma.cases.bases import FlowCase
+from aroma.cases.bases import FlowCase, NutilsCase
 from aroma.util import collocate, characteristic
 from aroma.affine import NutilsDelayedIntegrand
 
 
-class tshape(FlowCase):
+class tshape(NutilsCase, FlowCase):
 
     def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None, nel_up_mid=None,
                  nel_length_out=None, stabilize=True, override=True):
@@ -72,7 +72,7 @@ class tshape(FlowCase):
             ]
         )
 
-        super().__init__(domain, geom)
+        NutilsCase.__init__(self, domain, geom)
 
         NU = 1 / self.add_parameter('viscosity', 20, 50)
         H = self.add_parameter('height', 1, 5)

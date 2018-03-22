@@ -41,11 +41,11 @@ import numpy as np
 from nutils import mesh, function as fn, _
 
 from aroma.util import collocate
-from aroma.cases.bases import FlowCase
+from aroma.cases.bases import FlowCase, NutilsCase
 from aroma.affine import AffineRepresentation
 
 
-class exact(FlowCase):
+class exact(NutilsCase, FlowCase):
 
     def __init__(self, refine=1, degree=3, nel=None, power=3):
         if nel is None:
@@ -55,7 +55,7 @@ class exact(FlowCase):
         domain, geom = mesh.rectilinear([pts, pts])
         x, y = geom
 
-        super().__init__(domain, geom)
+        NutilsCase.__init__(self, domain, geom)
 
         w = self.add_parameter('w', 1, 2)
         h = self.add_parameter('h', 1, 2)
