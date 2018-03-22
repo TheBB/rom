@@ -49,7 +49,7 @@ def piola_bases(mu, case):
 
 
 def test_bases(mu, case):
-    domain, vbasis, pbasis = case.domain, case.basis('v'), case.basis('p')
+    domain, vbasis, pbasis = case.domain, case.basis('v').obj, case.basis('p').obj
     trfgeom = case.physical_geometry(mu)
     refgeom = case.meta['refgeom']
 

@@ -21,7 +21,7 @@ def mu():
 
 
 def test_divergence_matrix(case, mu):
-    domain, vbasis, pbasis = case.domain, case.basis('v'), case.basis('p')
+    domain, vbasis, pbasis = case.domain, case.basis('v').obj, case.basis('p').obj
     geom = case.physical_geometry(mu)
 
     itg = - fn.outer(vbasis.div(geom), pbasis)
@@ -32,7 +32,7 @@ def test_divergence_matrix(case, mu):
 
 
 def test_laplacian_matrix(case, mu):
-    domain, vbasis, pbasis = case.domain, case.basis('v'), case.basis('p')
+    domain, vbasis, pbasis = case.domain, case.basis('v').obj, case.basis('p').obj
     geom = case.physical_geometry(mu)
 
     itg = fn.outer(vbasis.grad(geom)).sum([-1, -2]) / mu['viscosity']
@@ -43,7 +43,7 @@ def test_laplacian_matrix(case, mu):
 
 
 def test_masses(case, mu):
-    domain, vbasis, pbasis = case.domain, case.basis('v'), case.basis('p')
+    domain, vbasis, pbasis = case.domain, case.basis('v').obj, case.basis('p').obj
     geom = case.physical_geometry(mu)
 
     itg = fn.outer(vbasis.grad(geom)).sum([-1, -2])
@@ -64,7 +64,7 @@ def test_masses(case, mu):
 
 
 def test_convective_tensor(case, mu):
-    domain, vbasis, pbasis = case.domain, case.basis('v'), case.basis('p')
+    domain, vbasis, pbasis = case.domain, case.basis('v').obj, case.basis('p').obj
     geom = case.physical_geometry(mu)
 
     itg = (vbasis[:,_,_,:,_] * vbasis[_,:,_,_,:] * vbasis[_,_,:,:].grad(geom)).sum([-1, -2])
@@ -75,7 +75,7 @@ def test_convective_tensor(case, mu):
 
 
 def test_convection(case, mu):
-    domain, vbasis, pbasis = case.domain, case.basis('v'), case.basis('p')
+    domain, vbasis, pbasis = case.domain, case.basis('v').obj, case.basis('p').obj
     geom = case.physical_geometry(mu)
 
     lhs = np.random.rand(vbasis.shape[0])
@@ -92,54 +92,54 @@ def test_convection(case, mu):
 
     # c(up, up, v)
     convfunc = (vfunc[_,:] * vfunc.grad(geom)).sum(-1)
-    itg = (case.basis('v') * convfunc[_,:]).sum(-1)
+    itg = (vbasis * convfunc[_,:]).sum(-1)
     test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
     comp = (cmx * lhs[_,:,_] * lhs[_,_,:]).sum((1, 2))
     np.testing.assert_almost_equal(comp, test_mx)
 
     # c(du, up, v)
-    convfunc = (case.basis('v')[:,_,:] * vfunc.grad(geom)[_,:,:]).sum(-1)
-    itg = (case.basis('v')[:,_,:] * convfunc[_,:,:]).sum(-1)
+    convfunc = (vbasis[:,_,:] * vfunc.grad(geom)[_,:,:]).sum(-1)
+    itg = (vbasis[:,_,:] * convfunc[_,:,:]).sum(-1)
     test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9').toarray()
     comp = (cmx * lhs[_,_,:]).sum(2)
     np.testing.assert_almost_equal(comp, test_mx)
 
     # c(up, du, v)
-    convfunc = (vfunc[_,_,:] * case.basis('v').grad(geom)).sum(-1)
-    itg = (case.basis('v')[:,_,:] * convfunc[_,:,:]).sum(-1)
+    convfunc = (vfunc[_,_,:] * vbasis.grad(geom)).sum(-1)
+    itg = (vbasis[:,_,:] * convfunc[_,:,:]).sum(-1)
     test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9').toarray()
     comp = (cmx * lhs[_,:,_]).sum(1)
     np.testing.assert_almost_equal(comp, test_mx)
 
     # c(du, gu, v)
-    convfunc = (case.basis('v')[:,_,:] * lfunc.grad(geom)[_,:,:]).sum(-1)
-    itg = (case.basis('v')[:,_,:] * convfunc[_,:,:]).sum(-1)
+    convfunc = (vbasis[:,_,:] * lfunc.grad(geom)[_,:,:]).sum(-1)
+    itg = (vbasis[:,_,:] * convfunc[_,:,:]).sum(-1)
     test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9').toarray()
     np.testing.assert_almost_equal(cmx2, test_mx)
 
     # c(gu, du, v)
-    convfunc = (lfunc[_,_,:] * case.basis('v').grad(geom)).sum(-1)
-    itg = (case.basis('v')[:,_,:] * convfunc[_,:,:]).sum(-1)
+    convfunc = (lfunc[_,_,:] * vbasis.grad(geom)).sum(-1)
+    itg = (vbasis[:,_,:] * convfunc[_,:,:]).sum(-1)
     test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9').toarray()
     np.testing.assert_almost_equal(cmx1, test_mx)
 
     # c(up, gu, v)
     convfunc = (vfunc[_,:] * lfunc.grad(geom)).sum(-1)
-    itg = (case.basis('v') * convfunc[_,:]).sum(-1)
+    itg = (vbasis * convfunc[_,:]).sum(-1)
     test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
     comp = (cmx2 * lhs[_,:]).sum(-1)
     np.testing.assert_almost_equal(comp, test_mx)
 
     # c(gu, up, v)
     convfunc = (lfunc[_,:] * vfunc.grad(geom)).sum(-1)
-    itg = (case.basis('v') * convfunc[_,:]).sum(-1)
+    itg = (vbasis * convfunc[_,:]).sum(-1)
     test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
     comp = (cmx1 * lhs[_,:]).sum(-1)
     np.testing.assert_almost_equal(comp, test_mx)
 
     # c(gu, gu, v)
     convfunc = (lfunc[_,:] * lfunc.grad(geom)).sum(-1)
-    itg = (case.basis('v') * convfunc[_,:]).sum(-1)
+    itg = (vbasis * convfunc[_,:]).sum(-1)
     test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
     np.testing.assert_almost_equal(cmx12, test_mx)
 
@@ -175,9 +175,7 @@ def test_project(case, mu):
     lmx = case['laplacian'](mu, wrap=False).toarray()
     cmx, = affine.integrate(case['convection'](mu, wrap=False))
 
-    vbasis = case.basis('v')
-
-    proj = np.ones((1, vbasis.shape[0]))
+    proj = np.ones((1, case.size))
     pcase = cases.ProjectedCase(case, proj, [1], ['v'])
 
     np.testing.assert_almost_equal(np.sum(dmx), pcase['divergence'](mu, wrap=False))
@@ -194,7 +192,7 @@ def test_project(case, mu):
     lmx = case['laplacian'](mu, wrap=False).toarray()
     cmx, = affine.integrate(case['convection'](mu, wrap=False))
 
-    proj = np.random.rand(2, vbasis.shape[0])
+    proj = np.random.rand(2, case.size)
     pcase = cases.ProjectedCase(case, proj, [2], ['v'])
 
     np.testing.assert_almost_equal(proj.dot(dmx.dot(proj.T)), pcase['divergence'](mu, wrap=False))
