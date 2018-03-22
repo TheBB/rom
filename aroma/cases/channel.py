@@ -41,11 +41,11 @@ import numpy as np
 from nutils import mesh, function as fn, _
 
 from aroma.util import collocate
-from aroma.cases.bases import FlowCase
+from aroma.cases.bases import FlowCase, NutilsCase
 from aroma.affine import NutilsDelayedIntegrand
 
 
-class channel(FlowCase):
+class channel(FlowCase, NutilsCase):
 
     def __init__(self, refine=1, degree=3, nel=None, override=False):
         if nel is None:
@@ -55,7 +55,7 @@ class channel(FlowCase):
         ypts = np.linspace(0, 1, nel + 1)
         domain, geom = mesh.rectilinear([xpts, ypts])
 
-        super().__init__(domain, geom)
+        NutilsCase.__init__(self, domain, geom)
         bases = [
             domain.basis('spline', degree=(degree, degree-1)),  # vx
             domain.basis('spline', degree=(degree-1, degree)),  # vy
@@ -90,7 +90,7 @@ class channel(FlowCase):
         eqn = (vbasis.laplace(geom) - pbasis.grad(geom))[:,0,_]
         self['stab-lhs'] = collocate(domain, eqn, points, self.root, self.size)
 
-        self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
+        NutilsCase.finalize(self, override=override, domain=domain, geometry=geom, ischeme='gauss9')
 
     def _exact(self, mu, field):
         return self._exact_solutions[field]

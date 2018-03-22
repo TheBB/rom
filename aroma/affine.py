@@ -179,22 +179,33 @@ def _subclasses_recur(cls):
         yield from _subclasses_recur(subclass)
 
 
-class Integrand:
+class MetaIntegrand(type):
+
+    def __new__(cls, name, bases, attrs):
+        subclass = type.__new__(cls, name, bases, attrs)
+        if name != 'Integrand':
+            Integrand.subclasses[name] = subclass
+        return subclass
+
+
+class Integrand(metaclass=MetaIntegrand):
+
+    subclasses = {}
 
     @classmethod
     def accepts(cls, obj):
         return False
 
     @staticmethod
-    def _get_subclass(obj):
-        for subclass in _subclasses_recur(Integrand):
+    def get_subclass(obj):
+        for subclass in Integrand.subclasses.values():
             if subclass.accepts(obj):
                 return subclass
         return None
 
     @staticmethod
     def acceptable(obj):
-        return isinstance(obj, Integrand) or (Integrand._get_subclass(obj) is not None)
+        return isinstance(obj, Integrand) or (Integrand.get_subclass(obj) is not None)
 
     @staticmethod
     def make(obj):
@@ -202,7 +213,7 @@ class Integrand:
             return obj
         if not Integrand.acceptable(obj):
             raise NotImplementedError
-        return Integrand._get_subclass(obj)(obj)
+        return Integrand.get_subclass(obj)(obj)
 
     def __init__(self):
         self._properties = {}
