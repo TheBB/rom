@@ -68,6 +68,7 @@ class cavity(NutilsCase, FlowCase):
 
         self.add_basis('v', vbasis, sum(basis_lens[:2]))
         self.add_basis('p', pbasis, basis_lens[2])
+        self.extra_dofs = 5
 
         self.constrain('v', 'left', 'top', 'bottom', 'right')
 

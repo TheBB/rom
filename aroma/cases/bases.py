@@ -48,14 +48,27 @@ from aroma.affine import mu, Integrand, AffineRepresentation
 Parameter = namedtuple('Parameter', ['position', 'name', 'min', 'max', 'default'])
 
 
+class NutilsBasis:
+
+    def __init__(self, obj, length):
+        self.obj = obj
+        self.length = length
+
+    @property
+    def shape(self):
+        return self.obj.shape[1:]
+
+
 class Case:
 
     def __init__(self):
         self.meta = {}
         self.parameters = OrderedDict()
+        self.extra_dofs = 0
         self._fixed_values = {}
         self._integrables = OrderedDict()
         self._lifts = []
+        self._bases = OrderedDict()
 
     def __iter__(self):
         yield from self._integrables
@@ -131,6 +144,33 @@ class Case:
         for name, value in kwargs.items():
             self._fixed_values[name] = value
 
+    def add_basis(self, name, obj, length):
+        self._bases[name] = NutilsBasis(obj, length)
+
+    def basis(self, name, mu=None):
+        return self._bases[name].obj
+
+    @multiple_to_single('name')
+    def basis_indices(self, name):
+        start = 0
+        for field, basis in self._bases.items():
+            if field != name:
+                start += basis.length
+            else:
+                break
+        return np.arange(start, start + length, dtype=np.int)
+
+    def basis_shape(self, name):
+        return self._bases[name].shape
+
+    @property
+    def size(self):
+        return self.root + self.extra_dofs
+
+    @property
+    def root(self):
+        return sum(basis.length for basis in self._bases.values())
+
     def add_lift(self, lift, scale=None):
         if scale is None:
             scale = mu(1.0)
@@ -175,19 +215,9 @@ class NutilsCase(Case):
     def __init__(self, domain, geom):
         super().__init__()
 
-        self._bases = OrderedDict()
         self._piola = set()
         self.domain = domain
         self.geometry = geom
-
-    @property
-    def size(self):
-        basis, __ = next(iter(self._bases.values()))
-        return basis.shape[0]
-
-    @property
-    def root(self):
-        return sum(length for __, length in self._bases.values())
 
     @property
     def has_exact(self):
@@ -216,32 +246,12 @@ class NutilsCase(Case):
     def jacobian_inverse(self, mu=None):
         return fn.inverse(self.physical_geometry(mu).grad(self.geometry))
 
-    def add_basis(self, name, function, length):
-        self._bases[name] = (function, length)
-
     def basis(self, name, mu=None):
-        assert name in self._bases
-        basis = self._bases[name][0]
+        basis = super().basis(name, mu=mu)
         if mu is None or name not in self._piola:
             return basis
         J = self.physical_geometry(mu).grad(self.geometry)
         return fn.matmat(basis, J.transpose())
-
-    @multiple_to_single('name')
-    def basis_indices(self, name):
-        start = 0
-        for field, (__, length) in self._bases.items():
-            if field != name:
-                start += length
-            else:
-                break
-        return np.arange(start, start + length, dtype=np.int)
-
-    def basis_shape(self, name):
-        basis = self.basis(name)
-        if basis.ndim == 1:
-            return ()
-        return basis.shape[1:]
 
     def constrain(self, basisname, *boundaries, component=None):
         if all(isinstance(bnd, str) for bnd in boundaries):

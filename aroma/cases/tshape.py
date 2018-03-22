@@ -91,6 +91,7 @@ class tshape(NutilsCase, FlowCase):
 
         self.add_basis('v', vbasis, sum(basis_lens[:2]))
         self.add_basis('p', pbasis, basis_lens[2])
+        self.extra_dofs = 4 if stabilize else 0
 
         self.constrain(
             'v', 'patch0-bottom', 'patch0-left', 'patch0-right', 'patch1-left',
