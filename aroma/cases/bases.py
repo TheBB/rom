@@ -39,29 +39,14 @@
 
 from collections import OrderedDict, namedtuple
 import numpy as np
-from nutils import function as fn, plot, log, mesh
-from matplotlib import tri
+from nutils import function as fn, plot, log
 
+from aroma.tri import Triangulator
 from aroma.util import multiple_to_single
 from aroma.affine import mu, Integrand, AffineRepresentation
 
 
 Parameter = namedtuple('Parameter', ['position', 'name', 'min', 'max', 'default'])
-
-
-class Triangulation(tri.Triangulation):
-
-    @classmethod
-    def from_tri(cls, tri):
-        return cls(tri.x, tri.y, tri.triangles, tri.mask)
-
-    def __add__(self, other):
-        if isinstance(other, Triangulation):
-            return Triangulation(self.x + other.x, self.y + other.y, self.triangles, self.mask)
-        return Triangulation(self.x + other, self.y + other, self.triangles, self.mask)
-
-    def __mul__(self, other):
-        return Triangulation(self.x * other, self.y * other, self.triangles, self.mask)
 
 
 class Basis:
@@ -304,18 +289,22 @@ class NutilsCase(Case):
         self._piola = set()
         self.domain = domain
 
+        # Initialize and prime the triangulator
+        self.tri = Triangulator(1e-5)
+        self._triangulation(geometry)
+
     @property
     def has_exact(self):
         return hasattr(self, '_exact')
 
     def _triangulation(self, obj):
         points = self.domain.elem_eval(obj, ischeme='bezier5', separate=True)
-        tri, __ = plot.triangulate(points, mergetol=1e-5)
-        return Triangulation.from_tri(tri)
+        tri, __ = self.tri.triangulate(points)
+        return tri
 
     def _meshlines(self, obj):
         points = self.domain.elem_eval(obj, ischeme='bezier5', separate=True)
-        __, lines = plot.triangulate(points, mergetol=1e-5)
+        __, lines = self.tri.triangulate(points)
         return lines
 
     def _solution(self, lhs, mu, field):
@@ -395,11 +384,17 @@ class ProjectedCase(Case):
         self._fixed_values = dict(case._fixed_values)
         self._displacements = list(case._displacements)
 
+        self._cached_meshlines = [(case._meshlines(case.geometry), mu(1.0))]
+        for displ, scale in case._displacements:
+            self._cached_meshlines.append((case._meshlines(displ), scale))
+
     def _triangulation(self, obj):
         return self.case._triangulation(obj)
 
-    def _meshlines(self, obj):
-        return self.case._meshlines(obj)
+    def meshlines(self, mu=None):
+        if mu is None:
+            return self._cached_meshlines[0][0]
+        return sum(ml * scale(mu) for ml, scale in self._cached_meshlines)
 
     # @property
     # def has_exact(self):
@@ -412,9 +407,9 @@ class ProjectedCase(Case):
     def _solution(self, *args):
         return self.case._solution(*args)
 
-    def norm(self, field, type='l2', mu=None):
-        omass = self.case.norm(field, type=type, mu=mu)
-        return self.projection.dot(omass).dot(self.projection.T)
+    # def norm(self, field, type='l2', mu=None):
+    #     omass = self.case.norm(field, type=type, mu=mu)
+    #     return self.projection.dot(omass).dot(self.projection.T)
 
     # def exact(self, *args, **kwargs):
     #     return self.case.exact(*args, **kwargs)
