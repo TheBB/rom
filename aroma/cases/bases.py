@@ -205,7 +205,7 @@ class Case:
                 start += basis.length
             else:
                 break
-        return np.arange(start, start + length, dtype=np.int)
+        return np.arange(start, start + basis.length, dtype=np.int)
 
     def basis_shape(self, name):
         return self._bases[name].shape
