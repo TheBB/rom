@@ -152,6 +152,21 @@ class Case:
             return self.geometry + self.displacement(mu)
         return self.geometry
 
+    def triangulation(self, mu=None):
+        raise NotImplementedError
+
+    def meshlines(self, mu=None):
+        raise NotImplementedError
+
+    def plot_domain(self, mu=None, show=False, figsize=(10,10), name='domain'):
+        lines = self.meshlines(mu)
+        with plot.PyPlot(name, figsize=figsize, ndigits=0) as plt:
+            plt.segments(lines, linewidth=0.1, color='black')
+            plt.autoscale(enable=True, axis='both', tight=True)
+            plt.aspect('equal')
+            if show:
+                plt.show()
+
     def add_parameter(self, name, min, max, default=None):
         if default is None:
             default = (min + max) / 2
@@ -273,15 +288,18 @@ class NutilsCase(Case):
     def has_exact(self):
         return hasattr(self, '_exact')
 
-    def plot_domain(self, mu=None, show=False, figsize=(10,10), index=None):
-        geometry = self.geometry
-        if mu is not None:
-            geometry = self.physical_geometry(mu)
-        points, = self.domain.elem_eval([geometry], ischeme='bezier9', separate=True)
-        with plot.PyPlot('domain', figsize=figsize, index=index) as plt:
-            plt.mesh(points)
-            if show:
-                plt.show()
+    def _triangulate(self, mu=None):
+        geometry = self.physical_geometry(mu)
+        points = self.domain.elem_eval(geometry, ischeme='bezier5', separate=True)
+        return plot.triangulate(points, mergetol=0)
+
+    def triangulation(self, mu=None):
+        tri, __ = self._triangulate(mu)
+        return tri
+
+    def meshlines(self, mu=None):
+        __, lines = self._triangulate(mu)
+        return lines
 
     def jacobian(self, mu=None):
         return self.physical_geometry(mu).grad(self.geometry)
