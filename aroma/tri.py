@@ -15,8 +15,14 @@ class Triangulation(tri.Triangulation):
             return Triangulation(self.x + other.x, self.y + other.y, self.triangles, self.mask)
         return Triangulation(self.x + other, self.y + other, self.triangles, self.mask)
 
+    def __radd__(self, other):
+        return self + other
+
     def __mul__(self, other):
         return Triangulation(self.x * other, self.y * other, self.triangles, self.mask)
+
+    def __rmul__(self, other):
+        return self * other
 
 
 class Triangulator:
