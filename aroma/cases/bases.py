@@ -378,18 +378,18 @@ class ProjectedCase(Case):
     def __init__(self, case, projection):
         self.projection = projection
         self.case = case.empty_copy()
-        super().__init__(case.geometry)
+        super().__init__(case._triangulation(case.geometry))
 
         self.parameters = OrderedDict(case.parameters)
         self._fixed_values = dict(case._fixed_values)
-        self._displacements = list(case._displacements)
 
         self._cached_meshlines = [(case._meshlines(case.geometry), mu(1.0))]
         for displ, scale in case._displacements:
             self._cached_meshlines.append((case._meshlines(displ), scale))
+            self._displacements.append((case._triangulation(displ), scale))
 
     def _triangulation(self, obj):
-        return self.case._triangulation(obj)
+        return obj
 
     def meshlines(self, mu=None):
         if mu is None:
