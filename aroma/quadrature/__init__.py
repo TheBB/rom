@@ -40,7 +40,7 @@
 from functools import reduce
 from itertools import product
 import numpy as np
-import quadpy
+from . import quadpy
 
 
 def uniform(intervals, npts):
@@ -65,9 +65,9 @@ def full(intervals, npts):
 
     points, weights = [], []
     for n, (a, b) in zip(npts, intervals):
-        scheme = quadpy.line_segment.GaussLegendre(n)
-        points.append((scheme.points + 1)/2 * (b - a) + a)
-        weights.append(scheme.weights/2 * (b - a))
+        pts, wts = np.polynomial.legendre.leggauss(n)
+        points.append((pts + 1)/2 * (b - a) + a)
+        weights.append(wts/2 * (b - a))
     return list(zip(
         product(*points),
         map(np.product, product(*weights))
@@ -81,7 +81,7 @@ def sparse(intervals, npts):
     # Get the nested quadrature rules that we need
     weights, prev_len, nlevels = [], 0, 0
     while prev_len < npts:
-        scheme = quadpy.line_segment.GaussPatterson(nlevels)
+        scheme = quadpy.GaussPatterson(nlevels)
         points = scheme.points
         weights.append(scheme.weights)
         prev_len = len(points)
