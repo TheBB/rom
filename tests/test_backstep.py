@@ -4,6 +4,7 @@ import pickle
 import pytest
 
 from aroma import cases, util, affine
+from aroma.reduction import ExplicitReducer
 
 
 @pytest.fixture(params=[True, False])
@@ -82,8 +83,8 @@ def test_convection(case, mu):
     mask = np.invert(np.isnan(case.cons))
     lhs[mask] = case.cons[mask]
 
-    lfunc = case.solution(np.zeros(lhs.shape), mu, 'v')
-    vfunc = case.solution(lhs, mu, 'v', lift=False)
+    lfunc = case.basis('v', mu).obj.dot(case.lift(mu))
+    vfunc = case.basis('v', mu).obj.dot(lhs)
 
     cmx, = affine.integrate(case['convection'](mu, wrap=False))
     cmx1 = case['convection'](mu, lift=1, wrap=False).toarray()
@@ -176,7 +177,7 @@ def test_project(case, mu):
     cmx, = affine.integrate(case['convection'](mu, wrap=False))
 
     proj = np.ones((1, case.size))
-    pcase = cases.ProjectedCase(case, proj, [1], ['v'])
+    pcase = ExplicitReducer(case, v=proj)()
 
     np.testing.assert_almost_equal(np.sum(dmx), pcase['divergence'](mu, wrap=False))
     np.testing.assert_almost_equal(np.sum(lmx), pcase['laplacian'](mu, wrap=False))
@@ -193,7 +194,7 @@ def test_project(case, mu):
     cmx, = affine.integrate(case['convection'](mu, wrap=False))
 
     proj = np.random.rand(2, case.size)
-    pcase = cases.ProjectedCase(case, proj, [2], ['v'])
+    pcase = ExplicitReducer(case, v=proj)()
 
     np.testing.assert_almost_equal(proj.dot(dmx.dot(proj.T)), pcase['divergence'](mu, wrap=False))
     np.testing.assert_almost_equal(proj.dot(lmx.dot(proj.T)), pcase['laplacian'](mu, wrap=False))

@@ -37,103 +37,78 @@
 # written agreement between you and SINTEF Digital.
 
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 import numpy as np
 from nutils import log, plot, _
 
-from aroma.cases import ProjectedCase
+from aroma.cases import ProjectedCase, ProjectedBasis
 
 
-def eigen(case, ensemble, fields=None):
-    if fields is None:
-        fields = list(case._bases)
-    retval = OrderedDict()
-    for field in log.iter('field', fields, length=False):
-        mass = case.norm(field, type=('l2' if field == 'p' else 'h1s'))
-        corr = ensemble.dot(mass.core.dot(ensemble.T))
-        eigvals, eigvecs = np.linalg.eigh(corr)
-        eigvals = eigvals[::-1]
-        eigvecs = eigvecs[:,::-1]
-        retval[field] = (eigvals, eigvecs)
-    return retval
+ReducedBasis = namedtuple('ReducedBasis', ['parent', 'ensemble', 'ndofs', 'norm'])
 
 
-def plot_spectrum(decomps, show=False, figsize=(10,10), plot_name='spectrum', formats=['png']):
-    max_shp = max(len(evs) for __, decomp in decomps for evs, __ in decomp.values())
-    data = [np.copy(evs) for __, decomp in decomps for evs, __ in decomp.values()]
-    for d in data:
-        d.resize((max_shp,))
-    data = np.vstack(data)
-    names = [f'{name} ({f})' for name, decomp in decomps for f in decomp]
+class Reducer:
 
-    if 'png' in formats:
-        with plot.PyPlot(plot_name, index='', ndigits=0, figsize=figsize) as plt:
-            for d in data:
-                plt.semilogy(range(1, max_shp + 1), d)
-            plt.grid()
-            plt.xlim(0, max_shp + 1)
-            plt.legend(names)
-            if show:
-                plt.show()
+    def __init__(self, case):
+        self.case = case
 
-    if 'csv' in formats:
-        data = np.vstack([np.arange(1, max_shp+1)[_,:], data]).T
-        filename = f'{plot_name}.csv'
-        np.savetxt(filename, data)
-        log.user(filename)
+    def __call__(self):
+        case = self.case
+        projections = self.get_projections()
+        total_proj = np.vstack(projections.values())
+        rcase = ProjectedCase(case, total_proj)
+
+        for name, basis in self._bases.items():
+            rcase.add_basis(name, ProjectedBasis(case.basis(basis.parent), basis.ndofs))
+
+        for name in case:
+            rcase[name] = case[name].project(total_proj)
+
+        return rcase
 
 
-def reduced_bases(case, ensemble, decomp, nmodes, meta=False):
-    if isinstance(nmodes, int):
-        nmodes = (nmodes,) * len(decomp)
+class ExplicitReducer(Reducer):
 
-    bases, metadata = OrderedDict(), {}
-    for num, (field, (evs, eigvecs)) in zip(nmodes, decomp.items()):
-        metadata[f'err-{field}'] = np.sqrt(1.0 - np.sum(evs[:num]) / np.sum(evs))
-        reduced = ensemble.T.dot(eigvecs[:,:num]) / np.sqrt(evs[:num])
-        indices = case.basis_indices(field)
-        mask = np.ones(reduced.shape[0], dtype=np.bool)
-        mask[indices] = 0
-        reduced[mask,:] = 0
+    def __init__(self, case, **kwargs):
+        super().__init__(case)
+        self._projections = OrderedDict(kwargs)
+        self._bases = OrderedDict([
+            (name, ReducedBasis(name, None, p.shape[0], None))
+            for name, p in kwargs.items()
+        ])
 
-        bases[field] = reduced.T
-
-    if meta:
-        return bases, metadata
-    return bases
+    def get_projections(self):
+        return self._projections
 
 
-def infsup(case, quadrule):
-    mu = case.parameter()
-    vind, pind = case.basis_indices(['v', 'p'])
+class EigenReducer(Reducer):
 
-    bound = np.inf
-    for mu, __ in quadrule:
-        mu = case.parameter(*mu)
-        b = case['divergence'](mu, wrap=False)[np.ix_(pind,vind)]
-        v = np.linalg.inv(case['v-h1s'](mu, wrap=False)[np.ix_(vind,vind)])
-        mx = b.dot(v).dot(b.T)
-        ev = np.sqrt(np.abs(np.linalg.eigvalsh(mx)[0]))
-        bound = min(bound, ev)
+    def __init__(self, case, **kwargs):
+        super().__init__(case)
+        self._ensembles = kwargs
+        self._bases = OrderedDict()
 
-    return bound
+    def add_basis(self, name, parent, ensemble, ndofs, norm):
+        self._bases[name] = ReducedBasis(parent, ensemble, ndofs, norm)
 
+    def get_projections(self):
+        case = self.case
+        projections = OrderedDict()
 
-def make_reduced(case, basis, *extra_bases, meta=None):
-    basis = dict(basis)
-    for extra_basis in extra_bases:
-        for name, mx in extra_basis.items():
-            if name in basis:
-                basis[name] = np.vstack((basis[name], mx))
-            else:
-                basis[name] = mx
+        for name, basis in self._bases.items():
+            mass = case.norm(basis.parent, type=basis.norm, wrap=False)
+            ensemble = self._ensembles[basis.ensemble]
+            corr = ensemble.dot(mass.dot(ensemble.T))
+            eigvals, eigvecs = np.linalg.eigh(corr)
+            eigvals = eigvals[::-1]
+            eigvecs = eigvecs[:,::-1]
 
-    lengths = [mx.shape[0] for mx in basis.values()]
-    projection = np.vstack([mx for mx in basis.values()])
-    projcase = ProjectedCase(case, projection, lengths, fields=list(basis))
+            reduced = ensemble.T.dot(eigvecs[:,:basis.ndofs]) / np.sqrt(eigvals[:basis.ndofs])
+            indices = case.basis_indices(basis.parent)
+            mask = np.ones(reduced.shape[0], dtype=np.bool)
+            mask[indices] = 0
+            reduced[mask,:] = 0
 
-    if meta:
-        projcase.meta.update(meta)
-    projcase.meta['nmodes'] = dict(zip(basis, lengths))
+            projections[name] = reduced.T
 
-    return projcase
+        return projections
