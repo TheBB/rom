@@ -7,7 +7,8 @@ from aroma.solvers import stokes, navierstokes
 
 
 def _check_exact(case, mu, lhs):
-    vsol, psol = case.solution(lhs, mu, ['v', 'p'])
+    vsol = case.basis('v', mu).obj.dot(lhs + case.lift(mu))
+    psol = case.basis('p', mu).obj.dot(lhs + case.lift(mu))
     vexc, pexc = case.exact(mu, ['v', 'p'])
     vdiff = fn.norm2(vsol - vexc)
     pdiff = (psol - pexc) ** 2
@@ -67,22 +68,22 @@ def test_exact_stokes(e_exact, a_exact, mu):
 
     # Solenoidal in physical coordinates
     pgeom = e_exact.physical_geometry(mu)
-    vdiv = e_exact.solution(elhs, mu, 'v').div(pgeom)
+    vdiv = e_exact.basis('v', mu).obj.dot(elhs + e_exact.lift(mu)).div(pgeom)
     vdiv = np.sqrt(e_exact.domain.integrate(vdiv**2, geometry=pgeom, ischeme='gauss9'))
     np.testing.assert_almost_equal(0.0, vdiv)
 
     pgeom = a_exact.physical_geometry(mu)
-    vdiv = a_exact.solution(alhs, mu, 'v').div(pgeom)
+    vdiv = a_exact.basis('v', mu).obj.dot(alhs + a_exact.lift(mu)).div(pgeom)
     vdiv = np.sqrt(a_exact.domain.integrate(vdiv**2, geometry=pgeom, ischeme='gauss9'))
     np.testing.assert_almost_equal(0.0, vdiv)
 
     # Solenoidal in reference coordinates
     rgeom = e_exact.geometry
-    vdiv = e_exact.basis('v').dot(elhs).div(rgeom)
+    vdiv = e_exact.basis('v').obj.dot(elhs).div(rgeom)
     vdiv = np.sqrt(e_exact.domain.integrate(vdiv**2, geometry=rgeom, ischeme='gauss9'))
     np.testing.assert_almost_equal(0.0, vdiv)
 
     rgeom = a_exact.geometry
-    vdiv = a_exact.basis('v').dot(alhs).div(rgeom)
+    vdiv = a_exact.basis('v').obj.dot(alhs).div(rgeom)
     vdiv = np.sqrt(a_exact.domain.integrate(vdiv**2, geometry=rgeom, ischeme='gauss9'))
     np.testing.assert_almost_equal(0.0, vdiv)

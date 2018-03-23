@@ -37,10 +37,10 @@
 # written agreement between you and SINTEF Digital.
 
 
-from abc import ABCMeta, abstractmethod
 from collections import OrderedDict, namedtuple
 import numpy as np
-from nutils import function as fn, plot, log
+from nutils import function as fn, plot, log, mesh
+from matplotlib import tri
 
 from aroma.util import multiple_to_single
 from aroma.affine import mu, Integrand, AffineRepresentation
@@ -49,27 +49,42 @@ from aroma.affine import mu, Integrand, AffineRepresentation
 Parameter = namedtuple('Parameter', ['position', 'name', 'min', 'max', 'default'])
 
 
+class Triangulation(tri.Triangulation):
+
+    @classmethod
+    def from_tri(cls, tri):
+        return cls(tri.x, tri.y, tri.triangles, tri.mask)
+
+    def __add__(self, other):
+        if isinstance(other, Triangulation):
+            return Triangulation(self.x + other.x, self.y + other.y, self.triangles, self.mask)
+        return Triangulation(self.x + other, self.y + other, self.triangles, self.mask)
+
+    def __mul__(self, other):
+        return Triangulation(self.x * other, self.y * other, self.triangles, self.mask)
+
+
 class Basis:
 
-    def __init__(self, length):
+    def __init__(self, length, shape):
         self.length = length
-
-    @property
-    def shape(self):
-        raise NotImplementedError
+        self.shape = shape
 
 
 class NutilsBasis(Basis):
 
     def __init__(self, obj, length):
-        super().__init__(length)
+        super().__init__(length, obj.shape[1:])
         self.obj = obj
 
-    @property
-    def shape(self):
-        return self.obj.shape[1:]
 
-class Case(metaclass=ABCMeta):
+class ProjectedBasis(Basis):
+
+    def __init__(self, parent, length):
+        super().__init__(length, parent.shape)
+
+
+class Case:
 
     def __init__(self, geometry):
         self.geometry = geometry
@@ -146,12 +161,18 @@ class Case(metaclass=ABCMeta):
             return self.geometry + self.displacement(mu)
         return self.geometry
 
-    @abstractmethod
     def triangulation(self, mu=None):
+        geometry = self.geometry if mu is None else self.physical_geometry(mu)
+        return self._triangulation(geometry)
+
+    def meshlines(self, mu=None):
+        geometry = self.geometry if mu is None else self.physical_geometry(mu)
+        return self._meshlines(geometry)
+
+    def _triangulation(self, obj):
         raise NotImplementedError
 
-    @abstractmethod
-    def meshlines(self, mu=None):
+    def _meshlines(self, obj):
         raise NotImplementedError
 
     def plot_domain(self, mu=None, show=False, figsize=(10,10), name='domain'):
@@ -245,7 +266,6 @@ class Case(metaclass=ABCMeta):
         lhs = self.solution_vector(lhs, mu, lift)
         return self._solution(lhs, mu, field)
 
-    @abstractmethod
     def _solution(self, lhs, mu, field):
         raise NotImplementedError
 
@@ -268,12 +288,12 @@ class Case(metaclass=ABCMeta):
         for itg in self._integrables.values():
             itg.ensure_shareable()
 
-    def norm(self, field, type='l2', mu=None):
+    def norm(self, field, type='l2', mu=None, **kwargs):
         if mu is None:
             mu = self.parameter()
         intname = f'{field}-{type}'
         if intname in self:
-            return self[intname](mu)
+            return self[intname](mu, **kwargs)
         raise KeyError(f'{intname} is not a valid norm')
 
 
@@ -288,17 +308,14 @@ class NutilsCase(Case):
     def has_exact(self):
         return hasattr(self, '_exact')
 
-    def _triangulate(self, mu=None):
-        geometry = self.physical_geometry(mu)
-        points = self.domain.elem_eval(geometry, ischeme='bezier5', separate=True)
-        return plot.triangulate(points, mergetol=1e-5)
+    def _triangulation(self, obj):
+        points = self.domain.elem_eval(obj, ischeme='bezier5', separate=True)
+        tri, __ = plot.triangulate(points, mergetol=1e-5)
+        return Triangulation.from_tri(tri)
 
-    def triangulation(self, mu=None):
-        tri, __ = self._triangulate(mu)
-        return tri
-
-    def meshlines(self, mu=None):
-        __, lines = self._triangulate(mu)
+    def _meshlines(self, obj):
+        points = self.domain.elem_eval(obj, ischeme='bezier5', separate=True)
+        __, lines = plot.triangulate(points, mergetol=1e-5)
         return lines
 
     def _solution(self, lhs, mu, field):
@@ -367,104 +384,37 @@ class FlowCase:
         self['divergence'].freeze(lift=(1,))
 
 
-class ProjectedCase:
+class ProjectedCase(Case):
 
-    def __init__(self, case, projection, lengths, fields=None):
-        assert isinstance(case, Case)
-
-        if fields is None:
-            fields = list(case._bases)
-
-        self.meta = {}
+    def __init__(self, case, projection):
         self.projection = projection
-        self._bases = OrderedDict(zip(fields, lengths))
-        self.cons = np.empty((projection.shape[0],))
-        self.cons[:] = np.nan
-
-        self._integrables = OrderedDict()
-        with log.context('project'):
-            for name, itg in case._integrables.items():
-                with log.context(name):
-                    self._integrables[name] = itg.project(projection)
-
         self.case = case.empty_copy()
+        super().__init__(case.geometry)
 
-    def __iter__(self):
-        yield from self._integrables
+        self.parameters = OrderedDict(case.parameters)
+        self._fixed_values = dict(case._fixed_values)
+        self._displacements = list(case._displacements)
 
-    def __contains__(self, key):
-        return key in self._integrables
+    def _triangulation(self, obj):
+        return self.case._triangulation(obj)
 
-    def __getitem__(self, key):
-        return self._integrables[key]
+    def _meshlines(self, obj):
+        return self.case._meshlines(obj)
 
-    def __setitem__(self, key, value):
-        self._integrables[key] = value
-
-    @property
-    def size(self):
-        return self.projection.shape[0]
-
-    @multiple_to_single('name')
-    def basis_indices(self, name):
-        start = 0
-        for field, length in self._bases.items():
-            if field != name:
-                start += length
-            else:
-                break
-        return np.arange(start, start + length, dtype=np.int)
-
-    @property
-    def has_exact(self):
-        return self.case.has_exact
-
-    @property
-    def domain(self):
-        return self.case.domain
-
-    @property
-    def geometry(self):
-        return self.case.geometry
-
-    def parameter(self, *args, **kwargs):
-        return self.case.parameter(*args, **kwargs)
-
-    def ranges(self, *args, **kwargs):
-        return self.case.ranges(*args, **kwargs)
-
-    def physical_geometry(self, *args, **kwargs):
-        return self.case.physical_geometry(*args, **kwargs)
-
-    def plot_domain(self, *args, **kwargs):
-        return self.case.plot_domain(*args, **kwargs)
+    # @property
+    # def has_exact(self):
+    #     return self.case.has_exact
 
     def solution_vector(self, lhs, *args, **kwargs):
         lhs = self.projection.T.dot(lhs)
         return self.case.solution_vector(lhs, *args, **kwargs)
 
-    def solution(self, lhs, *args, **kwargs):
-        lhs = self.projection.T.dot(lhs)
-        return self.case.solution(lhs, *args, **kwargs)
-
-    def basis(self, name):
-        basis = self.case.basis(name)
-        return fn.matmat(self.projection, basis)
+    def _solution(self, *args):
+        return self.case._solution(*args)
 
     def norm(self, field, type='l2', mu=None):
-        if mu is None:
-            mu = self.parameter()
-        intname = f'{field}-{type}'
-        if intname in self._integrables:
-            return self[intname](mu)
         omass = self.case.norm(field, type=type, mu=mu)
         return self.projection.dot(omass).dot(self.projection.T)
 
-    def exact(self, *args, **kwargs):
-        return self.case.exact(*args, **kwargs)
-
-    def cache(self):
-        pass
-
-    def uncache(self):
-        pass
+    # def exact(self, *args, **kwargs):
+    #     return self.case.exact(*args, **kwargs)
