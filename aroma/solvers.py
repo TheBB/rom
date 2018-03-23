@@ -39,7 +39,7 @@
 
 from itertools import count
 import numpy as np
-from nutils import function as fn, log, plot, matrix
+from nutils import function as fn, log, matrix
 
 from aroma.affine import integrate
 
@@ -202,55 +202,3 @@ def metrics(case, mu, lhs):
     div_norm = np.sqrt(div_norm / area)
 
     log.user('velocity divergence: {:e}/area'.format(div_norm))
-
-
-def plots(case, mu, lhs, plot_name='solution', index=0, colorbar=False,
-          figsize=(10, 10), show=False, fields='', lift=True, density=1,
-          xlim=None, ylim=None, clim=None, axes=True):
-    if isinstance(fields, str):
-        fields = [fields]
-
-    domain = case.domain
-    geom = case.physical_geometry(mu)
-    vsol, psol = case.solution(lhs, mu, ['v', 'p'], lift=lift)
-
-    points, velocity, speed, press = domain.elem_eval(
-        [geom, vsol, fn.norm2(vsol), psol],
-        ischeme='bezier9', separate=True
-    )
-
-    def modify(plt):
-        if show:
-            plt.show()
-        if xlim:
-            plt.xlim(*xlim)
-        if ylim:
-            plt.ylim(*ylim)
-        if not axes:
-            plt.axis('off')
-
-    def color(plt):
-        if colorbar:
-            if clim:
-                plt.clim(*clim)
-            plt.colorbar()
-
-    if 'v' in fields:
-        with plot.PyPlot(plot_name + '-v', index=index, figsize=figsize) as plt:
-            plt.mesh(points, speed)
-            color(plt)
-            plt.streamplot(points, velocity, spacing=0.1, color='black', density=density)
-            modify(plt)
-
-    if 'p' in fields:
-        with plot.PyPlot(plot_name + '-p', index=index, figsize=figsize) as plt:
-            plt.mesh(points, press)
-            color(plt)
-            modify(plt)
-
-    if 'vp' in fields:
-        with plot.PyPlot(plot_name + '-vp', index=index, figsize=figsize) as plt:
-            plt.mesh(points, press)
-            color(plt)
-            plt.streamplot(points, velocity, spacing=0.1, density=density)
-            modify(plt)

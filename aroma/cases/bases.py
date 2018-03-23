@@ -58,9 +58,6 @@ class Basis:
     def shape(self):
         raise NotImplementedError
 
-    def dot(self, coeffs):
-        raise NotImplementedError
-
 
 class NutilsBasis(Basis):
 
@@ -71,10 +68,6 @@ class NutilsBasis(Basis):
     @property
     def shape(self):
         return self.obj.shape[1:]
-
-    def dot(self, coeffs):
-        return self.obj.dot(coeffs)
-
 
 class Case(metaclass=ABCMeta):
 
@@ -250,7 +243,11 @@ class Case(metaclass=ABCMeta):
     @multiple_to_single('field')
     def solution(self, lhs, mu, field, lift=True):
         lhs = self.solution_vector(lhs, mu, lift)
-        return self.basis(field, mu).dot(lhs)
+        return self._solution(lhs, mu, field)
+
+    @abstractmethod
+    def _solution(self, lhs, mu, field):
+        raise NotImplementedError
 
     @log.title
     def finalize(self, override=False, **kwargs):
@@ -294,7 +291,7 @@ class NutilsCase(Case):
     def _triangulate(self, mu=None):
         geometry = self.physical_geometry(mu)
         points = self.domain.elem_eval(geometry, ischeme='bezier5', separate=True)
-        return plot.triangulate(points, mergetol=0)
+        return plot.triangulate(points, mergetol=1e-5)
 
     def triangulation(self, mu=None):
         tri, __ = self._triangulate(mu)
@@ -303,6 +300,10 @@ class NutilsCase(Case):
     def meshlines(self, mu=None):
         __, lines = self._triangulate(mu)
         return lines
+
+    def _solution(self, lhs, mu, field):
+        sol = self.basis(field, mu).obj.dot(lhs)
+        return self.domain.elem_eval(sol, ischeme='bezier5')
 
     def jacobian(self, mu=None):
         return self.physical_geometry(mu).grad(self.geometry)
