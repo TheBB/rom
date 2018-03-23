@@ -65,8 +65,9 @@ class NutilsBasis(Basis):
 
 class ProjectedBasis(Basis):
 
-    def __init__(self, parent, length):
+    def __init__(self, parent, length, bfuns):
         super().__init__(length, parent.shape)
+        self.bfuns = bfuns
 
 
 class Case:
@@ -375,8 +376,7 @@ class FlowCase:
 
 class ProjectedCase(Case):
 
-    def __init__(self, case, projection):
-        self.projection = projection
+    def __init__(self, case):
         self.case = case.empty_copy()
         super().__init__(case._triangulation(case.geometry))
 
@@ -387,6 +387,11 @@ class ProjectedCase(Case):
         for displ, scale in case._displacements:
             self._cached_meshlines.append((case._meshlines(displ), scale))
             self._displacements.append((case._triangulation(displ), scale))
+
+        self._lifts = {
+            field: [(case.solution(lift, None, field, lift=False), scale) for lift, scale in case._lifts]
+            for field in case._bases
+        }
 
     def _triangulation(self, obj):
         return obj
@@ -404,12 +409,17 @@ class ProjectedCase(Case):
         lhs = self.projection.T.dot(lhs)
         return self.case.solution_vector(lhs, *args, **kwargs)
 
+    @multiple_to_single('field')
+    def solution(self, lhs, mu, field, lift=True):
+        basis = self.basis(field, mu)
+        lhs = lhs[self.basis_indices(field)]
+        retval = np.tensordot(lhs, basis.bfuns, axes=1)
+        if lift:
+            retval += sum(lift * scale(mu) for lift, scale in self._lifts[field])
+        return retval
+
     def _solution(self, *args):
         return self.case._solution(*args)
-
-    # def norm(self, field, type='l2', mu=None):
-    #     omass = self.case.norm(field, type=type, mu=mu)
-    #     return self.projection.dot(omass).dot(self.projection.T)
 
     # def exact(self, *args, **kwargs):
     #     return self.case.exact(*args, **kwargs)

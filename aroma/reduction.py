@@ -55,12 +55,16 @@ class Reducer:
     def __call__(self):
         case = self.case
         projections = self.get_projections()
-        total_proj = np.vstack(projections.values())
-        rcase = ProjectedCase(case, total_proj)
+        rcase = ProjectedCase(case)
 
         for name, basis in self._bases.items():
-            rcase.add_basis(name, ProjectedBasis(case.basis(basis.parent), basis.ndofs))
+            bfuns = np.array([
+                case.solution(bfun, mu=None, field=basis.parent, lift=False)
+                for bfun in projections[name]
+            ])
+            rcase.add_basis(name, ProjectedBasis(case.basis(basis.parent), basis.ndofs, bfuns))
 
+        total_proj = np.vstack(projections.values())
         for name in case:
             rcase[name] = case[name].project(total_proj)
 
