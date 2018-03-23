@@ -37,6 +37,7 @@
 # written agreement between you and SINTEF Digital.
 
 
+from abc import ABCMeta, abstractmethod
 from collections import OrderedDict, namedtuple
 import numpy as np
 from nutils import function as fn, plot, log
@@ -75,7 +76,7 @@ class NutilsBasis(Basis):
         return self.obj.dot(coeffs)
 
 
-class Case:
+class Case(metaclass=ABCMeta):
 
     def __init__(self, geometry):
         self.geometry = geometry
@@ -152,9 +153,11 @@ class Case:
             return self.geometry + self.displacement(mu)
         return self.geometry
 
+    @abstractmethod
     def triangulation(self, mu=None):
         raise NotImplementedError
 
+    @abstractmethod
     def meshlines(self, mu=None):
         raise NotImplementedError
 
