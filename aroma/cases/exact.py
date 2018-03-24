@@ -143,7 +143,9 @@ class exact(NutilsCase, FlowCase):
         self['stab-lhs'] += fn.outer(lbasis, pbasis)
         self['stab-rhs'] = w**3 * h**(r-3) * collocate(domain, -f*g3[_], points, self.root+1, self.size)
 
-        self._piola.add('v')
+        self.add_map('v', fn.asarray([[1,0], [0,0]]), w)
+        self.add_map('v', fn.asarray([[0,0], [0,1]]), h)
+
         self.finalize(domain=domain, geometry=geom, ischeme='gauss9')
 
     def _exact(self, mu, field):
