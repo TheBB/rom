@@ -134,7 +134,7 @@ def mk_bases(case, piola):
 def mk_lift(case):
     x, y = case.geometry
     domain, geom = case.domain, case.geometry
-    vbasis, pbasis = case.basis('v'), case.basis('p')
+    vbasis, pbasis = case.basis('v').obj, case.basis('p').obj
 
     cons = domain.boundary['left'].project((0,0), onto=vbasis, geometry=geom, ischeme='gauss1')
     cons = domain.boundary['right'].select(-x).project(
@@ -214,10 +214,6 @@ class airfoil(NutilsCase, FlowCase):
         theta, Q = intermediate(geom, rmin, rmax, nterms)
         self.theta = theta
 
-        # Geometry mapping
-        if piola:
-            self._piola.add('v')
-
         # Add bases and construct a lift function
         vbasis, pbasis = mk_bases(self, piola)
         vgrad = vbasis.grad(geom)
@@ -228,6 +224,11 @@ class airfoil(NutilsCase, FlowCase):
         for i in range(1, nterms):
             term = fn.matmat(Rmat(i, theta), self.geometry)
             self.add_displacement(term, ANG**i)
+
+        # Jacobian, for Piola mapping
+        if piola:
+            for i in range(nterms):
+                self.add_map('v', Bplus(i, theta, Q), ANG**i)
 
         # Stokes divergence term
         if piola:

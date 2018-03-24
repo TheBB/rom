@@ -83,6 +83,7 @@ class Case:
         self._bases = OrderedDict()
         self._cons = None
         self._displacements = []
+        self._maps = {}
 
     def __iter__(self):
         yield from self._integrables
@@ -236,6 +237,13 @@ class Case:
     def root(self):
         return sum(basis.length for basis in self._bases.values())
 
+    def add_map(self, field, mapping, scale=None):
+        if scale is None:
+            scale = mu(1.0)
+        seq = self._maps.setdefault(field, [])
+        seq.append((mapping, scale))
+        self._maps[field] = seq
+
     def add_lift(self, lift, scale=None):
         if scale is None:
             scale = mu(1.0)
@@ -287,7 +295,6 @@ class NutilsCase(Case):
 
     def __init__(self, domain, geometry):
         super().__init__(geometry)
-        self._piola = set()
         self.domain = domain
 
         # Initialize and prime the triangulator
@@ -323,9 +330,9 @@ class NutilsCase(Case):
 
     def basis(self, name, mu=None):
         basis = super().basis(name, mu=mu)
-        if mu is None or name not in self._piola:
+        if mu is None or name not in self._maps:
             return basis
-        J = self.physical_geometry(mu).grad(self.geometry)
+        J = sum(jac * scale(mu) for jac, scale in self._maps[name])
         obj = fn.matmat(basis.obj, J.transpose())
         return NutilsBasis(obj, basis.length)
 
@@ -354,8 +361,8 @@ class NutilsCase(Case):
     def exact(self, mu, field):
         assert self.has_exact
         sol = self._exact(mu, field)
-        if field in self._piola:
-            J = self.physical_geometry(mu).grad(self.geometry)
+        if field in self._maps:
+            J = sum(jac * scale(mu) for jac, scale in self._maps[field])
             sol = fn.matmat(sol, J.transpose())
         return sol
 
@@ -401,10 +408,6 @@ class ProjectedCase(Case):
             return self._cached_meshlines[0][0]
         return sum(ml * scale(mu) for ml, scale in self._cached_meshlines)
 
-    # @property
-    # def has_exact(self):
-    #     return self.case.has_exact
-
     def solution_vector(self, lhs, *args, **kwargs):
         lhs = self.projection.T.dot(lhs)
         return self.case.solution_vector(lhs, *args, **kwargs)
@@ -420,6 +423,3 @@ class ProjectedCase(Case):
 
     def _solution(self, *args):
         return self.case._solution(*args)
-
-    # def exact(self, *args, **kwargs):
-    #     return self.case.exact(*args, **kwargs)
