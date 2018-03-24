@@ -62,7 +62,7 @@ class Reducer:
                 case.solution(bfun, mu=None, field=basis.parent, lift=False)
                 for bfun in projections[name]
             ])
-            rcase.add_basis(name, ProjectedBasis(case.basis(basis.parent), basis.ndofs, bfuns))
+            rcase.add_basis(name, ProjectedBasis(bfuns))
 
         total_proj = np.vstack(projections.values())
         for name in case:

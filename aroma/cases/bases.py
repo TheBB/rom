@@ -65,8 +65,8 @@ class NutilsBasis(Basis):
 
 class ProjectedBasis(Basis):
 
-    def __init__(self, parent, length, bfuns):
-        super().__init__(length, parent.shape)
+    def __init__(self, bfuns):
+        super().__init__(len(bfuns), bfuns.shape[2:])
         self.bfuns = bfuns
 
 
@@ -263,6 +263,9 @@ class Case:
     def _solution(self, lhs, mu, field):
         raise NotImplementedError
 
+    def _evaluate(self, obj):
+        raise NotImplementedError
+
     @log.title
     def finalize(self, override=False, **kwargs):
         if hasattr(self, 'verify'):
@@ -305,19 +308,22 @@ class NutilsCase(Case):
     def has_exact(self):
         return hasattr(self, '_exact')
 
+    def _evaluate(self, obj, separate=False):
+        return self.domain.elem_eval(obj, ischeme='bezier3', separate=separate)
+
     def _triangulation(self, obj):
-        points = self.domain.elem_eval(obj, ischeme='bezier5', separate=True)
+        points = self._evaluate(obj, separate=True)
         tri, __ = self.tri.triangulate(points)
         return tri
 
     def _meshlines(self, obj):
-        points = self.domain.elem_eval(obj, ischeme='bezier5', separate=True)
+        points = self._evaluate(obj, separate=True)
         __, lines = self.tri.triangulate(points)
         return lines
 
     def _solution(self, lhs, mu, field):
         sol = self.basis(field, mu).obj.dot(lhs)
-        return self.domain.elem_eval(sol, ischeme='bezier5')
+        return self._evaluate(sol)
 
     def jacobian(self, mu=None):
         return self.physical_geometry(mu).grad(self.geometry)
@@ -384,7 +390,6 @@ class FlowCase:
 class ProjectedCase(Case):
 
     def __init__(self, case):
-        self.case = case.empty_copy()
         super().__init__(case._triangulation(case.geometry))
 
         self.parameters = OrderedDict(case.parameters)
@@ -400,6 +405,11 @@ class ProjectedCase(Case):
             for field in case._bases
         }
 
+        self._maps = {
+            field: [(case._evaluate(mapping), scale) for mapping, scale in maps]
+            for field, maps in case._maps.items()
+        }
+
     def _triangulation(self, obj):
         return obj
 
@@ -412,14 +422,23 @@ class ProjectedCase(Case):
         lhs = self.projection.T.dot(lhs)
         return self.case.solution_vector(lhs, *args, **kwargs)
 
+    def basis(self, name, mu=None):
+        basis = super().basis(name, mu=mu)
+        if mu is None or name not in self._maps:
+            return basis
+        J = sum(jac * scale(mu) for jac, scale in self._maps[name])
+        bfuns = np.einsum('jkl,ijl->ijk', J, basis.bfuns)
+        return ProjectedBasis(bfuns)
+
     @multiple_to_single('field')
     def solution(self, lhs, mu, field, lift=True):
         basis = self.basis(field, mu)
         lhs = lhs[self.basis_indices(field)]
         retval = np.tensordot(lhs, basis.bfuns, axes=1)
         if lift:
-            retval += sum(lift * scale(mu) for lift, scale in self._lifts[field])
+            lift = sum(lift * scale(mu) for lift, scale in self._lifts[field])
+            if mu is not None and field in self._maps:
+                J = sum(jac * scale(mu) for jac, scale in self._maps[field])
+                lift = np.einsum('jkl,jl->jk', J, lift)
+            retval += lift
         return retval
-
-    def _solution(self, *args):
-        return self.case._solution(*args)
