@@ -131,15 +131,18 @@ def blocksolve(vv, sv, sp, rhs, V, S, P):
 
 def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
     for itg in ['laplacian-vv', 'laplacian-sv', 'divergence-sp',
-                'convection-vvv', 'convection-svv', 'convection']:
+                'convection-vvv', 'convection-svv']:
         assert itg in case
-
-    stokes_rhs = _stokes_rhs(case, mu)
 
     nn = case.size // 3
     V = np.arange(nn)
     S = np.arange(nn,2*nn)
     P = np.arange(2*nn,3*nn)
+
+    # Assumption: divergence of lift is zero
+    stokes_rhs = np.zeros((case.size,))
+    stokes_rhs[V] -= case['laplacian-vv'](mu, lift=1)
+    stokes_rhs[S] -= case['laplacian-sv'](mu, lift=1)
 
     mvv = case['laplacian-vv'](mu)
     msv = case['laplacian-sv'](mu)
@@ -149,7 +152,7 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
     mvv += case['convection-vvv'](mu, lift=1) + case['convection-vvv'](mu, lift=2)
     msv += case['convection-svv'](mu, lift=1) + case['convection-svv'](mu, lift=2)
 
-    stokes_rhs -= case['convection'](mu, lift=(1,2))
+    stokes_rhs[V] -= case['convection-vvv'](mu, lift=(1,2))
 
     vmass = case.norm('v', 'h1s', mu=mu)
 
@@ -159,7 +162,7 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
         cc = case['convection-svv']
         nsv = msv + cc(mu, cont=(None, lhs[V], None)) + cc(mu, cont=(None, None, lhs[V]))
 
-        rhs = np.array(stokes_rhs)
+        rhs = stokes_rhs.copy()
         rhs[V] -= mvv.matvec(lhs[V])
         rhs[S] -= msv.matvec(lhs[V])
         rhs[S] -= msp.matvec(lhs[P])

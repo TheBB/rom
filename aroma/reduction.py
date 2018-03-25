@@ -51,6 +51,10 @@ class Reducer:
 
     def __init__(self, case):
         self.case = case
+        self.overrides = {}
+
+    def override(self, integrand, *combs):
+        self.overrides[integrand] = combs
 
     def __call__(self):
         case = self.case
@@ -66,7 +70,14 @@ class Reducer:
 
         total_proj = np.vstack(projections.values())
         for name in case:
-            rcase[name] = case[name].project(total_proj)
+            if name not in self.overrides:
+                rcase[name] = case[name].project(total_proj)
+            else:
+                for comb in self.overrides[name]:
+                    proj = tuple(projections[b] for b in comb)
+                    new_name = f'{name}-{comb}'
+                    log.user(new_name)
+                    rcase[new_name] = case[name].project(proj)
 
         return rcase
 
