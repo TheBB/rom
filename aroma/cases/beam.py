@@ -37,10 +37,46 @@
 # written agreement between you and SINTEF Digital.
 
 
-from aroma.cases.airfoil import airfoil
-from aroma.cases.backstep import backstep
-from aroma.cases.beam import beam
-from aroma.cases.cavity import cavity
-from aroma.cases.channel import channel
-from aroma.cases.exact import exact
-from aroma.cases.tshape import tshape
+from nutils import mesh, function as fn, _, log
+import numpy as np
+
+from aroma.cases.bases import NutilsCase
+from aroma.affine import NutilsArrayIntegrand
+
+
+class beam(NutilsCase):
+
+    def __init__(self, nel=10, override=False, finalize=True):
+        xpts = np.linspace(0, 3, 15*nel+1)
+        yzpts = np.linspace(0, 0.2, nel+1)
+        domain, geom = mesh.rectilinear([xpts, yzpts])
+
+        NutilsCase.__init__(self, domain, geom)
+
+        E = self.add_parameter('ymod', 1e10, 9e10)
+        NU = self.add_parameter('prat', 0.25, 0.42)
+        F1 = self.add_parameter('force', -0.4e6, 0.4e6)
+
+        basis = domain.basis('spline', degree=1).vector(2)
+        self.add_basis('u', basis, len(basis))
+        self.add_lift(fn.zeros((2,)), 'u')
+        self.constrain('u', 'left')
+
+        MU = E / (1 + NU)
+        LAMBDA = E * NU / (1 + NU) / (1 - 2*NU)
+        self['stiffness'] = (
+            + MU * fn.outer(basis.symgrad(geom)).sum([-1,-2])
+            + LAMBDA * fn.outer(basis.div(geom))
+        )
+        # self['stress'] = (
+        #     - MU * basis.symgrad(geom)
+        #     + LAMBDA * (basis.div(geom)[:,_,_] * fn.eye(2))
+        # )
+
+        itg = NutilsArrayIntegrand(fn.matmat(basis, geom.normal()))
+        itg.prop(domain=domain.boundary['right'])
+        self['forcing'] = F1 * itg
+
+        if finalize:
+            log.user('finalizing')
+            self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')

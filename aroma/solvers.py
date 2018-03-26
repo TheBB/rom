@@ -202,3 +202,13 @@ def supremizer(case, mu, rhs):
     rhs = case['divergence'](mu).dot(rhs)
     mx = case['v-h1s'](mu)
     return solve(mx, rhs, conses)
+
+
+def elasticity(case, mu):
+    matrix = case['stiffness'](mu)
+    rhs = - case['stiffness'](mu, lift=1)
+    if 'forcing' in case:
+        rhs += case['forcing'](mu)
+
+    lhs = matrix.solve(rhs, constrain=case.cons)
+    return lhs

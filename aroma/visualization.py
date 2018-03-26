@@ -42,6 +42,8 @@ import numpy as np
 import nutils.plot
 from nutils import function as fn
 
+from nutils import function as fn
+
 
 @contextmanager
 def _plot(suffix, name='solution', figsize=(10,10), index=None, lines=True, mesh=None,
@@ -49,7 +51,7 @@ def _plot(suffix, name='solution', figsize=(10,10), index=None, lines=True, mesh
     ndigits = 0 if index is None else 3
     with nutils.plot.PyPlot(f'{name}-{suffix}', figsize=figsize, index=index, ndigits=ndigits) as plt:
         yield plt
-        if lines: plt.segments(mesh, linewidth=0.1, color='black')
+        if mesh: plt.segments(mesh, linewidth=0.1, color='black')
         plt.aspect('equal')
         plt.autoscale(enable=True, axis='both', tight=True)
         if xlim: plt.xlim(*xlim)
@@ -80,4 +82,28 @@ def pressure(case, mu, lhs, **kwargs):
 
     with _plot('p', mesh=mesh, **kwargs) as plt:
         plt.tripcolor(tri, pvals, shading='gouraud')
+        _colorbar(plt, **kwargs)
+
+
+def deformation(case, mu, lhs, stress='xx', **kwargs):
+    disp = case.basis('u').obj.dot(lhs)
+    geom = case.geometry + disp
+
+    E = mu['ymod']
+    NU = mu['prat']
+    MU = E / (1 + NU)
+    LAMBDA = E * NU / (1 + NU) / (1 - 2*NU)
+    stressfunc = - MU * disp.symgrad(case.geometry) + LAMBDA * disp.div(case.geometry) * fn.eye(disp.shape[0])
+
+    if stress == 'xx':
+        stressfunc = stressfunc[0,0]
+    elif stress == 'xy' or stress == 'yx':
+        stressfunc = stressfunc[0,1]
+    else:
+        stressfunc = stressfunc[1,1]
+
+    mesh, stressdata = case.domain.elem_eval([geom, stressfunc], separate=True, ischeme='bezier3')
+
+    with _plot(f'u-{stress}', **kwargs) as plt:
+        plt.mesh(mesh, stressdata)
         _colorbar(plt, **kwargs)
