@@ -189,9 +189,9 @@ def intermediate(geom, rmin, rmax, nterms):
 
 class airfoil(NutilsCase, FlowCase):
 
-    def __init__(self, override=False, mesh=None,
-                 fname='NACA0015', cylrot=0.0, nelems=30, rmax=10, rmin=1,
-                 amax=25, lift=True, nterms=None, piola=True):
+    def __init__(self, override=False, mesh=None, fname='NACA0015',
+                 cylrot=0.0, nelems=30, rmax=10, rmin=1,
+                 amax=25, lift=True, nterms=None, piola=True, finalize=True):
         if mesh is None:
             domain, refgeom, geom = mk_mesh(nelems, rmax, fname=fname, cylrot=cylrot)
         else:
@@ -342,5 +342,6 @@ class airfoil(NutilsCase, FlowCase):
         self['force'].prop(domain=domain.boundary['left'])
         self['force'].freeze(proj=(1,), lift=(1,))
 
-        log.user('finalizing')
-        self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
+        if finalize:
+            log.user('finalizing')
+            self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')

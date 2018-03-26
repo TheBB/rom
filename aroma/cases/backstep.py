@@ -47,7 +47,7 @@ from aroma.affine import NutilsDelayedIntegrand
 class backstep(NutilsCase, FlowCase):
 
     def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None,
-                 stabilize=True, override=False):
+                 stabilize=True, override=False, finalize=True):
         if nel_up is None:
             nel_up = int(10 * refine)
         if nel_length is None:
@@ -179,4 +179,5 @@ class backstep(NutilsCase, FlowCase):
         colloc = collocate(domain, -pbasis.grad(geom)[:,0,_], points, self.root+3, self.size)
         self['stab-lhs'] += colloc
 
-        self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
+        if finalize:
+            self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
