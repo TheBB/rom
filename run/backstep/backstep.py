@@ -2,7 +2,7 @@ import click
 from nutils import log, config
 import multiprocessing
 
-from aroma import cases, solvers, util, quadrature, reduction, ensemble as ens
+from aroma import cases, solvers, util, quadrature, reduction, ensemble as ens, visualization
 
 
 @util.pickle_cache('backstep-{fast}.case')
@@ -13,7 +13,8 @@ def get_case(fast: bool = False):
 @util.pickle_cache('backstep-{num}.ens')
 def get_ensemble(num: int = 10, fast: bool = False):
     case = get_case(fast)
-    scheme = list(quadrature.full(case.ranges(), num))
+    case.ensure_shareable()
+    scheme = list(quadrature.sparse(case.ranges(), num))
     solutions = ens.make_ensemble(case, solvers.navierstokes, scheme, weights=True, parallel=fast)
     supremizers = ens.make_ensemble(
         case, solvers.supremizer, scheme, weights=False, parallel=True, args=[solutions],
@@ -26,18 +27,12 @@ def get_reduced(nred: int = 10, fast: bool = False, num: int = 10):
     case = get_case(fast)
     scheme, solutions, supremizers = get_ensemble(num, fast)
 
-    eig_sol = reduction.eigen(case, solutions, fields=['v', 'p'])
-    rb_sol = reduction.reduced_bases(case, solutions, eig_sol, (nred, nred))
-    eig_sup = reduction.eigen(case, supremizers, fields=['v'])
-    rb_sup = reduction.reduced_bases(case, supremizers, eig_sup, (nred,))
+    reducer = reduction.EigenReducer(case, solutions=solutions, supremizers=supremizers)
+    reducer.add_basis('v', parent='v', ensemble='solutions', ndofs=nred, norm='h1s')
+    reducer.add_basis('s', parent='v', ensemble='supremizers', ndofs=nred, norm='h1s')
+    reducer.add_basis('p', parent='p', ensemble='solutions', ndofs=nred, norm='l2')
 
-    reduction.plot_spectrum(
-        [('solutions', eig_sol), ('supremizers', eig_sup)],
-        plot_name='backstep-spectrum', formats=['png', 'csv'],
-    )
-
-    projcase = reduction.make_reduced(case, rb_sol, rb_sup)
-    return projcase
+    return reducer()
 
 
 @click.group()
@@ -62,7 +57,8 @@ def solve(viscosity, velocity, height, length, fast):
     mu = case.parameter(viscosity=viscosity, velocity=velocity, height=height, length=length)
     with util.time():
         lhs = solvers.navierstokes(case, mu)
-    solvers.plots(case, mu, lhs, colorbar=True, figsize=(15,3), fields=['v', 'p'], plot_name='full')
+    visualization.velocity(case, mu, lhs, figsize=(15,3), name='full')
+    visualization.pressure(case, mu, lhs, figsize=(15,3), name='full')
 
 
 @main.command()
@@ -76,7 +72,8 @@ def rsolve(viscosity, velocity, height, length, nred):
     mu = case.parameter(viscosity=viscosity, velocity=velocity, height=height, length=length)
     with util.time():
         lhs = solvers.navierstokes(case, mu)
-    solvers.plots(case, mu, lhs, colorbar=True, figsize=(15,3), fields=['v', 'p'], plot_name='red')
+    visualization.velocity(case, mu, lhs, figsize=(15,3), name='red')
+    visualization.pressure(case, mu, lhs, figsize=(15,3), name='red')
 
 
 @main.command()

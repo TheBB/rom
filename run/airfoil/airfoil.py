@@ -1,10 +1,8 @@
 import click
 import numpy as np
-from nutils import function as fn, _, log, plot, matrix, config
-from aroma import cases, solvers, util, quadrature, reduction, ensemble as ens
+from nutils import log, config
+from aroma import cases, solvers, util, quadrature, reduction, ensemble as ens, visualization
 import multiprocessing
-
-from aroma.cases.airfoil import rotmat
 
 
 @click.group()
@@ -25,45 +23,30 @@ def get_ensemble(fast: bool = False, piola: bool = False, num: int = 10):
     case.ensure_shareable()
     scheme = list(quadrature.full(case.ranges(), num))
     solutions = ens.make_ensemble(case, solvers.navierstokes, scheme, weights=True, parallel=fast)
+    scheme, solutions = dingo()
     supremizers = ens.make_ensemble(
-        case, solvers.supremizer, scheme, weights=False, parallel=True, args=[solutions],
+        case, solvers.supremizer, scheme, weights=False, parallel=False, args=[solutions],
     )
     return scheme, solutions, supremizers
 
 
 @util.pickle_cache('airfoil-{piola}-{sups}-{nred}.rcase')
-def get_reduced(piola: bool = False, sups: bool = False, nred: int = 10, fast: int = None, num: int = None):
+def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: int = None, num: int = None):
     case = get_case(fast, piola)
     scheme, solutions, supremizers = get_ensemble(fast, piola, num)
 
-    eig_sol = reduction.eigen(case, solutions, fields=['v', 'p'])
-    rb_sol, meta = reduction.reduced_bases(case, solutions, eig_sol, (nred, nred), meta=True)
+    reducer = reduction.EigenReducer(case, solutions=solutions, supremizers=supremizers)
+    reducer.add_basis('v', parent='v', ensemble='solutions', ndofs=nred, norm='h1s')
     if sups:
-        eig_sup = reduction.eigen(case, supremizers, fields=['v'])
-        rb_sup = reduction.reduced_bases(case, supremizers, eig_sup, (nred,))
-        reduction.plot_spectrum(
-            [('solutions', eig_sol), ('supremizers', eig_sup)],
-            plot_name=util.make_filename(get_reduced, 'airfoil-spectrum-{piola}', piola=piola),
-            formats=['png', 'csv'],
-        )
+        reducer.add_basis('s', parent='v', ensemble='supremizers', ndofs=nred, norm='h1s')
+    reducer.add_basis('p', parent='p', ensemble='solutions', ndofs=nred, norm='l2')
 
     if sups:
-        projcase = reduction.make_reduced(case, rb_sol, rb_sup, meta=meta)
-    else:
-        projcase = reduction.make_reduced(case, rb_sol, meta=meta)
+        reducer.override('convection', 'vvv', 'svv')
+        reducer.override('laplacian', 'vv', 'sv')
+        reducer.override('divergence', 'sp')
 
-    if piola and sups:
-        with log.context('block project'):
-            with log.context('convection'):
-                projcase['convection-vvv'] = case['convection'].project(rb_sol['v'])
-                projcase['convection-svv'] = case['convection'].project((rb_sup['v'], rb_sol['v'], rb_sol['v']))
-            with log.context('laplacian'):
-                projcase['laplacian-vv'] = case['laplacian'].project(rb_sol['v'])
-                projcase['laplacian-sv'] = case['laplacian'].project((rb_sup['v'], rb_sol['v']))
-            with log.context('divergence'):
-                projcase['divergence-sp'] = case['divergence'].project((rb_sup['v'], rb_sol['p']))
-
-    return projcase
+    return reducer()
 
 
 def force_err(hicase, locase, hifi, lofi, scheme):
@@ -100,10 +83,8 @@ def solve(angle, velocity, fast, piola, index):
     mu = case.parameter(angle=angle, velocity=velocity)
     with util.time():
         lhs = solvers.navierstokes(case, mu)
-    solvers.plots(
-        case, mu, lhs, colorbar=False, figsize=(10,10), fields=['v', 'p'],
-        plot_name='full', index=index, axes=False
-    )
+    visualization.velocity(case, mu, lhs, name='full', axes=False, colorbar=True)
+    visualization.pressure(case, mu, lhs, name='full', axes=False, colorbar=True)
 
 
 @main.command()
@@ -121,11 +102,11 @@ def rsolve(angle, velocity, piola, sups, nred, index):
         try:
             lhs = solvers.navierstokes_block(case, mu)
         except AssertionError:
+            log.user('solving non-block')
             lhs = solvers.navierstokes(case, mu)
-    solvers.plots(
-        case, mu, lhs, colorbar=False, figsize=(10,10), fields=['v', 'p'],
-        plot_name='red', index=index, axes=False
-    )
+
+    visualization.velocity(case, mu, lhs, name='red', axes=False, colorbar=True)
+    visualization.pressure(case, mu, lhs, name='red', axes=False, colorbar=True)
 
 
 @main.command()
