@@ -209,6 +209,11 @@ class Case:
         for name, value in kwargs.items():
             self._fixed_values[name] = value
 
+    def variable_parameters(self):
+        for param in self.parameters.values():
+            if self._fixed_values[param.name] is None:
+                yield param
+
     def add_basis(self, name, basis):
         assert isinstance(basis, Basis)
         self._bases[name] = basis
