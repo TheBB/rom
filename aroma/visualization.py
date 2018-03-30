@@ -46,7 +46,7 @@ from nutils import function as fn
 
 
 @contextmanager
-def _plot(suffix, name='solution', figsize=(10,10), index=None, lines=True, mesh=None,
+def _plot(suffix, name='solution', figsize=(10,10), index=None, mesh=None,
           xlim=None, ylim=None, axes=True, show=False, **kwargs):
     ndigits = 0 if index is None else 3
     with nutils.plot.PyPlot(f'{name}-{suffix}', figsize=figsize, index=index, ndigits=ndigits) as plt:
