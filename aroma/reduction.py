@@ -59,7 +59,8 @@ class Reducer:
     def __call__(self):
         case = self.case
         projections = self.get_projections()
-        rcase = ProjectedCase(case)
+        total_proj = np.vstack(projections.values())
+        rcase = ProjectedCase(case, total_proj)
 
         for name, basis in self._bases.items():
             bfuns = np.array([
@@ -68,7 +69,6 @@ class Reducer:
             ])
             rcase.add_basis(name, ProjectedBasis(bfuns))
 
-        total_proj = np.vstack(projections.values())
         for name in case:
             if name not in self.overrides:
                 rcase[name] = case[name].project(total_proj)

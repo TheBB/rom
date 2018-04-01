@@ -394,8 +394,9 @@ class FlowCase:
 
 class ProjectedCase(Case):
 
-    def __init__(self, case):
+    def __init__(self, case, projection):
         super().__init__(case._triangulation(case.geometry))
+        self.projection = projection
 
         self.parameters = OrderedDict(case.parameters)
         self._fixed_values = dict(case._fixed_values)
