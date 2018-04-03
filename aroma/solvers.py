@@ -88,6 +88,11 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     assert 'laplacian' in case
     assert 'convection' in case
 
+    nn = case.size // 3
+    V = np.arange(nn)
+    S = np.arange(nn,2*nn)
+    P = np.arange(2*nn,3*nn)
+
     stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
     lhs = stokes_mat.solve(stokes_rhs, constrain=case.cons)
 
@@ -153,6 +158,7 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
     msv += case['convection-svv'](mu, lift=1) + case['convection-svv'](mu, lift=2)
 
     stokes_rhs[V] -= case['convection-vvv'](mu, lift=(1,2))
+    stokes_rhs[S] -= case['convection-svv'](mu, lift=(1,2))
 
     vmass = case.norm('v', 'h1s', mu=mu)
 
