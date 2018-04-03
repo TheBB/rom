@@ -23,7 +23,6 @@ def get_ensemble(fast: bool = False, piola: bool = False, num: int = 10):
     case.ensure_shareable()
     scheme = list(quadrature.full(case.ranges(), num))
     solutions = ens.make_ensemble(case, solvers.navierstokes, scheme, weights=True, parallel=fast)
-    scheme, solutions = dingo()
     supremizers = ens.make_ensemble(
         case, solvers.supremizer, scheme, weights=False, parallel=False, args=[solutions],
     )
@@ -41,7 +40,7 @@ def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: in
         reducer.add_basis('s', parent='v', ensemble='supremizers', ndofs=nred, norm='h1s')
     reducer.add_basis('p', parent='p', ensemble='solutions', ndofs=nred, norm='l2')
 
-    if sups:
+    if sups and piola:
         reducer.override('convection', 'vvv', 'svv')
         reducer.override('laplacian', 'vv', 'sv')
         reducer.override('divergence', 'sp')
@@ -51,17 +50,21 @@ def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: in
 
 def force_err(hicase, locase, hifi, lofi, scheme):
     abs_err, rel_err = np.zeros(2), np.zeros(2)
+    max_abs_err, max_rel_err = np.zeros(2), np.zeros(2)
     for hilhs, lolhs, (mu, weight) in zip(hifi, lofi, scheme):
         mu = locase.parameter(*mu)
         hiforce = hicase['force'](mu, cont=(hilhs,None))
         loforce = locase['force'](mu, cont=(lolhs,None))
-        err = np.abs(hiforce - loforce)
-        abs_err += weight * err
-        rel_err += weight * err / np.abs(hiforce)
+        aerr = np.abs(hiforce - loforce)
+        rerr = aerr / np.abs(hiforce)
+        max_abs_err = np.maximum(max_abs_err, aerr)
+        max_rel_err = np.maximum(max_rel_err, rerr)
+        abs_err += weight * aerr
+        rel_err += weight * rerr
 
     abs_err /= sum(w for __, w in scheme)
     rel_err /= sum(w for __, w in scheme)
-    return abs_err, rel_err
+    return np.concatenate([abs_err, rel_err, max_abs_err, max_rel_err])
 
 
 @main.command()
@@ -191,11 +194,11 @@ def bfuns(fast, piola, num):
     _bfuns(fast=fast, piola=piola, num=num)
 
 
-def _results(fast: bool = False, piola: bool = False, sups: bool = False, block: bool = False, nred=10):
+def _results(fast: bool = False, piola: bool = False, sups: bool = False, block: bool = False, nred=[10]):
     tcase = get_case(fast=fast, piola=piola)
     tcase.ensure_shareable()
 
-    scheme = list(quadrature.full(tcase.ranges(), 5))
+    scheme = list(quadrature.full(tcase.ranges(), 15))
     ttime, tsol = ens.make_ensemble(tcase, solvers.navierstokes, scheme, parallel=True, return_time=True)
 
     if not piola:
@@ -209,12 +212,17 @@ def _results(fast: bool = False, piola: bool = False, sups: bool = False, block:
         mu = tcase.parameter()
         verrs = ens.errors(tcase, rcase, tsol, rsol, tcase['v-h1s'](mu), scheme)
         perrs = ens.errors(tcase, rcase, tsol, rsol, tcase['p-l2'](mu), scheme)
-        absf, relf = force_err(tcase, rcase, tsol, rsol, scheme)
+        ferrs = force_err(tcase, rcase, tsol, rsol, scheme)
         res.append([
             rcase.size // 3, rcase.meta['err-v'], rcase.meta['err-p'],
-            *verrs, *perrs, *absf, *relf, ttime / rtime
+            *verrs, *perrs, *ferrs, rtime
         ])
 
+    # Case size, exp v, exp p,
+    # mean abs v, mean rel v, max abs v, max rel v,
+    # mean abs p, mean rel p, max abs p, max rel p,
+    # mean abs f, mean rel f, max abs f, max rel f,
+    # mean time usage
     res = np.array(res)
     np.savetxt(
         util.make_filename(
