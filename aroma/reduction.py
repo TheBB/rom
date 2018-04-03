@@ -52,6 +52,7 @@ class Reducer:
     def __init__(self, case):
         self.case = case
         self.overrides = {}
+        self.meta = {}
 
     def override(self, integrand, *combs):
         self.overrides[integrand] = combs
@@ -79,6 +80,7 @@ class Reducer:
                     log.user(new_name)
                     rcase[new_name] = case[name].project(proj)
 
+        rcase.meta.update(self.meta)
         return rcase
 
 
@@ -117,6 +119,7 @@ class EigenReducer(Reducer):
             eigvals, eigvecs = np.linalg.eigh(corr)
             eigvals = eigvals[::-1]
             eigvecs = eigvecs[:,::-1]
+            self.meta[f'err-{name}'] = np.sqrt(1.0 - np.sum(eigvals[:basis.ndofs]) / np.sum(eigvals))
 
             reduced = ensemble.T.dot(eigvecs[:,:basis.ndofs]) / np.sqrt(eigvals[:basis.ndofs])
             indices = case.basis_indices(basis.parent)
