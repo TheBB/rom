@@ -41,9 +41,9 @@ def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: in
     reducer.add_basis('p', parent='p', ensemble='solutions', ndofs=nred, norm='l2')
 
     if sups and piola:
-        reducer.override('convection', 'vvv', 'svv')
-        reducer.override('laplacian', 'vv', 'sv')
-        reducer.override('divergence', 'sp')
+        reducer.override('convection', 'vvv', 'svv', soft=True)
+        reducer.override('laplacian', 'vv', 'sv', soft=True)
+        reducer.override('divergence', 'sp', soft=True)
 
     return reducer()
 

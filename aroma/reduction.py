@@ -45,6 +45,7 @@ from aroma.cases import ProjectedCase, ProjectedBasis
 
 
 ReducedBasis = namedtuple('ReducedBasis', ['parent', 'ensemble', 'ndofs', 'norm'])
+Override = namedtuple('Override', ['combinations', 'soft'])
 
 
 class Reducer:
@@ -54,8 +55,8 @@ class Reducer:
         self.overrides = {}
         self.meta = {}
 
-    def override(self, integrand, *combs):
-        self.overrides[integrand] = combs
+    def override(self, integrand, *combs, soft=False):
+        self.overrides[integrand] = Override(combs, soft)
 
     def __call__(self):
         case = self.case
@@ -71,10 +72,11 @@ class Reducer:
             rcase.add_basis(name, ProjectedBasis(bfuns))
 
         for name in case:
-            if name not in self.overrides:
+            if name not in self.overrides or self.overrides[name].soft:
                 rcase[name] = case[name].project(total_proj)
-            else:
-                for comb in self.overrides[name]:
+
+            if name in self.overrides:
+                for comb in self.overrides[name].combinations:
                     proj = tuple(projections[b] for b in comb)
                     new_name = f'{name}-{comb}'
                     log.user(new_name)
