@@ -82,7 +82,7 @@ def errors(hicase, locase, hifi, lofi, mass, scheme):
     abs_err, rel_err = 0.0, 0.0
     for hilhs, lolhs, (mu, weight) in zip(hifi, lofi, scheme):
         mu = locase.parameter(*mu)
-        lolhs = locase.solution_vector(lolhs, mu=mu)
+        lolhs = locase.solution_vector(lolhs, hicase, mu=mu)
         hilhs = hicase.solution_vector(hilhs, mu=mu)
         diff = hilhs - lolhs
         err = np.sqrt(mass.matvec(diff).dot(diff))

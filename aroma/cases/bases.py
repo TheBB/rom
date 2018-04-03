@@ -424,9 +424,9 @@ class ProjectedCase(Case):
             return self._cached_meshlines[0][0]
         return sum(ml * scale(mu) for ml, scale in self._cached_meshlines)
 
-    def solution_vector(self, lhs, *args, **kwargs):
+    def solution_vector(self, lhs, case, *args, **kwargs):
         lhs = self.projection.T.dot(lhs)
-        return self.case.solution_vector(lhs, *args, **kwargs)
+        return case.solution_vector(lhs, *args, **kwargs)
 
     def basis(self, name, mu=None):
         basis = super().basis(name, mu=mu)
