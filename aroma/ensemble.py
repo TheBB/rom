@@ -80,15 +80,19 @@ def make_ensemble(case, solver, quadrule, weights=False,
 
 def errors(hicase, locase, hifi, lofi, mass, scheme):
     abs_err, rel_err = 0.0, 0.0
+    max_abs_err, max_rel_err = 0.0, 0.0
     for hilhs, lolhs, (mu, weight) in zip(hifi, lofi, scheme):
         mu = locase.parameter(*mu)
         lolhs = locase.solution_vector(lolhs, hicase, mu=mu)
         hilhs = hicase.solution_vector(hilhs, mu=mu)
         diff = hilhs - lolhs
-        err = np.sqrt(mass.matvec(diff).dot(diff))
-        abs_err += weight * err
-        rel_err += weight * err / np.sqrt(mass.matvec(hilhs).dot(hilhs))
+        aerr = np.sqrt(mass.matvec(diff).dot(diff))
+        rerr = aerr / np.sqrt(mass.matvec(hilhs).dot(hilhs))
+        max_abs_err = max(max_abs_err, aerr)
+        max_rel_err = max(max_rel_err, rerr)
+        abs_err += weight * aerr
+        rel_err += weight * rerr
 
     abs_err /= sum(w for __, w in scheme)
     rel_err /= sum(w for __, w in scheme)
-    return abs_err, rel_err
+    return abs_err, rel_err, max_abs_err, max_rel_err
