@@ -85,7 +85,7 @@ def pressure(case, mu, lhs, **kwargs):
         _colorbar(plt, **kwargs)
 
 
-def deformation(case, mu, lhs, stress='xx', **kwargs):
+def deformation(case, mu, lhs, stress='xx', name='solution', **kwargs):
     disp = case.basis('u').obj.dot(lhs)
     geom = case.geometry + disp
 
@@ -98,12 +98,12 @@ def deformation(case, mu, lhs, stress='xx', **kwargs):
     if geom.shape == (2,):
         stressfunc = stressfunc[tuple('xyz'.index(c) for c in stress)]
         mesh, stressdata = case.domain.elem_eval([geom, stressfunc], separate=True, ischeme='bezier3')
-        with _plot(f'u-{stress}', **kwargs) as plt:
+        with _plot(name=name, **kwargs) as plt:
             plt.mesh(mesh, stressdata)
             _colorbar(plt, **kwargs)
 
     elif geom.shape == (3,):
-        nutils.plot.writevtu('u', case.domain, geom, pointdata={
+        nutils.plot.writevtu(name, case.domain, geom, pointdata={
             'stress-xx': stressfunc[0,0],
             'stress-xy': stressfunc[0,1],
             'stress-xz': stressfunc[0,2],
