@@ -95,15 +95,22 @@ def deformation(case, mu, lhs, stress='xx', **kwargs):
     LAMBDA = E * NU / (1 + NU) / (1 - 2*NU)
     stressfunc = - MU * disp.symgrad(case.geometry) + LAMBDA * disp.div(case.geometry) * fn.eye(disp.shape[0])
 
-    if stress == 'xx':
-        stressfunc = stressfunc[0,0]
-    elif stress == 'xy' or stress == 'yx':
-        stressfunc = stressfunc[0,1]
-    else:
-        stressfunc = stressfunc[1,1]
+    if geom.shape == (2,):
+        stressfunc = stressfunc[tuple('xyz'.index(c) for c in stress)]
+        mesh, stressdata = case.domain.elem_eval([geom, stressfunc], separate=True, ischeme='bezier3')
+        with _plot(f'u-{stress}', **kwargs) as plt:
+            plt.mesh(mesh, stressdata)
+            _colorbar(plt, **kwargs)
 
-    mesh, stressdata = case.domain.elem_eval([geom, stressfunc], separate=True, ischeme='bezier3')
-
-    with _plot(f'u-{stress}', **kwargs) as plt:
-        plt.mesh(mesh, stressdata)
-        _colorbar(plt, **kwargs)
+    elif geom.shape == (3,):
+        nutils.plot.writevtu('u', case.domain, geom, pointdata={
+            'stress-xx': stressfunc[0,0],
+            'stress-xy': stressfunc[0,1],
+            'stress-xz': stressfunc[0,2],
+            'stress-yy': stressfunc[1,1],
+            'stress-yz': stressfunc[1,2],
+            'stress-zz': stressfunc[2,2],
+            'disp-x': disp[0],
+            'disp-y': disp[1],
+            'disp-z': disp[2],
+        })

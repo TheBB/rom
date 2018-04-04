@@ -46,20 +46,25 @@ from aroma.affine import NutilsArrayIntegrand
 
 class beam(NutilsCase):
 
-    def __init__(self, nel=10, override=False, finalize=True):
+    def __init__(self, nel=10, ndim=2, override=False, finalize=True):
         xpts = np.linspace(0, 3, 15*nel+1)
         yzpts = np.linspace(0, 0.2, nel+1)
-        domain, geom = mesh.rectilinear([xpts, yzpts])
+        if ndim == 2:
+            domain, geom = mesh.rectilinear([xpts, yzpts])
+        else:
+            domain, geom = mesh.rectilinear([xpts, yzpts, yzpts])
 
         NutilsCase.__init__(self, domain, geom)
 
         E = self.add_parameter('ymod', 1e10, 9e10)
         NU = self.add_parameter('prat', 0.25, 0.42)
-        F1 = self.add_parameter('force', -0.4e6, 0.4e6)
+        F1 = self.add_parameter('force1', -0.4e6, 0.4e6)
+        F2 = self.add_parameter('force2', -0.4e6, 0.4e6)
+        F3 = self.add_parameter('force3', -0.4e6, 0.4e6)
 
-        basis = domain.basis('spline', degree=1).vector(2)
+        basis = domain.basis('spline', degree=1).vector(ndim)
         self.add_basis('u', basis, len(basis))
-        self.add_lift(fn.zeros((2,)), 'u')
+        self.add_lift(fn.zeros((ndim,)), 'u')
         self.constrain('u', 'left')
 
         MU = E / (1 + NU)
@@ -73,9 +78,15 @@ class beam(NutilsCase):
         #     + LAMBDA * (basis.div(geom)[:,_,_] * fn.eye(2))
         # )
 
-        itg = NutilsArrayIntegrand(fn.matmat(basis, geom.normal()))
-        itg.prop(domain=domain.boundary['right'])
-        self['forcing'] = F1 * itg
+        irgt = NutilsArrayIntegrand(fn.matmat(basis, geom.normal()))
+        irgt.prop(domain=domain.boundary['right'])
+        ibtm = NutilsArrayIntegrand(fn.matmat(basis, geom.normal()))
+        ibtm.prop(domain=domain.boundary['bottom'])
+        ifrt = NutilsArrayIntegrand(fn.matmat(basis, geom.normal()))
+        ifrt.prop(domain=domain.boundary['front'])
+        self['forcing'] = F1 * irgt + F2 * ibtm + F3 * ifrt
+
+        self['u-h1s'] = fn.outer(basis.grad(geom)).sum([-1,-2])
 
         if finalize:
             log.user('finalizing')

@@ -39,7 +39,7 @@
 
 from collections import OrderedDict, namedtuple
 import numpy as np
-from nutils import log, plot, _
+from nutils import log, plot, _, function as fn
 
 from aroma.case import LofiCase
 
