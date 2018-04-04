@@ -106,6 +106,7 @@ class EigenReducer(Reducer):
         super().__init__(case)
         self._ensembles = kwargs
         self._bases = OrderedDict()
+        self._spectra = OrderedDict()
 
     def add_basis(self, name, parent, ensemble, ndofs, norm):
         self._bases[name] = ReducedBasis(parent, ensemble, ndofs, norm)
@@ -122,6 +123,7 @@ class EigenReducer(Reducer):
             eigvals = eigvals[::-1]
             eigvecs = eigvecs[:,::-1]
             self.meta[f'err-{name}'] = np.sqrt(1.0 - np.sum(eigvals[:basis.ndofs]) / np.sum(eigvals))
+            self._spectra[name] = eigvals
 
             reduced = ensemble.T.dot(eigvecs[:,:basis.ndofs]) / np.sqrt(eigvals[:basis.ndofs])
             indices = case.basis_indices(basis.parent)
@@ -132,3 +134,23 @@ class EigenReducer(Reducer):
             projections[name] = reduced.T
 
         return projections
+
+    def plot_spectra(self, filename, figsize=(10,10)):
+        max_shp = max(len(evs) for evs in self._spectra.values())
+        data = [np.copy(evs) for evs in self._spectra.values()]
+        for d in data:
+            d.resize((max_shp,))
+        data = np.vstack(data)
+        names = [f'{name}' for name in self._spectra]
+
+        with plot.PyPlot(filename, index='', ndigits=0, figsize=figsize) as plt:
+            for d in data:
+                plt.semilogy(range(1, max_shp + 1), d)
+            plt.grid()
+            plt.xlim(0, max_shp + 1)
+            plt.legend(names)
+
+        data = np.vstack([np.arange(1, max_shp+1)[_,:], data]).T
+        filename = f'{filename}.csv'
+        np.savetxt(filename, data)
+        log.user(filename)
