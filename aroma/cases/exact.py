@@ -40,12 +40,12 @@
 import numpy as np
 from nutils import mesh, function as fn, _
 
-from aroma.util import collocate
-from aroma.cases.bases import FlowCase, NutilsCase
-from aroma.affine import AffineRepresentation
+from aroma.util import collocate, multiple_to_single
+from aroma.case import NutilsCase
+from aroma.affine import AffineIntegral
 
 
-class exact(NutilsCase, FlowCase):
+class exact(NutilsCase):
 
     def __init__(self, refine=1, degree=3, nel=None, power=3):
         if nel is None:
@@ -55,10 +55,10 @@ class exact(NutilsCase, FlowCase):
         domain, geom = mesh.rectilinear([pts, pts])
         x, y = geom
 
-        NutilsCase.__init__(self, domain, geom)
+        NutilsCase.__init__(self, 'Exact divergence-conforming flow', domain, geom)
 
-        w = self.add_parameter('w', 1, 2)
-        h = self.add_parameter('h', 1, 2)
+        w = self.parameters.add('w', 1, 2)
+        h = self.parameters.add('h', 1, 2)
 
         bases = [
             domain.basis('spline', degree=(degree, degree-1)),  # vx
@@ -71,12 +71,12 @@ class exact(NutilsCase, FlowCase):
         vxbasis, vybasis, pbasis, lbasis, __ = fn.chain(bases)
         vbasis = vxbasis[:,_] * (1,0) + vybasis[:,_] * (0,1)
 
-        self.add_basis('v', vbasis, sum(basis_lens[:2]))
-        self.add_basis('p', pbasis, basis_lens[2])
+        self.bases.add('v', vbasis, length=sum(basis_lens[:2]))
+        self.bases.add('p', pbasis, length=basis_lens[2])
         self.extra_dofs = 5
 
-        self.add_displacement(fn.asarray((x, 0)), w - 1)
-        self.add_displacement(fn.asarray((0, y)), h - 1)
+        self.geometry += w-1, fn.asarray((x,0))
+        self.geometry += h-1, fn.asarray((0,y))
 
         self.constrain('v', 'left', 'top', 'bottom', 'right')
 
@@ -106,14 +106,11 @@ class exact(NutilsCase, FlowCase):
             - np.outer(zcoeffs, hcoeffs).flatten(),
             np.zeros((sum(basis_lens) - len(hcoeffs) * len(zcoeffs) * 2))
         ])
+        self.lift += w**(r-1) * h**(r-1), q
 
-        self.add_lift(q, 'v', w**(r-1) * h**(r-1))
-
-        self['forcing'] = (
-            + w**(r-2) * h**(r+2) * vybasis * (f3 * g)[_]
-            + w**r * h**r * 2*vybasis * (f1*g2)[_]
-            + w**(r+2) * h**(r-2) * -vxbasis * (f*g3)[_]
-        )
+        self['forcing'] += w**(r-2) * h**(r+2), vybasis * (f3 * g)[_]
+        self['forcing'] += w**r * h**r, 2*vybasis * (f1*g2)[_]
+        self['forcing'] += w**(r+2) * h**(r-2), -vxbasis * (f*g3)[_]
 
         vx_x = vxbasis.grad(geom)[:,0]
         vx_xx = vx_x.grad(geom)[:,0]
@@ -123,31 +120,36 @@ class exact(NutilsCase, FlowCase):
         vy_y = vybasis.grad(geom)[:,1]
         p_x = pbasis.grad(geom)[:,0]
 
-        self['laplacian'] = (
-            + h * w * fn.outer(vx_x, vx_x)
-            + h**3 / w * fn.outer(vy_x, vy_x)
-            + w**3 / h * fn.outer(vx_y, vx_y)
-            + w * h * fn.outer(vy_y, vy_y)
-        )
+        self['laplacian'] += h * w, fn.outer(vx_x, vx_x)
+        self['laplacian'] += h**3 / w, fn.outer(vy_x, vy_x)
+        self['laplacian'] += w**3 / h, fn.outer(vx_y, vx_y)
+        self['laplacian'] += w * h, fn.outer(vy_y, vy_y)
 
-        self['divergence'] = - h * w * (fn.outer(vx_x, pbasis) + fn.outer(vy_y, pbasis))
-        self['v-h1s'] = AffineRepresentation(self['laplacian'])
-        self['p-l2'] = h * w * fn.outer(pbasis, pbasis)
+        self['divergence'] -= h * w, (fn.outer(vx_x, pbasis) + fn.outer(vy_y, pbasis))
+        self['divergence'].freeze(lift=(1,))
 
+        self['v-h1s'] = AffineIntegral(self['laplacian'])
+        self['p-l2'] += h * w, fn.outer(pbasis, pbasis)
+
+        root = self.ndofs - self.extra_dofs
         points = [(0, (0, 0)), (nel-1, (0, 1)), (nel*(nel-1), (1, 0)), (nel**2-1, (1, 1))]
         ca, cb, cc = [
-            collocate(domain, eqn[:,_], points, self.root+1, self.size)
+            collocate(domain, eqn[:,_], points, root+1, self.ndofs)
             for eqn in [p_x, -vx_xx, -vx_yy]
         ]
-        self['stab-lhs'] = 1/w * ca + 1/w * cb + w/h**2 * cc
-        self['stab-lhs'] += fn.outer(lbasis, pbasis)
-        self['stab-rhs'] = w**3 * h**(r-3) * collocate(domain, -f*g3[_], points, self.root+1, self.size)
+        self['stab-lhs'] += 1/w, ca
+        self['stab-lhs'] += 1/w, cb
+        self['stab-lhs'] += w/h**2, cc
+        self['stab-lhs'] += 1, fn.outer(lbasis, pbasis)
+        self['stab-rhs'] += w**3 * h**(r-3), collocate(domain, -f*g3[_], points, root+1, self.ndofs)
 
-        self.add_map('v', fn.asarray([[1,0], [0,0]]), w)
-        self.add_map('v', fn.asarray([[0,0], [0,1]]), h)
+        self.maps['v'] += w, fn.asarray([[1,0], [0,0]])
+        self.maps['v'] += h, fn.asarray([[0,0], [0,1]])
 
-        self.finalize(domain=domain, geometry=geom, ischeme='gauss9')
-
-    def _exact(self, mu, field):
+    @multiple_to_single('field')
+    def exact(self, mu, field):
         scale = mu['w']**(self.power-1) * mu['h']**(self.power-1)
-        return scale * self._exact_solutions[field]
+        retval = scale * self._exact_solutions[field]
+        if field == 'v':
+            return fn.matmat(fn.asarray([[mu['w'], 0], [0, mu['h']]]), retval)
+        return retval

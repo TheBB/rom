@@ -40,14 +40,14 @@
 import numpy as np
 from nutils import mesh, function as fn, _
 
-from aroma.util import collocate
-from aroma.cases.bases import FlowCase, NutilsCase
+from aroma.util import collocate, multiple_to_single
+from aroma.case import NutilsCase
 from aroma.affine import NutilsDelayedIntegrand
 
 
-class channel(FlowCase, NutilsCase):
+class channel(NutilsCase):
 
-    def __init__(self, refine=1, degree=3, nel=None, override=False):
+    def __init__(self, refine=1, degree=3, nel=None):
         if nel is None:
             nel = int(10 * refine)
 
@@ -55,7 +55,7 @@ class channel(FlowCase, NutilsCase):
         ypts = np.linspace(0, 1, nel + 1)
         domain, geom = mesh.rectilinear([xpts, ypts])
 
-        NutilsCase.__init__(self, domain, geom)
+        NutilsCase.__init__(self, 'Channel flow', domain, geom)
         bases = [
             domain.basis('spline', degree=(degree, degree-1)),  # vx
             domain.basis('spline', degree=(degree-1, degree)),  # vy
@@ -66,32 +66,32 @@ class channel(FlowCase, NutilsCase):
         vxbasis, vybasis, pbasis, __ = fn.chain(bases)
         vbasis = vxbasis[:,_] * (1,0) + vybasis[:,_] * (0,1)
 
-        self.add_basis('v', vbasis, sum(basis_lens[:2]))
-        self.add_basis('p', pbasis, basis_lens[2])
+        self.bases.add('v', vbasis, length=sum(basis_lens[:2]))
+        self.bases.add('p', pbasis, length=basis_lens[2])
         self.extra_dofs = 2
 
         self.constrain('v', 'left', 'top', 'bottom')
 
         x, y = geom
         profile = (y * (1 - y))[_] * (1, 0)
-        self.add_lift(profile, 'v')
+        self.lift += 1, self.project_lift(profile, 'v')
 
         self._exact_solutions = {'v': profile, 'p': 4 - 2*x}
 
-        self['divergence'] = - fn.outer(vbasis.div(geom), pbasis)
-        self['laplacian'] = fn.outer(vbasis.grad(geom)).sum((-1, -2))
-        self['v-h1s'] = fn.outer(vbasis.grad(geom)).sum([-1, -2])
-        self['p-l2'] = fn.outer(pbasis)
-        self['convection'] = NutilsDelayedIntegrand(
+        self['divergence'] -= 1, fn.outer(vbasis.div(geom), pbasis)
+        self['laplacian'] += 1, fn.outer(vbasis.grad(geom)).sum((-1, -2))
+        self['v-h1s'] += 1, fn.outer(vbasis.grad(geom)).sum([-1, -2])
+        self['p-l2'] += 1, fn.outer(pbasis)
+        self['convection'] += 1, NutilsDelayedIntegrand(
             'w_ia u_jb v_ka,b', 'ijk', 'wuv',
             x=geom, w=vbasis, u=vbasis, v=vbasis
         )
+        self['divergence'].freeze(lift=(1,))
 
         points = [(0, (0,0)), (nel-1, (0,1))]
         eqn = (vbasis.laplace(geom) - pbasis.grad(geom))[:,0,_]
-        self['stab-lhs'] = collocate(domain, eqn, points, self.root, self.size)
+        self['stab-lhs'] += 1, collocate(domain, eqn, points, self.ndofs - self.extra_dofs, self.ndofs)
 
-        NutilsCase.finalize(self, override=override, domain=domain, geometry=geom, ischeme='gauss9')
-
-    def _exact(self, mu, field):
+    @multiple_to_single('field')
+    def exact(self, mu, field):
         return self._exact_solutions[field]

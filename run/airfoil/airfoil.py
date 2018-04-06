@@ -10,14 +10,15 @@ def main():
     pass
 
 
-@util.pickle_cache('airfoil-{fast}-{piola}.case')
+@util.filecache('airfoil-{fast}-{piola}.case')
 def get_case(fast: bool = False, piola: bool = False):
-    case = cases.airfoil(override=fast, amax=35, piola=piola)
+    case = cases.airfoil(amax=35, piola=piola)
     case.restrict(viscosity=6.0)
+    case.precompute(force=fast)
     return case
 
 
-@util.pickle_cache('airfoil-{piola}-{num}.ens')
+@util.filecache('airfoil-{piola}-{num}.ens')
 def get_ensemble(fast: bool = False, piola: bool = False, num: int = 10):
     case = get_case(fast, piola)
     case.ensure_shareable()
@@ -29,7 +30,7 @@ def get_ensemble(fast: bool = False, piola: bool = False, num: int = 10):
     return scheme, solutions, supremizers
 
 
-@util.pickle_cache('airfoil-{piola}-{sups}-{nred}.rcase')
+@util.filecache('airfoil-{piola}-{sups}-{nred}.rcase')
 def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: int = None, num: int = None):
     case = get_case(fast, piola)
     scheme, solutions, supremizers = get_ensemble(fast, piola, num)
@@ -70,6 +71,7 @@ def force_err(hicase, locase, hifi, lofi, scheme):
 @main.command()
 @click.option('--fast/--no-fast', default=False)
 @click.option('--piola/--no-piola', default=False)
+@util.common_args
 def disp(fast, piola):
     print(get_case(fast, piola))
 
@@ -80,6 +82,7 @@ def disp(fast, piola):
 @click.option('--fast/--no-fast', default=False)
 @click.option('--piola/--no-piola', default=False)
 @click.option('--index', '-i', default=0)
+@util.common_args
 def solve(angle, velocity, fast, piola, index):
     case = get_case(fast, piola)
     angle = -angle / 180 * np.pi
@@ -244,5 +247,4 @@ def results(fast, piola, sups, block, nred):
 
 
 if __name__ == '__main__':
-    with config(nprocs=multiprocessing.cpu_count()):
-        main()
+    main()

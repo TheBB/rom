@@ -38,7 +38,7 @@
 
 
 from collections import OrderedDict
-from itertools import combinations, chain
+from itertools import combinations, chain, product
 from operator import itemgetter
 import numpy as np
 import scipy.sparse as sp
@@ -53,30 +53,7 @@ _SCALARS = (
 )
 
 
-def broadcast(args):
-    shapes = [arg.shape for arg in args]
-    max_ndim = max(len(shape) for shape in shapes)
-    shapes = np.array([(1,) * (max_ndim - len(shape)) + shape for shape in shapes])
-
-    result = []
-    for col in shapes.T:
-        lengths = set(c for c in col if c != 1)
-        assert len(lengths) <= 1
-        if not lengths:
-            result.append(1)
-        else:
-            result.append(next(iter(lengths)))
-
-    return tuple(result)
-
-
-class MetaMu(type):
-
-    def __getitem__(cls, val):
-        return mu(itemgetter(val))
-
-
-class mu(metaclass=MetaMu):
+class mu:
 
     __array_priority__ = 1.0
 
@@ -85,6 +62,11 @@ class mu(metaclass=MetaMu):
             self.func = args[0]
             return
         self.oper, self.op1, self.op2 = args
+
+    def __str__(self):
+        if hasattr(self, 'oper'):
+            return f'({self.op1}) {self.oper} ({self.op2})'
+        return f"mu({repr(self.func)})"
 
     def __call__(self, p):
         if hasattr(self, 'oper'):
@@ -99,61 +81,47 @@ class mu(metaclass=MetaMu):
             if self.oper == '**':
                 return self.op1(p) ** self.op2(p)
             raise ValueError(self.oper)
-        if callable(self.func):
-            return self.func(p)
+        if isinstance(self.func, str):
+            return p[self.func]
         return self.func
 
     def _wrap(func):
         def ret(*args):
-            new_args = []
-            for arg in args:
-                if isinstance(arg, (mu, Integrand, AffineRepresentation)):
-                    new_args.append(arg)
-                elif isinstance(arg, _SCALARS):
-                    new_args.append(mu(arg))
-                elif Integrand.acceptable(arg):
-                    new_args.append(Integrand.make(arg))
-                else:
-                    raise NotImplementedError(type(arg))
+            if not all(isinstance(arg, (mu, str) + _SCALARS) for arg in args):
+                return NotImplemented
+            new_args = [arg if isinstance(arg, mu) else mu(arg) for arg in args]
             return func(*new_args)
         return ret
 
     @_wrap
     def __add__(self, other):
-        if isinstance(other, mu):
-            return mu('+', self, other)
-        if isinstance(other, Integrand):
-            return self * Integrand.make(1.0) + other
-        return NotImplementedError
+        return mu('+', self, other)
 
+    @_wrap
     def __radd__(self, other):
-        return self + other
+        return mu('+', other, self)
 
     @_wrap
     def __sub__(self, other):
-        if isinstance(other, mu):
-            return mu('-', self, other)
-        if isinstance(other, Integrand):
-            return self * Integrand.make(1.0) - other
-        return NotImplementedError
+        return mu('-', self, other)
 
+    @_wrap
     def __rsub__(self, other):
-        return other + (-self)
+        return mu('-', other, self)
 
     @_wrap
     def __mul__(self, other):
-        if isinstance(other, mu):
-            return mu('*', self, other)
-        if isinstance(other, Integrand):
-            return AffineRepresentation([self], [other])
-        return NotImplementedError
+        return mu('*', self, other)
 
+    @_wrap
     def __rmul__(self, other):
-        return self * other
+        return mu('*', other, self)
 
+    @_wrap
     def __neg__(self):
         return mu('-', mu(0.0), self)
 
+    @_wrap
     def __pos__(self):
         return self
 
@@ -167,16 +135,74 @@ class mu(metaclass=MetaMu):
 
     @_wrap
     def __rtruediv__(self, other):
-        if isinstance(other, mu):
-            return mu('/', other, self)
-        elif isinstance(other, Integrand):
-            return AffineRepresentation([1 / self], [other])
+        return mu('/', other, self)
 
 
-def _subclasses_recur(cls):
-    for subclass in cls.__subclasses__():
-        yield subclass
-        yield from _subclasses_recur(subclass)
+class Affine(list):
+
+    @property
+    def scales(self):
+        for s, _ in self:
+            yield s
+
+    @scales.setter
+    def scales(self, new_scales):
+        self[:] = [(s, v) for s, (_, v) in zip(new_scales, self)]
+
+    @property
+    def values(self):
+        for _, v in self:
+            yield v
+
+    @values.setter
+    def values(self, new_values):
+        self[:] = [(s, v) for v, (s, _) in zip(new_values, self)]
+
+    def __str__(self):
+        scales = [str(s) for s in self.scales]
+        return f'{self.__class__.__name__}(nterms={len(self.scales)}, scales={scales})'
+
+    def __call__(self, pval):
+        return sum(scale(pval) * value for scale, value in self)
+
+    def __iadd__(self, other):
+        scale, value = other
+        if not isinstance(scale, mu):
+            scale = mu(scale)
+        self.append((scale, value))
+        return self
+
+    def __isub__(self, other):
+        scale, value = other
+        if not isinstance(scale, mu):
+            scale = mu(scale)
+        self.append((-scale, value))
+        return self
+
+    def __mul__(self, other):
+        if not isinstance(other, mu):
+            return NotImplemented
+        return self.__class__((scale * other, value) for scale, value in self)
+
+    def __truediv__(self, other):
+        if not isinstance(other, mu):
+            return NotImplemented
+        return self.__class__((scale / other, value) for scale, value in self)
+
+    def assert_isinstance(self, *types):
+        assert all(isinstance(value, types) for value in self.values)
+
+    def write(self, group):
+        for i, (scale, value) in enumerate(self):
+            dataset = util.to_dataset(value, group, str(i))
+            dataset.attrs['scale'] = str(scale)
+
+    @staticmethod
+    def read(group):
+        groups = [group[str(i)] for i in range(len(group))]
+        scales = [eval(grp.attrs['scale'], {}, {'mu': mu}) for grp in groups]
+        values = [util.from_dataset(grp) for grp in groups]
+        return Affine(zip(scales, values))
 
 
 class MetaIntegrand(type):
@@ -218,32 +244,33 @@ class Integrand(metaclass=MetaIntegrand):
     def __init__(self):
         self._properties = {}
 
+    @staticmethod
+    def read(group):
+        type_ = group.attrs['type']
+        subclass = util.find_subclass(Integrand, type_)
+        return subclass.read(group)
+
     def prop(self, *args, **kwargs):
         if args:
             assert all(isinstance(arg, str) for arg in args)
+            values = [(self._properties[arg] if arg in self._properties else kwargs[arg]) for arg in args]
             if len(args) == 1:
-                return self._properties[args[0]]
-            return tuple(self._properties[arg] for arg in args)
+                return values[0]
+            return values
         for key, val in kwargs.items():
             if key not in self._properties:
                 self._properties[key] = val
         return self
 
-    def __add__(self, other):
-        if isinstance(other, _SCALARS):
-            return mu(other) + self
-        if isinstance(other, AffineRepresentation):
-            return other.extend([mu(1.0)], [self])
-        return NotImplemented
+    def write_props(self, group):
+        group = group.require_group('properties')
+        for key, value in self._properties.items():
+            util.to_dataset(value, group, key)
 
-    def __radd__(self, other):
-        return self + other
-
-    def __sub__(self, other):
-        return self + (-other)
-
-    def __rsub__(self, other):
-        return other + mu(-1.0) * self
+    def read_props(self, group):
+        self._properties = {}
+        for key, value in group['properties'].items():
+            self._properties[key] = util.from_dataset(value)
 
     def ensure_shareable(self):
         pass
@@ -263,16 +290,20 @@ class ThinWrapperIntegrand(Integrand):
     def shape(self):
         return self.obj.shape
 
-    def __mul__(self, other):
-        if isinstance(other, ThinWrapperIntegrand):
-            other = other.obj
-        result = self.obj * other
-        if not Integrand.acceptable(result):
-            return NotImplemented
-        return Integrand.make(result)
+    def write(self, group, name):
+        sub = group.require_group(name)
+        util.to_dataset(self.obj, sub, 'data')
+        sub.attrs['type'] = self.__class__.__name__
+        self.write_props(sub)
+        return sub
 
-    def __neg__(self):
-        return Integrand.make(-self.obj)
+    @staticmethod
+    def read(group):
+        cls = util.find_subclass(ThinWrapperIntegrand, group.attrs['type'])
+        retval = cls.__new__(cls)
+        retval.obj = util.from_dataset(group['data'])
+        retval.read_props(group)
+        return retval
 
 
 class NumpyArrayIntegrand(ThinWrapperIntegrand):
@@ -306,7 +337,7 @@ class NumpyArrayIntegrand(ThinWrapperIntegrand):
     def get(self, contraction):
         return self._contract(contraction)
 
-    def cache(self, override=False):
+    def cache(self, **kwargs):
         return self
 
     def contract(self, contraction):
@@ -342,7 +373,7 @@ class ScipyArrayIntegrand(ThinWrapperIntegrand):
             return self.obj.T.dot(ca)
         return ca.dot(self.obj.dot(cb.T))
 
-    def cache(self, override=False):
+    def cache(self, **kwargs):
         return self
 
     def contract(self, contraction):
@@ -380,22 +411,24 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
         assert obj.ndim <= 3
         super().__init__(obj)
 
-    def cache(self, override=False):
-        if self.ndim >= 3 and override:
-            return self._highdim_cache()
+    def cache(self, force=False, **kwargs):
+        if self.ndim >= 3 and force:
+            return self._highdim_cache(**kwargs)
         elif self.ndim >= 3:
+            # Store properties for later integration
+            self.prop(**kwargs)
             return self
-        domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
+        domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme', **kwargs)
         value = domain.integrate(self.obj, geometry=geom, ischeme=ischeme)
         if isinstance(value, matrix.Matrix):
             value = value.core
         return Integrand.make(value)
 
-    def _highdim_cache(self):
+    def _highdim_cache(self, **kwargs):
         obj = self.obj
         while obj.ndim > 2:
             obj = fn.ravel(obj, 1)
-        domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
+        domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme', **kwargs)
         value = domain.integrate(obj, geometry=geom, ischeme=ischeme)
         value = sp.coo_matrix(value.core)
         indices = np.unravel_index(value.col, self.shape[1:])
@@ -450,21 +483,60 @@ class NutilsDelayedIntegrand(Integrand):
         self._kwargs = {name: func for name, func in kwargs.items() if name not in variables}
         self._evaluator = 'eval_' + indices
 
+        self._kwargs, self._arg_shapes = {}, {}
+        self.update_kwargs({k: v for k, v in kwargs.items() if k not in variables})
+
         if code is not None:
             self.shape = self._integrand().shape
             self.ndim = len(self.shape)
 
-    def _integrand(self, contraction=None, mu=None):
+    def update_kwargs(self, kwargs):
+        for name, func in kwargs.items():
+            if isinstance(func, tuple):
+                func, shape = func
+                self._arg_shapes[name] = shape
+            self._kwargs[name] = func
+
+    def add(self, code, **kwargs):
+        self.update_kwargs(kwargs)
+        if self._code is None:
+            self._code = f'({code})'
+            self.shape = self._integrand().shape
+            self.ndim = len(self.shape)
+        else:
+            self._code = f'{self._code} + ({code})'
+
+    def write(self, group, name):
+        sub = group.require_group(name)
+        data = {key: getattr(self, key) for key in ['_code', '_defaults', '_kwargs', '_evaluator', 'shape']}
+        util.to_dataset(data, sub, 'data')
+        sub.attrs['type'] = 'NutilsDelayedIntegrand'
+        self.write_props(sub)
+        return sub
+
+    @staticmethod
+    def read(group):
+        retval = NutilsDelayedIntegrand.__new__(NutilsDelayedIntegrand)
+        data = util.from_dataset(group['data'])
+        retval.__dict__.update(data)
+        retval.ndim = len(retval.shape)
+        retval.read_props(group)
+        return retval
+
+    def _integrand(self, contraction=None, mu=None, case=None):
         if contraction is None:
             contraction = (None,) * len(self._defaults)
         ns = fn.Namespace()
         for name, func in self._kwargs.items():
             if isinstance(func, fn.Array):
                 setattr(ns, name, func)
+            elif mu is not None and case is not None:
+                assert callable(getattr(case, func))
+                setattr(ns, name, getattr(case, func)(mu))
             else:
-                assert callable(func)
-                # assert mu is not None
-                setattr(ns, name, func(mu))
+                # This code path should ONLY be used for inferring the shape of the integrand
+                assert not hasattr(self, 'shape')
+                setattr(ns, name, fn.zeros(self._arg_shapes[name]))
         for c, (name, func) in zip(contraction, self._defaults.items()):
             if c is not None:
                 func = func.dot(c)[_,...]
@@ -473,23 +545,15 @@ class NutilsDelayedIntegrand(Integrand):
         index = tuple(0 if c is not None else slice(None) for c in contraction)
         return integrand[index]
 
-    def add(self, code, **kwargs):
-        self._kwargs.update(kwargs)
-        if self._code is None:
-            self._code = f'({code})'
-            self.shape = self._integrand().shape
-            self.ndim = len(self.shape)
-        else:
-            self._code = f'{self._code} + ({code})'
-
-    def cache(self, override=False):
-        if self.ndim >= 3 and not override:
+    def cache(self, force=False, **kwargs):
+        if self.ndim >= 3 and not force:
+            # Store properties for later integration
+            self.prop(**kwargs)
             return self
-        return (NutilsArrayIntegrand(self._integrand())
-                .prop(**self._properties).cache(override=override))
+        return NutilsArrayIntegrand(self._integrand()).cache(force=force, **kwargs)
 
-    def get(self, contraction, mu=None):
-        itg = self._integrand(contraction, mu=mu)
+    def get(self, contraction, mu=None, case=None):
+        itg = self._integrand(contraction, mu=mu, case=case)
         return NutilsArrayIntegrand(itg).prop(**self._properties).get((None,) * itg.ndim)
 
     def contract(self, contraction):
@@ -539,26 +603,38 @@ class COOTensorIntegrand(Integrand):
             (1,2): util.VectorAssembler((shape[0],), indices[0])
         }
 
-    def __getstate__(self):
-        if not util.h5pickle():
-            return self.__dict__
-        return {
-            'shape': self.shape,
-            'ndim': self.ndim,
-            'data': util.dump_array(self.data),
-            'indices': [util.dump_array(i) for i in self.indices],
-            'assemblers': self.assemblers,
-        }
+    def write(self, group, name):
+        sub = group.require_group(name)
+        datagrp = sub.require_group('data')
+        util.to_dataset(self.indices[0], datagrp, 'indices-i')
+        util.to_dataset(self.indices[1], datagrp, 'indices-j')
+        util.to_dataset(self.indices[2], datagrp, 'indices-k')
+        util.to_dataset(self.data, datagrp, 'data')
+        datagrp.attrs['shape'] = self.shape
+        sub.attrs['type'] = 'COOTensorIntegrand'
 
-    def __setstate__(self, state):
-        if not util.h5pickle():
-            self.__dict__.update(state)
-            return
-        self.shape = state['shape']
-        self.ndim = state['ndim']
-        self.data = util.load_array(state['data'])
-        self.indices = tuple(util.load_array(key) for key in state['indices'])
-        self.assemblers = state['assemblers']
+        assemblers = datagrp.require_group('assemblers')
+        for key, assembler in self.assemblers.items():
+            name = ','.join(str(s) for s in key)
+            ass_grp = assemblers.require_group(name)
+            assembler.write(ass_grp)
+
+        return sub
+
+    @staticmethod
+    def read(group):
+        datagrp = group['data']
+        retval = COOTensorIntegrand.__new__(COOTensorIntegrand)
+        retval.indices = datagrp['indices-i'][:], datagrp['indices-j'][:], datagrp['indices-k'][:]
+        retval.data = datagrp['data'][:]
+        retval.shape = tuple(datagrp.attrs['shape'])
+
+        retval.assemblers = {}
+        for key, grp in datagrp['assemblers'].items():
+            key = tuple(int(i) for i in key.split(','))
+            retval.assemblers[key] = getattr(util, grp.attrs['type']).read(grp)
+
+        return retval
 
     def ensure_shareable(self):
         self.indices = tuple(util.shared_array(i) for i in self.indices)
@@ -626,7 +702,9 @@ class LazyNutilsIntegral(LazyIntegral):
         assert all(arg._domain is domain for arg in args[1:])
         assert all(arg._geometry is geom for arg in args[1:])
         assert all(arg._ischeme == ischeme for arg in args[1:])
-        return domain.integrate([arg._obj for arg in args], geometry=geom, ischeme=ischeme)
+        retval = domain.integrate([arg._obj for arg in args], geometry=geom, ischeme=ischeme)
+        retval = [r.core if isinstance(r, matrix.Matrix) else r for r in retval]
+        return retval
 
     def __init__(self, obj, domain, geometry, ischeme):
         self._obj = obj
@@ -636,22 +714,19 @@ class LazyNutilsIntegral(LazyIntegral):
 
     def __add__(self, other):
         if isinstance(other, _SCALARS):
-            return LazyNutilsIntegral(
-                self._obj + other, self._domain, self._geometry, self._ischeme
-            )
-        assert isinstance(other, LazyNutilsIntegral)
-        assert self._domain is other._domain
-        assert self._geometry is other._geometry
-        assert self._ischeme == other._ischeme
-        return LazyNutilsIntegral(
-            self._obj + other._obj, self._domain, self._geometry, self._ischeme
-        )
+            obj = other
+        elif isinstance(other, LazyNutilsIntegral):
+            obj = other._obj
+        else:
+            return NotImplemented
+        return LazyNutilsIntegral(self._obj + obj, self._domain, self._geometry, self._ischeme)
 
     def __radd__(self, other):
         return self + other
 
     def __mul__(self, other):
-        assert isinstance(other, _SCALARS)
+        if not isinstance(other, _SCALARS):
+            return NotImplemented
         return LazyNutilsIntegral(self._obj * other, self._domain, self._geometry, self._ischeme)
 
     def __rmul__(self, other):
@@ -665,58 +740,110 @@ def integrate(*args):
     return args[0].__class__.integrate(*args)
 
 
-class AffineRepresentation:
+def _broadcast(args):
+    shapes = [arg.shape for arg in args]
+    max_ndim = max(len(shape) for shape in shapes)
+    shapes = np.array([(1,) * (max_ndim - len(shape)) + shape for shape in shapes])
 
-    @staticmethod
-    def expand(items, frozen, ndim):
-        ret = list(items)
-        for i in sorted(frozen):
-            ret.insert(i, None)
-        assert len(ret) == ndim
-        return tuple(ret)
+    result = []
+    for col in shapes.T:
+        lengths = set(c for c in col if c != 1)
+        assert len(lengths) <= 1
+        if not lengths:
+            result.append(1)
+        else:
+            result.append(next(iter(lengths)))
 
-    def __init__(self, scales=None, integrands=None):
-        if isinstance(scales, AffineRepresentation):
-            integrands = list(scales._integrands)
-            scales = list(scales._scales)
-        scales = scales or []
-        integrands = integrands or []
+    return tuple(result)
 
-        assert len(scales) == len(integrands)
-        assert all(isinstance(arg, mu) for arg in scales)
-        assert all(isinstance(arg, Integrand) for arg in integrands)
 
-        if integrands:
-            broadcast(integrands)   # check if shapes are compatible
+class AffineIntegral(Affine):
 
-        self._scales = scales
-        self._integrands = integrands
-        self._lift_contractions = {}
-        self.fallback = None
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._properties = {}
         self._freeze_proj = set()
         self._freeze_lift = {0}
-        self._properties = {}
+        self._lift = {}
+        self.fallback = None
 
-    def __len__(self):
-        return len(self._scales)
+    @property
+    def optimized(self):
+        return all(itg.optimized for itg in self.values)
 
-    def __call__(self, pval, lift=None, cont=None, wrap=True, sym=False):
+    @property
+    def ndim(self):
+        return len(self.shape)
+
+    @property
+    def shape(self):
+        return _broadcast(self.values)
+
+    def __iadd__(self, other):
+        scale, value = other
+        value = Integrand.make(value)
+        return super().__iadd__((scale, value))
+
+    def __isub__(self, other):
+        scale, value = other
+        value = Integrand.make(value)
+        return super().__isub__((scale, value))
+
+    def __call__(self, pval, lift=None, cont=None, sym=False, case=None):
         if isinstance(lift, int):
             lift = (lift,)
         if lift is not None:
-            return self._lift_contractions[frozenset(lift)](pval, cont=cont, wrap=wrap, sym=sym)
+            return self._lift[frozenset(lift)](pval)
         if cont is None:
             cont = (None,) * self.ndim
         if self.fallback:
-            return self.fallback.get(cont, mu=pval)
-        retval = sum(scl(pval) * itg.get(cont) for scl, itg in zip(self._scales, self._integrands))
+            return self.fallback.get(cont, mu=pval, case=case)
+        retval = sum(scale(pval) * value.get(cont) for scale, value in self)
         if sym:
             retval = retval + retval.T
-        if wrap and isinstance(retval, np.ndarray) and retval.ndim == 2:
-            return matrix.NumpyMatrix(retval)
-        elif wrap and isinstance(retval, sp.spmatrix):
-            return matrix.ScipyMatrix(retval)
         return retval
+
+    def write(self, group, lifts=True):
+        if self.fallback:
+            self.fallback.write(group, 'fallback')
+        terms = group.require_group('terms')
+        for i, (scale, value) in enumerate(self):
+            dataset = value.write(terms, str(i))
+            dataset.attrs['scale'] = str(scale)
+        if not lifts:
+            return
+        lifts = group.require_group('lifts')
+        for axes, sub_rep in self._lift.items():
+            name = ','.join(str(s) for s in sorted(axes))
+            target = lifts.require_group(name)
+            sub_rep.write(target, lifts=False)
+
+    @staticmethod
+    def _read(group):
+        groups = [group[str(i)] for i in range(len(group))]
+        scales = [eval(grp.attrs['scale'], {}, {'mu': mu}) for grp in groups]
+        values = [Integrand.read(grp) for grp in groups]
+        return AffineIntegral(zip(scales, values))
+
+    @staticmethod
+    def read(group):
+        retval = AffineIntegral._read(group['terms'])
+
+        retval.fallback = None
+        if 'fallback' in group:
+            retval.fallback = Integrand.read(group['fallback'])
+
+        lifts = {}
+        for axes, grp in group['lifts'].items():
+            axes = frozenset(int(i) for i in axes.split(','))
+            sub = AffineIntegral._read(grp['terms'])
+            lifts[axes] = sub
+        retval._lift = lifts
+
+        return retval
+
+    def verify(self):
+        _broadcast(self.values)
 
     def freeze(self, proj=(), lift=()):
         self._freeze_proj = set(proj)
@@ -726,78 +853,25 @@ class AffineRepresentation:
         for key, val in kwargs.items():
             if key not in self._properties:
                 self._properties[key] = val
-        for itg in self._integrands:
-            itg.prop(**kwargs)
+        for value in self.values:
+            value.prop(**kwargs)
         return self
 
-    @property
-    def optimized(self):
-        return all(itg.optimized for itg in self._integrands)
-
-    @property
-    def ndim(self):
-        return len(self.shape)
-
-    @property
-    def shape(self):
-        return broadcast(self._integrands)
-
-    def extend(self, scales, integrands):
-        return AffineRepresentation(
-            self._scales + scales,
-            self._integrands + integrands,
-        )
-
-    def _extend_inplace(self, scales, integrands):
-        self._scales.extend(scales)
-        self._integrands.extend(integrands)
-
-    def __repr__(self):
-        return f'AffineRepresentation({len(self)}; {self.shape})'
-
-    def __add__(self, other):
-        if isinstance(other, AffineRepresentation):
-            return self.extend(other._scales, other._integrands)
-        elif Integrand.acceptable(other):
-            return self.extend([mu(1.0)], [Integrand.make(other)])
-        return NotImplemented
-
-    def __sub__(self, other):
-        return self + (-other)
-
-    def __neg__(self):
-        return AffineRepresentation([-scl for scl in self._scales], self._integrands)
-
-    def __mul__(self, other):
-        if isinstance(other, (mu,) + _SCALARS):
-            if not isinstance(other, mu):
-                other = mu(other)
-            return AffineRepresentation([scl * other for scl in self._scales], self._integrands)
-        elif Integrand.acceptable(other):
-            return AffineRepresentation(self._scales, [itg * other for itg in self._integrands])
-        return NotImplemented
-
-    def __truediv__(self, other):
-        return self * (1 / other)
-
-    def cache_main(self, override=False):
-        self._integrands = [
-            itg.cache(override=override)
-            for itg in log.iter('term', self._integrands)
-        ]
+    def cache_main(self, **kwargs):
+        self.values = (itg.cache(**kwargs) for itg in log.iter('term', list(self.values)))
         if self.optimized:
             self.fallback = None
         return self
 
-    def cache_lifts(self, override=False):
-        for sub in log.iter('axes', list(self._lift_contractions.values())):
-            sub.cache_main(override=override)
+    def cache_lifts(self, **kwargs):
+        for sub in log.iter('axes', list(self._lift.values())):
+            sub.cache_main(**kwargs)
 
     def ensure_shareable(self):
-        for itg in self._integrands:
-            itg.ensure_shareable()
+        for value in self.values:
+            value.ensure_shareable()
 
-    def contract_lifts(self, lift, scale):
+    def contract_lift(self, scale, lift):
         if self.ndim == 1:
             return
 
@@ -807,33 +881,44 @@ class AffineRepresentation:
             for naxes in range(len(free_axes))
         )))
 
-        if not self._lift_contractions:
+        if not self._lift:
             for axes in axes_combs:
-                sub_rep = AffineRepresentation()
+                sub_rep = AffineIntegral()
                 sub_rep.prop(**self._properties)
                 remaining_axes = [ax for ax in range(self.ndim) if ax not in axes]
                 frozen_axes = [i for i, ax in enumerate(remaining_axes) if ax in self._freeze_proj]
                 sub_rep.freeze(proj=frozen_axes)
-                self._lift_contractions[axes] = sub_rep
+                self._lift[axes] = sub_rep
 
         for axes in log.iter('axes', axes_combs):
             contraction = [None] * self.ndim
             for ax in axes:
                 contraction[ax] = lift
-            sub_rep = self._lift_contractions[axes]
-            new_scales = [scl * scale**len(axes) for scl in self._scales]
-            new_integrands = [itg.contract(contraction) for itg in self._integrands]
-            sub_rep._extend_inplace(new_scales, new_integrands)
+            sub_rep = self._lift[axes]
+            new_scales = [scl * scale**len(axes) for scl in self.scales]
+            new_values = [itg.contract(contraction) for itg in self.values]
+            sub_rep.extend(zip(new_scales, new_values))
+
+    @staticmethod
+    def _expand(items, frozen, ndim):
+        ret = list(items)
+        for i in sorted(frozen):
+            ret.insert(i, None)
+        assert len(ret) == ndim
+        return tuple(ret)
 
     def project(self, proj):
         if not isinstance(proj, (tuple, list)):
             proj = (proj,) * (self.ndim - len(self._freeze_proj))
         assert len(proj) == self.ndim - len(self._freeze_proj)
-        proj = AffineRepresentation.expand(proj, self._freeze_proj, self.ndim)
-        integrands = [itg.project(proj) for itg in log.iter('term', self._integrands)]
-        new = AffineRepresentation(self._scales, integrands)
-        for axes, rep in log.iter('axes', list(self._lift_contractions.items())):
+        proj = AffineIntegral._expand(proj, self._freeze_proj, self.ndim)
+
+        new_values = [itg.project(proj) for itg in log.iter('term', list(self.values))]
+        new = AffineIntegral(zip(self.scales, new_values))
+
+        for axes, rep in log.iter('axes', list(self._lift.items())):
             remaining_axes = [i for i in range(self.ndim) if i not in axes]
             _proj = [proj[i] for i in remaining_axes if proj[i] is not None]
-            new._lift_contractions[axes] = rep.project(_proj)
+            new._lift[axes] = rep.project(_proj)
+
         return new

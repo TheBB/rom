@@ -51,6 +51,14 @@ class IterationCountError(Exception):
     pass
 
 
+def solve(mx, rhs, cons, **kwargs):
+    if isinstance(mx, np.ndarray):
+        mx = matrix.NumpyMatrix(mx)
+    else:
+        mx = matrix.ScipyMatrix(mx)
+    return mx.solve(rhs, constrain=cons, **kwargs)
+
+
 def _stokes_matrix(case, mu):
     matrix = case['divergence'](mu, sym=True) + case['laplacian'](mu)
     if 'stab-lhs' in case:
@@ -78,7 +86,7 @@ def stokes(case, mu):
     assert 'laplacian' in case
 
     matrix, rhs = _stokes_assemble(case, mu)
-    lhs = matrix.solve(rhs, constrain=case.cons)
+    lhs = solve(matrix, rhs, case.constraints)
 
     return lhs
 
@@ -87,37 +95,33 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     assert 'divergence' in case
     assert 'laplacian' in case
     assert 'convection' in case
-
-    nn = case.size // 3
-    V = np.arange(nn)
-    S = np.arange(nn,2*nn)
-    P = np.arange(2*nn,3*nn)
+    assert 'v-h1s' in case
 
     stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
-    lhs = stokes_mat.solve(stokes_rhs, constrain=case.cons)
+    lhs = solve(stokes_mat, stokes_rhs, case.constraints)
 
     stokes_mat += case['convection'](mu, lift=1) + case['convection'](mu, lift=2)
     stokes_rhs -= case['convection'](mu, lift=(1,2))
 
-    vmass = case.norm('v', 'h1s', mu=mu)
+    vmass = case['v-h1s'](mu)
 
     def conv(lhs):
         c = case['convection']
-        rh = c(mu, cont=(None, lhs, lhs))
-        lh = c(mu, cont=(None, lhs, None)) + c(mu, cont=(None, None, lhs))
+        rh = c(mu, cont=(None, lhs, lhs), case=case)
+        lh = c(mu, cont=(None, lhs, None), case=case) + c(mu, cont=(None, None, lhs), case=case)
         rh, lh = integrate(rh, lh)
         return rh, lh
 
     for it in count(1):
         rh, lh = conv(lhs)
-        rhs = stokes_rhs - stokes_mat.matvec(lhs) - rh
+        rhs = stokes_rhs - stokes_mat @ lhs - rh
         ns_mat = stokes_mat + lh
 
-        update = ns_mat.solve(rhs, constrain=case.cons)
+        update = solve(ns_mat, rhs, case.constraints)
         lhs += update
 
-        update_norm = np.sqrt(vmass.matvec(update).dot(update))
-        log.info('update: {:.2e}'.format(update_norm))
+        update_norm = np.sqrt(update @ vmass @ update)
+        log.user('update: {:.2e}'.format(update_norm))
         if update_norm < newton_tol:
             break
 
@@ -190,24 +194,11 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
 
 
 def supremizer(case, mu, rhs):
-    vinds, pinds = case.basis_indices(['v', 'p'])
-    length = len(rhs)
+    conses = case.constraints
+    mask = np.ones(conses.shape, dtype=np.bool)
+    mask[case.bases['v'].indices] = False
+    conses[mask] = 0.0
 
-    bmx = case['divergence'](mu).core[np.ix_(vinds,pinds)]
-    rhs = bmx.dot(rhs[pinds])
-    mx = matrix.ScipyMatrix(case['v-h1s'](mu).core[np.ix_(vinds,vinds)])
-
-    lhs = mx.solve(rhs, constrain=case.cons[vinds])
-    lhs.resize((length,))
-    return lhs
-
-
-def metrics(case, mu, lhs):
-    domain = case.domain
-    geom = case.physical_geometry(mu)
-    vsol = case.solution(lhs, mu, 'v')
-
-    area, div_norm = domain.integrate([1, vsol.div(geom) ** 2], geometry=geom, ischeme='gauss9')
-    div_norm = np.sqrt(div_norm / area)
-
-    log.user('velocity divergence: {:e}/area'.format(div_norm))
+    rhs = case['divergence'](mu).dot(rhs)
+    mx = case['v-h1s'](mu)
+    return solve(mx, rhs, conses)

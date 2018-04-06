@@ -1,37 +1,43 @@
 import click
+import functools
 from nutils import log, config
 import multiprocessing
+import h5py
 
+from aroma.case import Case
 from aroma import cases, solvers, util, quadrature, reduction, ensemble as ens, visualization
 
 
-@util.pickle_cache('backstep-{fast}.case')
+@util.filecache('backstep-{fast}.case')
 def get_case(fast: bool = False):
-    return cases.backstep(override=fast)
+    case =  cases.backstep()
+    case.precompute(force=fast)
+    return case
 
 
-@util.pickle_cache('backstep-{num}.ens')
+@util.filecache('backstep-{num}.ens')
 def get_ensemble(num: int = 10, fast: bool = False):
     case = get_case(fast)
     case.ensure_shareable()
-    scheme = list(quadrature.sparse(case.ranges(), num))
-    solutions = ens.make_ensemble(case, solvers.navierstokes, scheme, weights=True, parallel=fast)
-    supremizers = ens.make_ensemble(
-        case, solvers.supremizer, scheme, weights=False, parallel=True, args=[solutions],
-    )
-    return scheme, solutions, supremizers
+
+    scheme = quadrature.sparse(case.ranges(), num)
+    ensemble = ens.Ensemble(scheme)
+    ensemble.compute('solutions', case, solvers.navierstokes, parallel=fast)
+    ensemble.compute('supremizers', case, solvers.supremizer, parallel=True, args=[ensemble['solutions']])
+    return ensemble
 
 
-@util.pickle_cache('backstep-{nred}.rcase')
+@util.filecache('backstep-{nred}.rcase')
 def get_reduced(nred: int = 10, fast: bool = False, num: int = 10):
     case = get_case(fast)
-    scheme, solutions, supremizers = get_ensemble(num, fast)
+    ensemble = get_ensemble(num, fast)
 
-    reducer = reduction.EigenReducer(case, solutions=solutions, supremizers=supremizers)
+    reducer = reduction.EigenReducer(case, ensemble)
     reducer.add_basis('v', parent='v', ensemble='solutions', ndofs=nred, norm='h1s')
     reducer.add_basis('s', parent='v', ensemble='supremizers', ndofs=nred, norm='h1s')
     reducer.add_basis('p', parent='p', ensemble='solutions', ndofs=nred, norm='l2')
 
+    reducer.plot_spectra('backstep-spectrum')
     return reducer()
 
 
@@ -52,6 +58,7 @@ def disp(fast):
 @click.option('--height', default=1.0)
 @click.option('--length', default=10.0)
 @click.option('--fast/--no-fast', default=False)
+@util.common_args
 def solve(viscosity, velocity, height, length, fast):
     case = get_case(fast)
     mu = case.parameter(viscosity=viscosity, velocity=velocity, height=height, length=length)
@@ -67,6 +74,7 @@ def solve(viscosity, velocity, height, length, fast):
 @click.option('--height', default=1.0)
 @click.option('--length', default=10.0)
 @click.option('--nred', '-r', default=10)
+@util.common_args
 def rsolve(viscosity, velocity, height, length, nred):
     case = get_reduced(nred=nred)
     mu = case.parameter(viscosity=viscosity, velocity=velocity, height=height, length=length)
@@ -79,6 +87,7 @@ def rsolve(viscosity, velocity, height, length, nred):
 @main.command()
 @click.option('--fast/--no-fast', default=False)
 @click.option('--num', '-n', default=8)
+@util.common_args
 def ensemble(fast, num):
     get_ensemble(num, fast)
 
@@ -87,10 +96,10 @@ def ensemble(fast, num):
 @click.option('--fast/--no-fast', default=False)
 @click.option('--num', '-n', default=8)
 @click.option('--nred', '-r', default=10)
+@util.common_args
 def reduce(fast, num, nred):
     get_reduced(nred, fast, num)
 
 
 if __name__ == '__main__':
-    with config(nprocs=multiprocessing.cpu_count()):
-        main()
+    main()

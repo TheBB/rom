@@ -2,85 +2,16 @@ import numpy as np
 from nutils import mesh, function as fn, _
 import pytest
 
-from aroma.affine import mu, Integrand, COOTensorIntegrand, AffineRepresentation
-
-
-def test_mul_mu_itg():
-    I = np.array([[1, 0], [0, 1]])
-
-    obj = mu['a'] * I
-    assert obj.shape == (2,2)
-    np.testing.assert_almost_equal(obj({'a': 1.0}, wrap=False), I)
-    np.testing.assert_almost_equal(obj({'a': 2.0}, wrap=False), 2*I)
-    np.testing.assert_almost_equal(obj({'a': -4.0}, wrap=False), -4*I)
-
-    obj = I * mu['a']
-    assert obj.shape == (2,2)
-    np.testing.assert_almost_equal(obj({'a': 1.0}, wrap=False), I)
-    np.testing.assert_almost_equal(obj({'a': 2.0}, wrap=False), 2*I)
-    np.testing.assert_almost_equal(obj({'a': -4.0}, wrap=False), -4*I)
-
-
-def test_add_mu_itg():
-    I = np.array([[1, 0], [0, 1]])
-
-    obj = mu['a'] + I
-    assert obj.shape == (2,2)
-    np.testing.assert_almost_equal(obj({'a': 1.0}, wrap=False), 1 + I)
-    np.testing.assert_almost_equal(obj({'a': 2.0}, wrap=False), 2 + I)
-    np.testing.assert_almost_equal(obj({'a': -4.0}, wrap=False), I - 4)
-
-    obj = I + mu['a']
-    assert obj.shape == (2,2)
-    np.testing.assert_almost_equal(obj({'a': 1.0}, wrap=False), 1 + I)
-    np.testing.assert_almost_equal(obj({'a': 2.0}, wrap=False), 2 + I)
-    np.testing.assert_almost_equal(obj({'a': -4.0}, wrap=False), I - 4)
-
-    obj = mu['a'] - I
-    assert obj.shape == (2,2)
-    np.testing.assert_almost_equal(obj({'a': 1.0}, wrap=False), 1 - I)
-    np.testing.assert_almost_equal(obj({'a': 2.0}, wrap=False), 2 - I)
-    np.testing.assert_almost_equal(obj({'a': -4.0}, wrap=False), -I - 4)
-
-    obj = -I + mu['a']
-    assert obj.shape == (2,2)
-    np.testing.assert_almost_equal(obj({'a': 1.0}, wrap=False), 1 - I)
-    np.testing.assert_almost_equal(obj({'a': 2.0}, wrap=False), 2 - I)
-    np.testing.assert_almost_equal(obj({'a': -4.0}, wrap=False), -I - 4)
-
-    obj = -mu['a'] + I
-    assert obj.shape == (2,2)
-    np.testing.assert_almost_equal(obj({'a': 1.0}, wrap=False), -1 + I)
-    np.testing.assert_almost_equal(obj({'a': 2.0}, wrap=False), -2 + I)
-    np.testing.assert_almost_equal(obj({'a': -4.0}, wrap=False), I + 4)
-
-    obj = I - mu['a']
-    assert obj.shape == (2,2)
-    np.testing.assert_almost_equal(obj({'a': 1.0}, wrap=False), -1 + I)
-    np.testing.assert_almost_equal(obj({'a': 2.0}, wrap=False), -2 + I)
-    np.testing.assert_almost_equal(obj({'a': -4.0}, wrap=False), I + 4)
-
-    obj = -mu['a'] - I
-    assert obj.shape == (2,2)
-    np.testing.assert_almost_equal(obj({'a': 1.0}, wrap=False), -1 - I)
-    np.testing.assert_almost_equal(obj({'a': 2.0}, wrap=False), -2 - I)
-    np.testing.assert_almost_equal(obj({'a': -4.0}, wrap=False), -I + 4)
-
-    obj = -I - mu['a']
-    assert obj.shape == (2,2)
-    np.testing.assert_almost_equal(obj({'a': 1.0}, wrap=False), -1 - I)
-    np.testing.assert_almost_equal(obj({'a': 2.0}, wrap=False), -2 - I)
-    np.testing.assert_almost_equal(obj({'a': -4.0}, wrap=False), -I + 4)
+from aroma.affine import mu, COOTensorIntegrand, Affine, AffineIntegral
 
 
 def test_add_ar():
     I = np.array([[1, 0], [0, 1]])
     J = np.ones((3,2,2))
-    obj = mu['b'] * J + mu['a'] * I
-    assert obj.shape == (3,2,2)
-    np.testing.assert_almost_equal(obj({'a': 1.0, 'b': 0.0}, wrap=False), I + 0*J)
-    np.testing.assert_almost_equal(obj({'a': 0.0, 'b': 1.0}, wrap=False), J + 0*I)
-    np.testing.assert_almost_equal(obj({'a': -0.1, 'b': 3.2}, wrap=False), 3.2*J - 0.1*I)
+    obj = Affine([(mu('b'), J), (mu('a'), I)])
+    np.testing.assert_almost_equal(obj({'a': 1.0, 'b': 0.0}), I + 0*J)
+    np.testing.assert_almost_equal(obj({'a': 0.0, 'b': 1.0}), J + 0*I)
+    np.testing.assert_almost_equal(obj({'a': -0.1, 'b': 3.2}), 3.2*J - 0.1*I)
 
 
 def test_cootensor():
@@ -108,8 +39,10 @@ def test_nutils_tensor():
 
     itg = basis[:,_,_] * basis[_,:,_] * basis[_,_,:]
 
-    a = (mu(1.0) * itg).prop(domain=domain, geometry=geom, ischeme='gauss9')
-    a = a.cache_main(override=True)({}, wrap=False)
+    a = AffineIntegral()
+    a += 1, itg
+    a.prop(domain=domain, geometry=geom, ischeme='gauss9')
+    a = a.cache_main(force=True)({})
     b = domain.integrate(itg, geometry=geom, ischeme='gauss9')
 
     np.testing.assert_almost_equal(a, b)

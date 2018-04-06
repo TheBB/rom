@@ -37,10 +37,11 @@
 # written agreement between you and SINTEF Digital.
 
 
+import click
 import inspect
 import functools
 import time as timemod
-from multiprocessing import current_process
+from multiprocessing import current_process, cpu_count
 import numpy as np
 import h5py
 from os.path import exists
@@ -50,53 +51,66 @@ import scipy.sparse as sp
 import scipy.sparse._sparsetools as sptools
 import sharedmem
 import string
-from nutils import log
+
+from nutils import log, function as fn, topology, config
 
 
-_h5file = None
+def to_dataset(obj, group, name):
+    if isinstance(obj, (fn.Array, topology.Topology, dict, type(None))):
+        group[name] = np.string_(pickle.dumps(obj))
+        group[name].attrs['type'] = 'PickledObject'
+        return group[name]
+
+    if isinstance(obj, (sp.csr_matrix, sp.csc_matrix)):
+        subgroup = group.require_group(name)
+        subgroup['data'] = obj.data
+        subgroup['indices'] = obj.indices
+        subgroup['indptr'] = obj.indptr
+        subgroup.attrs['shape'] = obj.shape
+        subgroup.attrs['type'] = 'CSRMatrix' if isinstance(obj, sp.csr_matrix) else 'CSCMatrix'
+        return subgroup
+
+    if isinstance(obj, np.ndarray):
+        group[name] = obj
+        group[name].attrs['type'] = 'Array'
+        return group[name]
+
+    if isinstance(obj, str):
+        group[name] = obj
+        group[name].attrs['type'] = 'String'
+        return group[name]
+
+    raise NotImplementedError(f'{type(obj)} to dataset')
 
 
-def h5pickle():
-    return _h5file is not None
+def from_dataset(group):
+    type_ = group.attrs['type']
+    if type_ == 'PickledObject':
+        return pickle.loads(group[()])
+    if type_ == 'Array':
+        return group[:]
+    if type_ == 'String':
+        return group[()]
+    if type_ in {'CSRMatrix', 'CSCMatrix'}:
+        cls = sp.csr_matrix if type_ == 'CSRMatrix' else sp.csc_matrix
+        return cls((group['data'][:], group['indices'][:], group['indptr'][:]), shape=group.attrs['shape'])
+
+    raise NotImplementedError(f'Unknown type: {type_}')
 
 
-def dump_array(obj):
-    assert h5pickle()
-    key = ''.join(random.choices('0123456789abcdef', k=16))
-    while key in _h5file:
-        key = ''.join(random.choices('0123456789abcdef', k=16))
-    _h5file.create_dataset(key, data=obj)
-    return key
+def subclasses(cls, root=False):
+    if root:
+        yield cls
+    for sub in cls.__subclasses__():
+        yield sub
+        yield from subclasses(sub, root=False)
 
 
-def load_array(key):
-    assert h5pickle()
-    assert key in _h5file
-    return np.array(_h5file[key])
-
-
-def dump(obj, filename):
-    global _h5file
-    _h5file = h5py.File(filename, 'w')
-
-    bytedata = np.fromstring(pickle.dumps(obj), dtype=np.uint8)
-    _h5file.create_dataset('bytedata', data=bytedata)
-
-    _h5file.close()
-    _h5file = None
-
-
-def load(filename):
-    global _h5file
-    _h5file = h5py.File(filename, 'r')
-
-    bytedata = np.array(_h5file['bytedata']).tostring()
-    obj = pickle.loads(bytedata)
-
-    _h5file.close()
-    _h5file = None
-
-    return obj
+def find_subclass(cls, name, root=False, attr='__name__'):
+    for sub in subclasses(cls, root=root):
+        if hasattr(sub, attr) and getattr(sub, attr) == name:
+            return sub
+    assert False
 
 
 def make_filename(func, fmt, *args, **kwargs):
@@ -113,21 +127,41 @@ def make_filename(func, fmt, *args, **kwargs):
     return fmt.format(**format_dict)
 
 
-def pickle_cache(fmt):
+def common_args(func):
+    @functools.wraps(func)
+    def retval(verbose, nprocs, **kwargs):
+        with config(verbose=verbose, nprocs=nprocs), log.RichOutputLog():
+            return func(**kwargs)
+    retval = click.option('--verbose', default=3)(retval)
+    retval = click.option('--nprocs', default=cpu_count())(retval)
+    return retval
+
+
+def filecache(fmt):
     def decorator(func):
         @functools.wraps(func)
         def inner(*args, **kwargs):
+            from aroma.case import Case
+            from aroma.ensemble import Ensemble
             filename = make_filename(func, fmt, *args, **kwargs)
+
+            # If file exists, load from it
             with log.context(func.__name__):
                 if exists(filename):
                     log.user(f'reading from {filename}')
-                    return load(filename)
+                    reader = Case if filename.endswith('case') else Ensemble
+                    with h5py.File(filename, 'r') as f:
+                        return reader.read(f)
                 log.user(f'{filename} not found')
+
+            # If it doesn't exist, call the wrapped function, and save
             obj = func(*args, **kwargs)
             with log.context(func.__name__):
                 log.user(f'writing to {filename}')
-            dump(obj, filename)
+                with h5py.File(filename, 'w') as f:
+                    obj.write(f)
             return obj
+
         return inner
     return decorator
 
@@ -256,37 +290,31 @@ class CSRAssembler:
 
         self.order, self.inds = order, inds
         self.shape = shape
-        self.idx_dtype = idx_dtype
 
-    def __getstate__(self):
-        if not h5pickle():
-            return self.__dict__
-        return {
-            'shape': self.shape,
-            'idx_dtype': self.idx_dtype,
-            'row': dump_array(self.row),
-            'col': dump_array(self.col),
-            'order': dump_array(self.order),
-            'inds': dump_array(self.inds)
-        }
+    def write(self, group):
+        to_dataset(self.row, group, 'row')
+        to_dataset(self.col, group, 'col')
+        to_dataset(self.order, group, 'order')
+        to_dataset(self.inds, group, 'inds')
+        group.attrs['shape'] = self.shape
+        group.attrs['type'] = 'CSRAssembler'
 
-    def __setstate__(self, state):
-        if not h5pickle():
-            self.__dict__.update(state)
-            return
-        self.shape = state['shape']
-        self.idx_dtype = state['idx_dtype']
-        self.row = load_array(state['row'])
-        self.col = load_array(state['col'])
-        self.order = load_array(state['order'])
-        self.inds = load_array(state['inds'])
+    @staticmethod
+    def read(group):
+        retval = CSRAssembler.__new__(CSRAssembler)
+        retval.row = group['row'][:]
+        retval.col = group['col'][:]
+        retval.order = group['order'][:]
+        retval.inds = group['inds'][:]
+        retval.shape = tuple(group.attrs['shape'])
+        return retval
 
     def __call__(self, data):
         data = np.add.reduceat(data[self.order], self.inds)
 
         M, N = self.shape
-        indptr = np.empty(M+1, dtype=self.idx_dtype)
-        indices = np.empty_like(self.col, dtype=self.idx_dtype)
+        indptr = np.empty(M+1, dtype=self.row.dtype)
+        indices = np.empty_like(self.col, dtype=self.row.dtype)
         new_data = np.empty_like(data)
 
         sptools.coo_tocsr(M, N, len(self.row), self.row, self.col, data, indptr, indices, new_data)
@@ -314,24 +342,21 @@ class VectorAssembler:
         self.order, self.inds = order, inds
         self.shape = shape
 
-    def __getstate__(self):
-        if not h5pickle():
-            return self.__dict__
-        return {
-            'shape': self.shape,
-            'row': dump_array(self.row),
-            'order': dump_array(self.order),
-            'inds': dump_array(self.inds)
-        }
+    def write(self, group):
+        to_dataset(self.row, group, 'row')
+        to_dataset(self.order, group, 'order')
+        to_dataset(self.inds, group, 'inds')
+        group.attrs['shape'] = self.shape
+        group.attrs['type'] = 'VectorAssembler'
 
-    def __setstate__(self, state):
-        if not h5pickle():
-            self.__dict__.update(state)
-            return
-        self.shape = state['shape']
-        self.row = load_array(state['row'])
-        self.order = load_array(state['order'])
-        self.inds = load_array(state['inds'])
+    @staticmethod
+    def read(group):
+        retval = VectorAssembler.__new__(VectorAssembler)
+        retval.row = group['row'][:]
+        retval.order = group['order'][:]
+        retval.inds = group['inds'][:]
+        retval.shape = tuple(group.attrs['shape'])
+        return retval
 
     def __call__(self, data):
         data = np.add.reduceat(data[self.order], self.inds)

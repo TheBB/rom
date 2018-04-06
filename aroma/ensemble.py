@@ -46,36 +46,45 @@ from aroma import util
 
 
 @util.parallel_log(return_time=True)
-def _solve(case, solver, pt, weights, args):
-    mu, wt = pt
-    lhs = solver(case, mu, *args)
-    if weights:
-        lhs *= wt
-    return lhs
+def _solve(case, solver, mu, args):
+    return solver(case, mu, *args)
 
 
-def make_ensemble(case, solver, quadrule, weights=False,
-                  parallel=False, args=None, return_time=False):
-    quadrule = [(case.parameter(*mu), wt) for mu, wt in quadrule]
-    if args is None:
-        args = repeat(())
-    else:
-        args = zip(*args)
-    log.user('generating ensemble of {} solutions'.format(len(quadrule)))
-    if not parallel:
-        solutions = [
-            _solve((n, case, solver, qpt, weights, arg))
-            for n, qpt, arg in zip(count(), quadrule, args)
-        ]
-    else:
-        args = zip(count(), repeat(case), repeat(solver), quadrule, repeat(weights), args)
-        pool = Pool()
-        solutions = list(pool.imap(_solve, args))
-    meantime = sum(t for t, __ in solutions) / len(solutions)
-    solutions = np.array([s for __, s in solutions])
-    if return_time:
-        return meantime, solutions
-    return solutions
+class Ensemble(dict):
+
+    def __init__(self, scheme):
+        self.scheme = scheme
+
+    def compute(self, name, case, solver, parallel=False, args=None):
+        quadrule = [case.parameter(*mu) for mu in self.scheme[:,1:]]
+        args = repeat(()) if args is None else zip(*args)
+        log.user(f'generating ensemble of {len(quadrule)} solutions')
+        if not parallel:
+            solutions = [
+                _solve((n, case, solver, qpt, arg))
+                for n, qpt, arg in zip(count(), quadrule, args)
+            ]
+        else:
+            args = zip(count(), repeat(case), repeat(solver), quadrule, args)
+            pool = Pool()
+            solutions = list(pool.imap(_solve, args))
+        meantime = sum(t for t, _ in solutions) / len(solutions)
+        self[name] = np.array([s for __, s in solutions])
+
+        return meantime
+
+    def write(self, group):
+        group['scheme'] = self.scheme
+        sub = group.require_group('data')
+        for key, value in self.items():
+            sub[key] = value
+
+    @staticmethod
+    def read(group):
+        retval = Ensemble(group['scheme'][:])
+        for key, value in group['data'].items():
+            retval[key] = value[:]
+        return retval
 
 
 def errors(hicase, locase, hifi, lofi, mass, scheme):
