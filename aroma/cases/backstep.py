@@ -40,14 +40,13 @@
 from nutils import mesh, function as fn, _
 
 from aroma.util import collocate, characteristic
-from aroma.cases.bases import FlowCase, NutilsCase
+from aroma.case import NutilsCase
 from aroma.affine import NutilsDelayedIntegrand
 
 
-class backstep(NutilsCase, FlowCase):
+class backstep(NutilsCase):
 
-    def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None,
-                 stabilize=True, override=False, finalize=True):
+    def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None, stabilize=True):
         if nel_up is None:
             nel_up = int(10 * refine)
         if nel_length is None:
@@ -68,12 +67,12 @@ class backstep(NutilsCase, FlowCase):
             ],
         )
 
-        NutilsCase.__init__(self, domain, geom)
+        NutilsCase.__init__(self, 'Backward-facing step channel', domain, geom)
 
-        NU = 1 / self.add_parameter('viscosity', 20, 50)
-        L = self.add_parameter('length', 9, 12, 10)
-        H = self.add_parameter('height', 0.3, 2, 1)
-        V = self.add_parameter('velocity', 0.5, 1.2, 1)
+        NU = 1 / self.parameters.add('viscosity', 20, 50)
+        L = self.parameters.add('length', 9, 12, 10)
+        H = self.parameters.add('height', 0.3, 2, 1)
+        V = self.parameters.add('velocity', 0.5, 1.2, 1)
 
         # Bases
         bases = [
@@ -87,15 +86,15 @@ class backstep(NutilsCase, FlowCase):
         vxbasis, vybasis, pbasis, *__ = fn.chain(bases)
         vbasis = vxbasis[:,_] * (1,0) + vybasis[:,_] * (0,1)
 
-        self.add_basis('v', vbasis, sum(basis_lens[:2]))
-        self.add_basis('p', pbasis, basis_lens[2])
+        self.bases.add('v', vbasis, length=sum(basis_lens[:2]))
+        self.bases.add('p', pbasis, length=basis_lens[2])
         self.extra_dofs = 4 if stabilize else 0
 
         x, y = geom
         hx = fn.piecewise(x, (0,), 0, x)
         hy = fn.piecewise(y, (0,), y, 0)
-        self.add_displacement(fn.asarray((hx, 0)), L-1)
-        self.add_displacement(fn.asarray((0, hy)), H-1)
+        self.geometry += (L - 1), fn.asarray((hx, 0))
+        self.geometry += (H - 1), fn.asarray((0, hy))
 
         self.constrain(
             'v', 'patch0-bottom', 'patch0-top', 'patch0-left',
@@ -106,78 +105,70 @@ class backstep(NutilsCase, FlowCase):
 
         # Lifting function
         profile = fn.max(0, y*(1-y) * 4)[_] * (1, 0)
-        self.add_lift(profile, 'v', scale=V)
+        self.lift += V, self.project_lift(profile, 'v')
 
         # Characteristic functions
         cp0, cp1, cp2 = [characteristic(domain, (i,)) for i in range(3)]
         cp12 = cp1 + cp2
 
         # Stokes divergence term
-        self['divergence'] = (
-            - (H-1) * (fn.outer(vgrad[:,0,0], pbasis) * cp2)
-            - (L-1) * (fn.outer(vgrad[:,1,1], pbasis) * cp12)
-            - (fn.outer(vbasis.div(geom), pbasis))
-        )
+        self['divergence'] -= H-1, fn.outer(vgrad[:,0,0], pbasis) * cp2
+        self['divergence'] -= L-1, fn.outer(vgrad[:,1,1], pbasis) * cp12
+        self['divergence'] -= 1, fn.outer(vbasis.div(geom), pbasis)
+        self['divergence'].freeze(lift=(1,))
 
         # Stokes laplacian term
-        self['laplacian'] = (
-            + NU * fn.outer(vgrad).sum([-1, -2]) * cp0
-            + NU/L * fn.outer(vgrad[:,:,0]).sum(-1) * cp1
-            + NU*L * fn.outer(vgrad[:,:,1]).sum(-1) * cp1
-            + NU*H/L * fn.outer(vgrad[:,:,0]).sum(-1) * cp2
-            + NU*L/H * fn.outer(vgrad[:,:,1]).sum(-1) * cp2
-        )
+        self['laplacian'] += NU, fn.outer(vgrad).sum([-1, -2]) * cp0
+        self['laplacian'] += NU/L, fn.outer(vgrad[:,:,0]).sum(-1) * cp1
+        self['laplacian'] += NU*L, fn.outer(vgrad[:,:,1]).sum(-1) * cp1
+        self['laplacian'] += NU*H/L, fn.outer(vgrad[:,:,0]).sum(-1) * cp2
+        self['laplacian'] += NU*L/H, fn.outer(vgrad[:,:,1]).sum(-1) * cp2
 
         # Navier-stokes convective term
         args = ('ijk', 'wuv')
         kwargs = {'x': geom, 'w': vbasis, 'u': vbasis, 'v': vbasis}
-        self['convection'] = (
-            + H * NutilsDelayedIntegrand('c w_ia u_j0 v_ka,0', *args, **kwargs, c=cp2)
-            + L * NutilsDelayedIntegrand('c w_ia u_j1 v_ka,1', *args, **kwargs, c=cp12)
-            + NutilsDelayedIntegrand('c w_ia u_jb v_ka,b', *args, **kwargs, c=cp0)
-            + NutilsDelayedIntegrand('c w_ia u_j0 v_ka,0', *args, **kwargs, c=cp1)
-        )
+        self['convection'] += H, NutilsDelayedIntegrand('c w_ia u_j0 v_ka,0', *args, **kwargs, c=cp2)
+        self['convection'] += L, NutilsDelayedIntegrand('c w_ia u_j1 v_ka,1', *args, **kwargs, c=cp12)
+        self['convection'] += 1, NutilsDelayedIntegrand('c w_ia u_jb v_ka,b', *args, **kwargs, c=cp0)
+        self['convection'] += 1, NutilsDelayedIntegrand('c w_ia u_j0 v_ka,0', *args, **kwargs, c=cp1)
 
         # Norms
         self['v-h1s'] = self['laplacian'] / NU
-        self['v-l2'] = (
-            + L * fn.outer(vbasis).sum(-1) * cp1
-            + L*H * fn.outer(vbasis).sum(-1) * cp2
-            + fn.outer(vbasis).sum(-1) * cp0
-        )
-        self['p-l2'] = (
-            + L * fn.outer(pbasis) * cp1
-            + L*H * fn.outer(pbasis) * cp2
-            + fn.outer(pbasis) * cp0
-        )
+        self['v-l2'] += 1, fn.outer(vbasis).sum(-1) * cp0
+        self['v-l2'] += L, fn.outer(vbasis).sum(-1) * cp1
+        self['v-l2'] += L*H, fn.outer(vbasis).sum(-1) * cp2
+        self['p-l2'] += 1, fn.outer(pbasis) * cp0
+        self['p-l2'] += L, fn.outer(pbasis) * cp1
+        self['p-l2'] += L*H, fn.outer(pbasis) * cp2
 
         if not stabilize:
-            self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
+            self.verify
             return
+
+        root = self.ndofs - self.extra_dofs
 
         points = [(0, (0, 0)), (nel_up-1, (0, 1))]
         eqn = vbasis.laplace(geom)[:,0,_]
-        colloc = collocate(domain, eqn, points, self.root, self.size)
-        self['stab-lhs'] = NU * (colloc + colloc.T)
+        colloc = collocate(domain, eqn, points, root, self.ndofs)
+        self['stab-lhs'] += NU, (colloc + colloc.T)
         eqn = - pbasis.grad(geom)[:,0,_]
-        colloc = collocate(domain, eqn, points, self.root, self.size)
-        self['stab-lhs'] += colloc + colloc.T
+        colloc = collocate(domain, eqn, points, root, self.ndofs)
+        self['stab-lhs'] += 1, colloc + colloc.T
 
         points = [(nel_up**2 + nel_up*nel_length, (0, 0))]
         eqn = vbasis[:,0].grad(geom).grad(geom)
-        colloc = collocate(domain, eqn[:,0,0,_], points, self.root+2, self.size)
-        self['stab-lhs'] += NU/L**2 * colloc.T
-        colloc = collocate(domain, eqn[:,1,1,_], points, self.root+2, self.size)
-        self['stab-lhs'] += NU/H**2 * colloc
+        colloc = collocate(domain, eqn[:,0,0,_], points, root+2, self.ndofs)
+        self['stab-lhs'] += NU/L**2, colloc.T
+        colloc = collocate(domain, eqn[:,1,1,_], points, root+2, self.ndofs)
+        self['stab-lhs'] += NU/H**2, colloc
         eqn = - pbasis.grad(geom)[:,0,_]
-        colloc = collocate(domain, - pbasis.grad(geom)[:,0,_], points, self.root+2, self.size)
-        self['stab-lhs'] += 1/L * colloc
+        colloc = collocate(domain, - pbasis.grad(geom)[:,0,_], points, root+2, self.ndofs)
+        self['stab-lhs'] += 1/L, colloc
 
         points = [(nel_up*(nel_up-1), (1, 0))]
-        colloc = collocate(domain, vbasis.laplace(geom)[:,0,_], points, self.root+3, self.size)
-        self['stab-lhs'] += NU * colloc
-        colloc = collocate(domain, -pbasis.grad(geom)[:,0,_], points, self.root+3, self.size)
-        self['stab-lhs'] += colloc
+        colloc = collocate(domain, vbasis.laplace(geom)[:,0,_], points, root+3, self.ndofs)
+        self['stab-lhs'] += NU, colloc
+        colloc = collocate(domain, -pbasis.grad(geom)[:,0,_], points, root+3, self.ndofs)
+        self['stab-lhs'] += 1, colloc
 
-        if finalize:
-            self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
+        self.verify()

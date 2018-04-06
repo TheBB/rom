@@ -41,7 +41,8 @@ from collections import OrderedDict, namedtuple
 import numpy as np
 from nutils import log, plot, _
 
-from aroma.cases import ProjectedCase, ProjectedBasis
+# from aroma.cases import ProjectedCase, ProjectedBasis
+from aroma.case import LofiCase
 
 
 ReducedBasis = namedtuple('ReducedBasis', ['parent', 'ensemble', 'ndofs', 'norm'])
@@ -62,25 +63,34 @@ class Reducer:
         case = self.case
         projections = self.get_projections()
         total_proj = np.vstack(projections.values())
-        rcase = ProjectedCase(case, total_proj)
 
+        rcase = LofiCase(case, total_proj)
+
+        # Specify the geometry
+        for scale, value in log.iter('geometry', case.geometry):
+            rcase.geometry += scale, case.discretize(value)
+
+        # Specify the bases
         for name, basis in self._bases.items():
-            bfuns = np.array([
-                case.solution(bfun, mu=None, field=basis.parent, lift=False)
-                for bfun in projections[name]
-            ])
-            rcase.add_basis(name, ProjectedBasis(bfuns))
+            with log.context(name):
+                bfuns = np.array([
+                    case.solution(bfun, basis.parent, lift=False)
+                    for bfun in log.iter('mode', projections[name])
+                ])
+                rcase.bases.add(name, bfuns, length=basis.ndofs)
 
+        # Project all the integrals
         for name in case:
-            if name not in self.overrides or self.overrides[name].soft:
-                rcase[name] = case[name].project(total_proj)
+            with log.context(name):
+                if name not in self.overrides or self.overrides[name].soft:
+                    rcase[name] = case[name].project(total_proj)
 
-            if name in self.overrides:
-                for comb in self.overrides[name].combinations:
-                    proj = tuple(projections[b] for b in comb)
-                    new_name = f'{name}-{comb}'
-                    log.user(new_name)
-                    rcase[new_name] = case[name].project(proj)
+                if name in self.overrides:
+                    for comb in self.overrides[name].combinations:
+                        proj = tuple(projections[b] for b in comb)
+                        new_name = f'{name}-{comb}'
+                        log.user(new_name)
+                        rcase[new_name] = case[name].project(proj)
 
         rcase.meta.update(self.meta)
         return rcase
@@ -102,21 +112,28 @@ class ExplicitReducer(Reducer):
 
 class EigenReducer(Reducer):
 
-    def __init__(self, case, **kwargs):
+    def __init__(self, case, ensemble):
         super().__init__(case)
-        self._ensembles = kwargs
         self._bases = OrderedDict()
         self._spectra = OrderedDict()
+
+        # Multiply all ensembles with quadrature weights
+        self._ensembles = {}
+        for key, ens in ensemble.items():
+            self._ensembles[key] = ens * ensemble.scheme[:,0,np.newaxis]
 
     def add_basis(self, name, parent, ensemble, ndofs, norm):
         self._bases[name] = ReducedBasis(parent, ensemble, ndofs, norm)
 
     def get_projections(self):
+        if hasattr(self, '_projections'):
+            return self._projections
+
         case = self.case
         projections = OrderedDict()
 
         for name, basis in self._bases.items():
-            mass = case.norm(basis.parent, type=basis.norm, wrap=False)
+            mass = case[f'{basis.parent}-{basis.norm}'](case.parameter())
             ensemble = self._ensembles[basis.ensemble]
             corr = ensemble.dot(mass.dot(ensemble.T))
             eigvals, eigvecs = np.linalg.eigh(corr)
@@ -126,16 +143,19 @@ class EigenReducer(Reducer):
             self._spectra[name] = eigvals
 
             reduced = ensemble.T.dot(eigvecs[:,:basis.ndofs]) / np.sqrt(eigvals[:basis.ndofs])
-            indices = case.basis_indices(basis.parent)
+            indices = case.bases[basis.parent].indices
             mask = np.ones(reduced.shape[0], dtype=np.bool)
             mask[indices] = 0
             reduced[mask,:] = 0
 
             projections[name] = reduced.T
 
+        self._projections = projections
         return projections
 
     def plot_spectra(self, filename, figsize=(10,10)):
+        self.get_projections()  # Compute spectra as a byproduct
+
         max_shp = max(len(evs) for evs in self._spectra.values())
         data = [np.copy(evs) for evs in self._spectra.values()]
         for d in data:

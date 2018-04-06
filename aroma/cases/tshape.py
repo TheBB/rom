@@ -39,12 +39,12 @@
 
 from nutils import mesh, function as fn, _
 
-from aroma.cases.bases import FlowCase, NutilsCase
+from aroma.case import NutilsCase
 from aroma.util import collocate, characteristic
 from aroma.affine import NutilsDelayedIntegrand
 
 
-class tshape(NutilsCase, FlowCase):
+class tshape(NutilsCase):
 
     def __init__(self, refine=1, degree=3, nel_up=None, nel_length=None, nel_up_mid=None,
                  nel_length_out=None, stabilize=True, override=True):
@@ -72,11 +72,11 @@ class tshape(NutilsCase, FlowCase):
             ]
         )
 
-        NutilsCase.__init__(self, domain, geom)
+        NutilsCase.__init__(self, 'T-shape channel', domain, geom)
 
-        NU = 1 / self.add_parameter('viscosity', 20, 50)
-        H = self.add_parameter('height', 1, 5)
-        V = self.add_parameter('velocity', 1, 5)
+        NU = 1 / self.parameters.add('viscosity', 20, 50)
+        H = self.parameters.add('height', 1, 5)
+        V = self.parameters.add('velocity', 1, 5)
 
         bases = [
             domain.basis('spline', degree=(degree, degree-1)),  # vx
@@ -89,13 +89,13 @@ class tshape(NutilsCase, FlowCase):
         vxbasis, vybasis, pbasis, *__ = fn.chain(bases)
         vbasis = vxbasis[:,_] * (1,0) + vybasis[:,_] * (0,1)
 
-        self.add_basis('v', vbasis, sum(basis_lens[:2]))
-        self.add_basis('p', pbasis, basis_lens[2])
+        self.bases.add('v', vbasis, length=sum(basis_lens[:2]))
+        self.bases.add('p', pbasis, length=basis_lens[2])
         self.extra_dofs = 4 if stabilize else 0
 
         x, y = geom
         hy = fn.piecewise(y, (1,2), y-1, 0, y-2)
-        self.add_displacement(fn.asarray((0, hy)), H-1)
+        self.geometry += H - 1, fn.asarray((0, hy))
 
         self.constrain(
             'v', 'patch0-bottom', 'patch0-left', 'patch0-right', 'patch1-left',
@@ -106,7 +106,7 @@ class tshape(NutilsCase, FlowCase):
 
         # Lifting function
         profile = fn.max(0, y/3 * (1-y/3) * (1-x))[_] * (1, 0)
-        self.add_lift(profile, 'v', scale=V)
+        self.lift += V, self.project_lift(profile, 'v')
 
         # Characteristic functions
         cp0, cp1, cp2, cp3 = [characteristic(domain, (i,)) for i in range(4)]
@@ -114,41 +114,34 @@ class tshape(NutilsCase, FlowCase):
         cp13 = cp1 + cp3
 
         # Stokes divergence term
-        self['divergence'] = (
-            - (H-1) * (fn.outer(vgrad[:,0,0], pbasis) * cp02)
-            - fn.outer(vbasis.div(geom), pbasis)
-        )
+        self['divergence'] -= H-1, fn.outer(vgrad[:,0,0], pbasis) * cp02
+        self['divergence'] -= 1, fn.outer(vbasis.div(geom), pbasis)
+        self['divergence'].freeze(lift=(1,))
 
         # Stokes laplacian term
-        self['laplacian'] = (
-            + NU * fn.outer(vgrad).sum([-1,-2]) * cp13
-            + NU*H * fn.outer(vgrad[:,:,0]).sum(-1) * cp02
-            + NU/H * fn.outer(vgrad[:,:,1]).sum(-1) * cp02
-        )
+        self['laplacian'] += NU, fn.outer(vgrad).sum([-1,-2]) * cp13
+        self['laplacian'] += NU*H, fn.outer(vgrad[:,:,0]).sum(-1) * cp02
+        self['laplacian'] += NU/H, fn.outer(vgrad[:,:,1]).sum(-1) * cp02
 
         # Navier-Stokes convective term
         args = ('ijk', 'wuv')
         kwargs = {'x': geom, 'w': vbasis, 'u': vbasis, 'v': vbasis}
-        self['convection'] = (
-            + H * NutilsDelayedIntegrand('c w_ia u_j0 v_ka,0', *args, **kwargs, c=cp02)
-            + NutilsDelayedIntegrand('c w_ia u_j1 v_ka,1', *args, **kwargs, c=cp02)
-            + NutilsDelayedIntegrand('c w_ia u_jb v_ka,b', *args, **kwargs, c=cp13)
-        )
+        self['convection'] += H, NutilsDelayedIntegrand('c w_ia u_j0 v_ka,0', *args, **kwargs, c=cp02)
+        self['convection'] += 1, NutilsDelayedIntegrand('c w_ia u_j1 v_ka,1', *args, **kwargs, c=cp02)
+        self['convection'] += 1, NutilsDelayedIntegrand('c w_ia u_jb v_ka,b', *args, **kwargs, c=cp13)
 
         # Norms
         self['v-h1s'] = self['laplacian'] / NU
-        self['v-l2'] = (
-            + H * fn.outer(vbasis).sum(-1) * cp02
-            + fn.outer(vbasis).sum(-1) * cp13
-        )
-        self['p-l2'] = (
-            + H * fn.outer(pbasis) * cp02
-            + fn.outer(pbasis) * cp13
-        )
+        self['v-l2'] += H, fn.outer(vbasis).sum(-1) * cp02
+        self['v-l2'] += 1, fn.outer(vbasis).sum(-1) * cp13
+        self['p-l2'] += H, fn.outer(pbasis) * cp02
+        self['p-l2'] += 1, fn.outer(pbasis) * cp13
 
         if not stabilize:
-            self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
+            self.verify()
             return
+
+        root = self.ndofs - self.extra_dofs
 
         points = [
             (0, (0, 0)),
@@ -157,12 +150,12 @@ class tshape(NutilsCase, FlowCase):
             (nel_up*nel_length*2 + nel_up_mid*nel_length - 1, (1, 1))
         ]
         eqn = vbasis[:,0].grad(geom).grad(geom)
-        colloc = collocate(domain, eqn[:,0,0,_], points, self.root, self.size)
-        self['stab-lhs'] = NU * (colloc + colloc.T)
-        colloc = collocate(domain, eqn[:,1,1,_], points, self.root, self.size)
-        self['stab-lhs'] += NU/H**2 * (colloc + colloc.T)
+        colloc = collocate(domain, eqn[:,0,0,_], points, root, self.ndofs)
+        self['stab-lhs'] += NU, (colloc + colloc.T)
+        colloc = collocate(domain, eqn[:,1,1,_], points, root, self.ndofs)
+        self['stab-lhs'] += NU/H**2, (colloc + colloc.T)
         eqn = -pbasis.grad(geom)[:,0,_]
-        colloc = collocate(domain, eqn, points, self.root, self.size)
-        self['stab-lhs'] += colloc + colloc.T
+        colloc = collocate(domain, eqn, points, root, self.ndofs)
+        self['stab-lhs'] += 1, colloc + colloc.T
 
-        self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
+        self.verify()

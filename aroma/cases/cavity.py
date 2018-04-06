@@ -40,11 +40,11 @@
 import numpy as np
 from nutils import mesh, function as fn, _
 
-from aroma.util import collocate
-from aroma.cases.bases import FlowCase, NutilsCase
+from aroma.util import collocate, multiple_to_single
+from aroma.case import NutilsCase
 
 
-class cavity(NutilsCase, FlowCase):
+class cavity(NutilsCase):
 
     def __init__(self, refine=1, degree=4, nel=None):
         if nel is None:
@@ -53,7 +53,7 @@ class cavity(NutilsCase, FlowCase):
         pts = np.linspace(0, 1, nel + 1)
         domain, geom = mesh.rectilinear([pts, pts])
 
-        NutilsCase.__init__(self, domain, geom)
+        NutilsCase.__init__(self, 'Cavity flow', domain, geom)
 
         bases = [
             domain.basis('spline', degree=(degree, degree-1)),  # vx
@@ -66,13 +66,13 @@ class cavity(NutilsCase, FlowCase):
         vxbasis, vybasis, pbasis, lbasis, __ = fn.chain(bases)
         vbasis = vxbasis[:,_] * (1,0) + vybasis[:,_] * (0,1)
 
-        self.add_basis('v', vbasis, sum(basis_lens[:2]))
-        self.add_basis('p', pbasis, basis_lens[2])
+        self.bases.add('v', vbasis, length=sum(basis_lens[:2]))
+        self.bases.add('p', pbasis, length=basis_lens[2])
         self.extra_dofs = 5
 
         self.constrain('v', 'left', 'top', 'bottom', 'right')
 
-        self.add_lift(np.zeros(vbasis.shape[0],))
+        self.lift += 1, np.zeros(vbasis.shape[0])
 
         x, y = geom
         f = 4 * (x - x**2)**2
@@ -87,21 +87,23 @@ class cavity(NutilsCase, FlowCase):
 
         self._exact_solutions = {'v': velocity, 'p': pressure}
 
-        self['forcing'] = (vbasis * force[_,:]).sum(-1)
-        self['divergence'] = - fn.outer(vbasis.div(geom), pbasis)
-        self['laplacian'] = fn.outer(vbasis.grad(geom)).sum((-1, -2))
-        self['v-h1s'] = fn.outer(vbasis.grad(geom)).sum([-1, -2])
-        self['p-l2'] = fn.outer(pbasis)
+        self['forcing'] += 1, (vbasis * force[_,:]).sum(-1)
+        self['divergence'] -= 1, fn.outer(vbasis.div(geom), pbasis)
+        self['laplacian'] += 1, fn.outer(vbasis.grad(geom)).sum((-1, -2))
+        self['v-h1s'] += 1, fn.outer(vbasis.grad(geom)).sum([-1, -2])
+        self['p-l2'] += 1, fn.outer(pbasis)
+        self['divergence'].freeze(lift=(1,))
+
+        root = self.ndofs - self.extra_dofs
 
         points = [(0, (0, 0)), (nel-1, (0, 1)), (nel*(nel-1), (1, 0)), (nel**2-1, (1, 1))]
         eqn = (pbasis.grad(geom) - vbasis.laplace(geom))[:,0,_]
-        colloc = collocate(domain, eqn, points, self.root+1, self.size)
-        self['stab-lhs'] = colloc
-        self['stab-lhs'] += fn.outer(lbasis, pbasis)
+        colloc = collocate(domain, eqn, points, root+1, self.ndofs)
+        self['stab-lhs'] += 1, colloc
+        self['stab-lhs'] += 1, fn.outer(lbasis, pbasis)
 
-        self['stab-rhs'] = collocate(domain, force[0,_], points, self.root+1, self.size)
+        self['stab-rhs'] += 1, collocate(domain, force[0,_], points, root+1, self.ndofs)
 
-        self.finalize(domain=domain, geometry=geom, ischeme='gauss9')
-
-    def _exact(self, mu, field):
+    @multiple_to_single('field')
+    def exact(self, mu, field):
         return self._exact_solutions[field]

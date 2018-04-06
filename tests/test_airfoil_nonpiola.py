@@ -15,9 +15,9 @@ def mk_case(override):
         (1 + 10 * r) * fn.cos(ang),
         (1 + 10 * r) * fn.sin(ang),
     ))
-    return cases.airfoil(
-        override=override, mesh=(domain, refgeom, geom), lift=False, amax=10, rmax=10, piola=False
-    )
+    case = cases.airfoil(mesh=(domain, refgeom, geom), lift=False, amax=10, rmax=10, piola=False)
+    case.precompute(force=override)
+    return case
 
 cases = {True: mk_case(True), False: mk_case(False)}
 
@@ -35,8 +35,8 @@ def mu():
 
 
 def test_divergence_matrix(mu, case):
-    vbasis, pbasis = case.basis('v').obj, case.basis('p').obj
-    trfgeom = case.physical_geometry(mu)
+    vbasis, pbasis = case.bases['v'].obj, case.bases['p'].obj
+    trfgeom = case.geometry(mu)
 
     itg = -fn.outer(vbasis.div(trfgeom), pbasis)
     phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
@@ -46,8 +46,8 @@ def test_divergence_matrix(mu, case):
 
 
 def test_laplacian_matrix(mu, case):
-    vbasis, pbasis = case.basis('v').obj, case.basis('p').obj
-    trfgeom = case.physical_geometry(mu)
+    vbasis, pbasis = case.bases['v'].obj, case.bases['p'].obj
+    trfgeom = case.geometry(mu)
 
     itg = fn.outer(vbasis.grad(trfgeom)).sum([-1, -2])
     phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
@@ -57,8 +57,8 @@ def test_laplacian_matrix(mu, case):
 
 
 def test_convection(mu, case):
-    vbasis, pbasis = case.basis('v').obj, case.basis('p').obj
-    trfgeom = case.physical_geometry(mu)
+    vbasis, pbasis = case.bases['v'].obj, case.bases['p'].obj
+    trfgeom = case.geometry(mu)
 
     a, b, c = [np.random.rand(vbasis.shape[0]) for __ in range(3)]
     u = vbasis.dot(b)
@@ -68,5 +68,5 @@ def test_convection(mu, case):
     itg = (w[:,_] * u[_,:] * v[:,:]).sum([-1, -2])
     phys_conv = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
-    test_conv = affine.integrate(case['convection'](mu, cont=(a,b,c)))
+    test_conv = affine.integrate(case['convection'](mu, cont=(a,b,c), case=case))
     np.testing.assert_almost_equal(phys_conv, test_conv)

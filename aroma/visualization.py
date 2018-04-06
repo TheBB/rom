@@ -40,6 +40,7 @@
 from contextlib import contextmanager
 import numpy as np
 import nutils.plot
+from nutils import function as fn
 
 
 @contextmanager
@@ -63,10 +64,9 @@ def _colorbar(plt, clim=None, colorbar=False, **kwargs):
 
 
 def velocity(case, mu, lhs, density=1, **kwargs):
-    tri = case.triangulation(mu)
-    vvals = case.solution(lhs, mu, 'v')
+    tri, mesh = case.triangulation(mu, lines=True)
+    vvals = case.solution(lhs, 'v', mu)
     vnorm = np.linalg.norm(vvals, axis=-1)
-    mesh = case.meshlines(mu)
 
     with _plot('v', mesh=mesh, **kwargs) as plt:
         plt.tripcolor(tri, vnorm, shading='gouraud')
@@ -75,9 +75,8 @@ def velocity(case, mu, lhs, density=1, **kwargs):
 
 
 def pressure(case, mu, lhs, **kwargs):
-    tri = case.triangulation(mu)
-    pvals = case.solution(lhs, mu, 'p')
-    mesh = case.meshlines(mu)
+    tri, mesh = case.triangulation(mu, lines=True)
+    pvals = case.solution(lhs, 'p', mu)
 
     with _plot('p', mesh=mesh, **kwargs) as plt:
         plt.tripcolor(tri, pvals, shading='gouraud')

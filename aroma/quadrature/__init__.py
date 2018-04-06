@@ -43,6 +43,12 @@ import numpy as np
 from . import quadpy
 
 
+def _combine(points, weights):
+    points = np.array(list(points))
+    weights = np.array(list(weights))[:,np.newaxis]
+    return np.hstack((weights, points))
+
+
 def uniform(intervals, npts):
     ndims = len(intervals)
     if isinstance(npts, int):
@@ -52,10 +58,11 @@ def uniform(intervals, npts):
     for n, (a, b) in zip(npts, intervals):
         points.append(np.linspace(a, b, n))
         weights.append(np.ones((n,)) * (b - a) / n)
-    return list(zip(
+
+    return _combine(
         product(*points),
         map(np.product, product(*weights))
-    ))
+    )
 
 
 def full(intervals, npts):
@@ -68,10 +75,11 @@ def full(intervals, npts):
         pts, wts = np.polynomial.legendre.leggauss(n)
         points.append((pts + 1)/2 * (b - a) + a)
         weights.append(wts/2 * (b - a))
-    return list(zip(
+
+    return _combine(
         product(*points),
         map(np.product, product(*weights))
-    ))
+    )
 
 
 def sparse(intervals, npts):
@@ -106,8 +114,12 @@ def sparse(intervals, npts):
         assign = [slice(None, dim) for dim in wts.shape]
         total_weights[assign] += wts
 
-    return list(
+    total = list(
         (tuple(points[i][j] for i, j in enumerate(ix)), total_weights[ix])
         for ix in product(range(npts), repeat=ndims)
         if total_weights[ix] != 0.0
     )
+
+    points = (a for a, _ in total)
+    weights = (b for _, b in total)
+    return _combine(points, weights)
