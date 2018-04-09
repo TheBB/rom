@@ -152,24 +152,24 @@ class EigenReducer(Reducer):
         self._projections = projections
         return projections
 
-    def plot_spectra(self, filename, figsize=(10,10)):
+    def plot_spectra(self, filename, figsize=(10,10), nvals=None):
         self.get_projections()  # Compute spectra as a byproduct
 
-        max_shp = max(len(evs) for evs in self._spectra.values())
-        data = [np.copy(evs) for evs in self._spectra.values()]
-        for d in data:
-            d.resize((max_shp,))
-        data = np.vstack(data)
+        if nvals is None:
+            nvals = max(len(evs) for evs in self._spectra.values())
+
+        data = [evs[:nvals] for evs in self._spectra.values()]
+        data = np.vstack([d/d[0] for d in data])
         names = [f'{name}' for name in self._spectra]
 
         with plot.PyPlot(filename, index='', ndigits=0, figsize=figsize) as plt:
             for d in data:
-                plt.semilogy(range(1, max_shp + 1), d)
+                plt.semilogy(range(1, nvals + 1), d)
             plt.grid()
-            plt.xlim(0, max_shp + 1)
+            plt.xlim(0, nvals + 1)
             plt.legend(names)
 
-        data = np.vstack([np.arange(1, max_shp+1)[_,:], data]).T
+        data = np.vstack([np.arange(1, nvals+1)[_,:], data]).T
         filename = f'{filename}.csv'
         np.savetxt(filename, data)
         log.user(filename)
