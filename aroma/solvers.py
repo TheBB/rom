@@ -211,7 +211,7 @@ def elasticity(case, mu):
         rhs += case['forcing'](mu)
 
     try:
-        lhs = matrix.solve(rhs, constrain=case.cons, solver='cg', tol=1e-6)
+        lhs = matrix.solve(rhs, constrain=case.cons, solver='cg', tol=1e-10, precon='SPLU')
     except TypeError:
         lhs = matrix.solve(rhs, constrain=case.cons)
 
