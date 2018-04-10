@@ -37,8 +37,6 @@
 # written agreement between you and SINTEF Digital.
 
 
-from aroma.cases.bases import ProjectedCase, ProjectedBasis
-
 from aroma.cases.airfoil import airfoil
 from aroma.cases.backstep import backstep
 from aroma.cases.cavity import cavity

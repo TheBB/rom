@@ -41,7 +41,6 @@ from collections import OrderedDict, namedtuple
 import numpy as np
 from nutils import log, plot, _
 
-# from aroma.cases import ProjectedCase, ProjectedBasis
 from aroma.case import LofiCase
 
 
