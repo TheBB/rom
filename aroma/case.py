@@ -254,6 +254,11 @@ class Case:
         fields = ', '.join(fields)
         s += f'          Fields: {fields}\n'
 
+        if self.maps:
+            maps = [f'{key} ({len(value)})' for key, value in self.maps.items()]
+            maps = ', '.join(maps)
+            s += f'            Maps: {maps}\n'
+
         s += f'      Parameters: {len(self.parameters)}\n'
         s += f'       Integrals: {len(self.parameters)}\n'
 
@@ -271,7 +276,7 @@ class Case:
         if self.integrals:
             s += f'\n{self.integrals}\n'
 
-        return s
+        return s[:-1]
 
     @property
     def ndofs(self):
