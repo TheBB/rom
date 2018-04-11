@@ -66,7 +66,7 @@ class Ensemble(dict):
             ]
         else:
             args = zip(count(), repeat(case), repeat(solver), quadrule, args)
-            pool = Pool()
+            pool = Pool(4)
             solutions = list(pool.imap(_solve, args))
         meantime = sum(t for t, _ in solutions) / len(solutions)
         self[name] = np.array([s for __, s in solutions])
