@@ -22,12 +22,12 @@ def get_case(fast: bool = False, piola: bool = False):
 def get_ensemble(fast: bool = False, piola: bool = False, num: int = 10):
     case = get_case(fast, piola)
     case.ensure_shareable()
-    scheme = list(quadrature.full(case.ranges(), num))
-    solutions = ens.make_ensemble(case, solvers.navierstokes, scheme, weights=True, parallel=fast)
-    supremizers = ens.make_ensemble(
-        case, solvers.supremizer, scheme, weights=False, parallel=False, args=[solutions],
-    )
-    return scheme, solutions, supremizers
+
+    scheme = quadrature.full(case.ranges(), num)
+    ensemble = ens.Ensemble(scheme)
+    ensemble.compute('solutions', case, solvers.navierstokes, parallel=fast)
+    ensemble.compute('supremizers', case, solvers.supremizer, parallel=True, args=[ensemble['solutions']])
+    return ensemble
 
 
 @util.filecache('airfoil-{piola}-{sups}-{nred}.rcase')
@@ -46,8 +46,8 @@ def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: in
         reducer.override('laplacian', 'vv', 'sv', soft=True)
         reducer.override('divergence', 'sp', soft=True)
 
-    rcase = reducer()
     reducer.plot_spectra(util.make_filename(get_reduced, 'airfoil-spectrum-{piola}', piola=piola))
+    rcase = reducer()
 
 def force_err(hicase, locase, hifi, lofi, scheme):
     abs_err, rel_err = np.zeros(2), np.zeros(2)
@@ -100,6 +100,7 @@ def solve(angle, velocity, fast, piola, index):
 @click.option('--sups/--no-sups', default=True)
 @click.option('--nred', '-r', default=10)
 @click.option('--index', '-i', default=0)
+@util.common_args
 def rsolve(angle, velocity, piola, sups, nred, index):
     case = get_reduced(piola=piola, sups=sups, nred=nred)
     angle = -angle / 180 * np.pi
@@ -119,6 +120,7 @@ def rsolve(angle, velocity, piola, sups, nred, index):
 @click.option('--fast/--no-fast', default=False)
 @click.option('--piola/--no-piola', default=False)
 @click.option('--num', '-n', default=8)
+@util.common_args
 def ensemble(fast, piola, num):
     get_ensemble(fast, piola, num)
 
@@ -129,6 +131,7 @@ def ensemble(fast, piola, num):
 @click.option('--sups/--no-sups', default=True)
 @click.option('--num', '-n', default=8)
 @click.option('--nred', '-r', default=10)
+@util.common_args
 def reduce(fast, piola, sups, num, nred):
     get_reduced(piola, sups, nred, fast, num)
 
@@ -193,6 +196,7 @@ def _bfuns(fast: bool = False, piola: bool = False, num=8):
 @click.option('--fast/--no-fast', default=False)
 @click.option('--piola/--no-piola', default=False)
 @click.option('--num', '-n', default=8)
+@util.common_args
 def bfuns(fast, piola, num):
     _bfuns(fast=fast, piola=piola, num=num)
 
@@ -242,6 +246,7 @@ def _results(fast: bool = False, piola: bool = False, sups: bool = False, block:
 @click.option('--sups/--no-sups', default=True)
 @click.option('--block/--no-block', default=False)
 @click.argument('nred', nargs=-1, type=int)
+@util.common_args
 def results(fast, piola, sups, block, nred):
     return _results(fast=fast, piola=piola, sups=sups, block=block, nred=nred)
 
