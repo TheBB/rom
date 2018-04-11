@@ -46,8 +46,9 @@ from aroma.affine import NutilsArrayIntegrand
 
 class beam(NutilsCase):
 
-    def __init__(self, nel=10, ndim=2, override=False, finalize=True):
-        xpts = np.linspace(0, 3, 15*nel+1)
+    def __init__(self, nel=10, ndim=2, L=15, override=False, finalize=True):
+        L /= 5
+        xpts = np.linspace(0, L, int(L*5*nel+1))
         yzpts = np.linspace(0, 0.2, nel+1)
         if ndim == 2:
             domain, geom = mesh.rectilinear([xpts, yzpts])
