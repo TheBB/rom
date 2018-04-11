@@ -103,9 +103,9 @@ def mk_bases(case, piola):
         J = case.refgeom.grad(case._refgeom)
         detJ = fn.determinant(J)
         bases = [
-            case.domain.basis('spline', degree=(3,2))[:,_] * J[:,0] / detJ,
-            case.domain.basis('spline', degree=(2,3))[:,_] * J[:,1] / detJ,
-            case.domain.basis('spline', degree=2) / detJ,
+            case.domain.basis('spline', degree=(2,1))[:,_] * J[:,0] / detJ,
+            case.domain.basis('spline', degree=(1,2))[:,_] * J[:,1] / detJ,
+            case.domain.basis('spline', degree=1) / detJ,
         ]
     else:
         nr, na = case.domain.shape

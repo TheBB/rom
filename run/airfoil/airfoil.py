@@ -12,7 +12,7 @@ def main():
 
 @util.filecache('airfoil-{fast}-{piola}.case')
 def get_case(fast: bool = False, piola: bool = False):
-    case = cases.airfoil(amax=35, piola=piola)
+    case = cases.airfoil(amax=35, piola=piola, nelems=70)
     case.restrict(viscosity=6.0)
     case.precompute(force=fast)
     return case
