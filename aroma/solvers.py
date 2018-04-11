@@ -56,8 +56,7 @@ def solve(mx, rhs, cons, **kwargs):
         mx = matrix.NumpyMatrix(mx)
     else:
         mx = matrix.ScipyMatrix(mx)
-    return mx.solve(rhs, constrain=cons, solver='cg', tol=1e-10, precon='SPLU', **kwargs)
-    # return mx.solve(rhs, constrain=cons, **kwargs)
+    return mx.solve(rhs, constrain=cons, **kwargs)
 
 
 def _stokes_matrix(case, mu):
