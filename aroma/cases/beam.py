@@ -60,8 +60,8 @@ class beam(NutilsCase):
         E = self.add_parameter('ymod', 1e10, 9e10)
         NU = self.add_parameter('prat', 0.25, 0.42)
         F1 = self.add_parameter('force1', -0.4e6, 0.4e6)
-        F2 = self.add_parameter('force2', -0.4e6, 0.4e6)
-        F3 = self.add_parameter('force3', -0.4e6, 0.4e6)
+        F2 = self.add_parameter('force2', -0.2e6, 0.2e6)
+        F3 = self.add_parameter('force3', -0.2e6, 0.2e6)
 
         basis = domain.basis('spline', degree=1).vector(ndim)
         self.add_basis('u', basis, len(basis))
@@ -79,13 +79,16 @@ class beam(NutilsCase):
         #     + LAMBDA * (basis.div(geom)[:,_,_] * fn.eye(2))
         # )
 
-        irgt = NutilsArrayIntegrand(fn.matmat(basis, geom.normal()))
-        irgt.prop(domain=domain.boundary['right'])
-        ibtm = NutilsArrayIntegrand(fn.matmat(basis, geom.normal()))
-        ibtm.prop(domain=domain.boundary['bottom'])
-        ifrt = NutilsArrayIntegrand(fn.matmat(basis, geom.normal()))
-        ifrt.prop(domain=domain.boundary['front'])
-        self['forcing'] = F1 * irgt + F2 * ibtm + F3 * ifrt
+        normdot = fn.matmat(basis, geom.normal())
+
+        irgt = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['right'])
+
+        ibtm = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['bottom'])
+        itop = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['top'])
+        ifrt = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['front'])
+        ibck = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['back'])
+
+        self['forcing'] = F1 * irgt + F2 * ibtm - F2 * itop + F3 * ifrt - F3 * ibck
 
         self['u-h1s'] = fn.outer(basis.grad(geom)).sum([-1,-2])
 
