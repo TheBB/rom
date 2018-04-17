@@ -206,8 +206,9 @@ def _results(fast: bool = False, piola: bool = False, sups: bool = False, block:
     tcase = get_case(fast=fast, piola=piola)
     tcase.ensure_shareable()
 
-    scheme = list(quadrature.full(tcase.ranges(), 15))
-    ttime, tsol = ens.make_ensemble(tcase, solvers.navierstokes, scheme, parallel=True, return_time=True)
+    scheme = quadrature.uniform(tcase.ranges(), 10)
+    ensemble = ens.Ensemble(scheme)
+    ttime = ensemble.compute('hifi', tcase, solvers.navierstokes, parallel=fast)
 
     if not piola:
         block = False
@@ -216,20 +217,18 @@ def _results(fast: bool = False, piola: bool = False, sups: bool = False, block:
     for nr in nred:
         rcase = get_reduced(piola=piola, sups=sups, nred=nr)
         solver = solvers.navierstokes_block if block else solvers.navierstokes
-        rtime, rsol = ens.make_ensemble(rcase, solver, scheme, return_time=True)
+        rtime = ensemble.compute(f'lofi-{nr}', rcase, solver, parallel=False)
         mu = tcase.parameter()
-        verrs = ens.errors(tcase, rcase, tsol, rsol, tcase['v-h1s'](mu), scheme)
-        perrs = ens.errors(tcase, rcase, tsol, rsol, tcase['p-l2'](mu), scheme)
-        ferrs = force_err(tcase, rcase, tsol, rsol, scheme)
+        verrs = ensemble.errors(tcase, 'hifi', rcase, f'lofi-{nr}', tcase['v-h1s'](mu))
+        perrs = ensemble.errors(tcase, 'hifi', rcase, f'lofi-{nr}', tcase['p-l2'](mu))
         res.append([
             rcase.size // 3, rcase.meta['err-v'], rcase.meta['err-p'],
-            *verrs, *perrs, *ferrs, rtime
+            *verrs, *perrs, rtime
         ])
 
     # Case size, exp v, exp p,
     # mean abs v, mean rel v, max abs v, max rel v,
     # mean abs p, mean rel p, max abs p, max rel p,
-    # mean abs f, mean rel f, max abs f, max rel f,
     # mean time usage
     res = np.array(res)
     np.savetxt(

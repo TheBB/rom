@@ -60,6 +60,7 @@ class Reducer:
 
     def __call__(self):
         case = self.case
+        del case.integrals['force']
         projections = self.get_projections()
         total_proj = np.vstack(projections.values())
 
