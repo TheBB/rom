@@ -49,6 +49,7 @@ def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: in
     reducer.plot_spectra(util.make_filename(get_reduced, 'airfoil-spectrum-{piola}', piola=piola))
     return reducer()
 
+
 def force_err(hicase, locase, hifi, lofi, scheme):
     abs_err, rel_err = np.zeros(2), np.zeros(2)
     max_abs_err, max_rel_err = np.zeros(2), np.zeros(2)
