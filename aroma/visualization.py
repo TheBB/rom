@@ -63,9 +63,9 @@ def _colorbar(plt, clim=None, colorbar=False, **kwargs):
     if colorbar: plt.colorbar()
 
 
-def velocity(case, mu, lhs, density=1, **kwargs):
+def velocity(case, mu, lhs, density=1, lift=True, **kwargs):
     tri, mesh = case.triangulation(mu, lines=True)
-    vvals = case.solution(lhs, 'v', mu)
+    vvals = case.solution(lhs, 'v', mu, lift=lift)
     vnorm = np.linalg.norm(vvals, axis=-1)
 
     with _plot('v', mesh=mesh, **kwargs) as plt:
@@ -74,9 +74,9 @@ def velocity(case, mu, lhs, density=1, **kwargs):
         plt.streamplot(tri, vvals, spacing=0.1, density=density, color='black')
 
 
-def pressure(case, mu, lhs, **kwargs):
+def pressure(case, mu, lhs, lift=True, **kwargs):
     tri, mesh = case.triangulation(mu, lines=True)
-    pvals = case.solution(lhs, 'p', mu)
+    pvals = case.solution(lhs, 'p', mu, lift=lift)
 
     with _plot('p', mesh=mesh, **kwargs) as plt:
         plt.tripcolor(tri, pvals, shading='gouraud')
