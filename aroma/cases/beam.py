@@ -88,7 +88,7 @@ class beam(NutilsCase):
         ifrt = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['front'])
         ibck = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['back'])
 
-        self['forcing'] = F1 * irgt + F2 * ibtm - F2 * itop + F3 * ifrt - F3 * ibck
+        self['forcing'] = F1 * irgt - F2 * ibtm + F2 * itop - F3 * ifrt + F3 * ibck
 
         self['u-h1s'] = fn.outer(basis.grad(geom)).sum([-1,-2])
 
