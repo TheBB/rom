@@ -392,7 +392,7 @@ class HifiCase(Case):
         self.lift = Affine.read(group['lift'])
 
     def solution_vector(self, lhs, mu, lift=True):
-        return lhs + self.lift(mu) if lift else lhs
+        return (lhs + self.lift(mu)) if lift else lhs
 
 
 class NutilsCase(HifiCase):
@@ -544,7 +544,7 @@ class LofiCase(Case):
         return tri
 
     @util.multiple_to_single('field')
-    def solution(self, lhs, mu, field, lift=True):
+    def solution(self, lhs, field, mu=None, lift=True):
         lhs = lhs[self.bases[field].indices]
         retval = np.tensordot(lhs, self.bases[field].obj, axes=1)
         if lift and field in self.lift:

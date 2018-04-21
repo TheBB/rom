@@ -133,8 +133,8 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
 
 def blocksolve(vv, sv, sp, rhs, V, S, P):
     lhs = np.zeros_like(rhs)
-    lhs[V] = vv.solve(rhs[V])
-    lhs[P] = sp.solve(rhs[S] - sv.matvec(lhs[V]))
+    lhs[V] = matrix.NumpyMatrix(vv).solve(rhs[V])
+    lhs[P] = matrix.NumpyMatrix(sp).solve(rhs[S] - sv @ lhs[V])
     return lhs
 
 
@@ -143,13 +143,13 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
                 'convection-vvv', 'convection-svv']:
         assert itg in case
 
-    nn = case.size // 3
+    nn = case.ndofs // 3
     V = np.arange(nn)
     S = np.arange(nn,2*nn)
     P = np.arange(2*nn,3*nn)
 
     # Assumption: divergence of lift is zero
-    stokes_rhs = np.zeros((case.size,))
+    stokes_rhs = np.zeros((case.ndofs,))
     stokes_rhs[V] -= case['laplacian-vv'](mu, lift=1)
     stokes_rhs[S] -= case['laplacian-sv'](mu, lift=1)
 
@@ -164,7 +164,7 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
     stokes_rhs[V] -= case['convection-vvv'](mu, lift=(1,2))
     stokes_rhs[S] -= case['convection-svv'](mu, lift=(1,2))
 
-    vmass = case.norm('v', 'h1s', mu=mu)
+    vmass = case['v-h1s'](mu)
 
     for it in count(1):
         cc = case['convection-vvv']
@@ -173,17 +173,17 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
         nsv = msv + cc(mu, cont=(None, lhs[V], None)) + cc(mu, cont=(None, None, lhs[V]))
 
         rhs = stokes_rhs.copy()
-        rhs[V] -= mvv.matvec(lhs[V])
-        rhs[S] -= msv.matvec(lhs[V])
-        rhs[S] -= msp.matvec(lhs[P])
+        rhs[V] -= mvv @ lhs[V]
+        rhs[S] -= msv @ lhs[V]
+        rhs[S] -= msp @ lhs[P]
         rhs[V] -= case['convection-vvv'](mu, cont=(None,lhs[V],lhs[V]))
         rhs[S] -= case['convection-svv'](mu, cont=(None,lhs[V],lhs[V]))
 
         update = blocksolve(nvv, nsv, msp, rhs, V, S, P)
         lhs += update
 
-        update_norm = np.sqrt(vmass.matvec(update).dot(update))
-        log.info('update: {:.2e}'.format(update_norm))
+        update_norm = np.sqrt(update @ vmass @ update)
+        log.user('update: {:.2e}'.format(update_norm))
         if update_norm < newton_tol:
             break
 

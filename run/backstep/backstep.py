@@ -48,6 +48,7 @@ def main():
 
 @main.command()
 @click.option('--fast/--no-fast', default=False)
+@util.common_args
 def disp(fast):
     print(get_case(fast))
 
