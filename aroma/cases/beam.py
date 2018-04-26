@@ -40,7 +40,7 @@
 from nutils import mesh, function as fn, _, log
 import numpy as np
 
-from aroma.cases.bases import NutilsCase
+from aroma.case import NutilsCase
 from aroma.affine import NutilsArrayIntegrand
 
 
@@ -55,43 +55,37 @@ class beam(NutilsCase):
         else:
             domain, geom = mesh.rectilinear([xpts, yzpts, yzpts])
 
-        NutilsCase.__init__(self, domain, geom)
+        NutilsCase.__init__(self, 'Elastic beam', domain, geom)
 
-        E = self.add_parameter('ymod', 1e10, 9e10)
-        NU = self.add_parameter('prat', 0.25, 0.42)
-        F1 = self.add_parameter('force1', -0.4e6, 0.4e6)
-        F2 = self.add_parameter('force2', -0.2e6, 0.2e6)
-        F3 = self.add_parameter('force3', -0.2e6, 0.2e6)
+        E = self.parameters.add('ymod', 1e10, 9e10)
+        NU = self.parameters.add('prat', 0.25, 0.42)
+        F1 = self.parameters.add('force1', -0.4e6, 0.4e6)
+        F2 = self.parameters.add('force2', -0.2e6, 0.2e6)
+        F3 = self.parameters.add('force3', -0.2e6, 0.2e6)
 
         basis = domain.basis('spline', degree=1).vector(ndim)
-        self.add_basis('u', basis, len(basis))
-        self.add_lift(fn.zeros((ndim,)), 'u')
+        self.bases.add('u', basis, length=len(basis))
+        self.lift += 1, np.zeros((len(basis),))
         self.constrain('u', 'left')
 
         MU = E / (1 + NU)
         LAMBDA = E * NU / (1 + NU) / (1 - 2*NU)
-        self['stiffness'] = (
-            + MU * fn.outer(basis.symgrad(geom)).sum([-1,-2])
-            + LAMBDA * fn.outer(basis.div(geom))
-        )
-        # self['stress'] = (
-        #     - MU * basis.symgrad(geom)
-        #     + LAMBDA * (basis.div(geom)[:,_,_] * fn.eye(2))
-        # )
+        self['stiffness'] += MU, fn.outer(basis.symgrad(geom)).sum([-1,-2])
+        self['stiffness'] += LAMBDA, fn.outer(basis.div(geom))
 
         normdot = fn.matmat(basis, geom.normal())
 
         irgt = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['right'])
-
         ibtm = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['bottom'])
         itop = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['top'])
         ifrt = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['front'])
         ibck = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['back'])
+        self['forcing'] += F1, irgt
+        self['forcing'] -= F2, ibtm
+        self['forcing'] += F2, itop
+        self['forcing'] -= F3, ifrt
+        self['forcing'] += F3, ibck
 
-        self['forcing'] = F1 * irgt - F2 * ibtm + F2 * itop - F3 * ifrt + F3 * ibck
+        self['u-h1s'] += 1, fn.outer(basis.grad(geom)).sum([-1,-2])
 
-        self['u-h1s'] = fn.outer(basis.grad(geom)).sum([-1,-2])
-
-        if finalize:
-            log.user('finalizing')
-            self.finalize(override=override, domain=domain, geometry=geom, ischeme='gauss9')
+        self.verify()

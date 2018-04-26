@@ -86,14 +86,15 @@ def pressure(case, mu, lhs, **kwargs):
 
 
 def deformation(case, mu, lhs, stress='xx', name='solution', **kwargs):
-    disp = case.basis('u').obj.dot(lhs)
-    geom = case.geometry + disp
+    disp = case.bases['u'].obj.dot(lhs)
+    refgeom = case.geometry(mu)
+    geom = refgeom + disp
 
     E = mu['ymod']
     NU = mu['prat']
     MU = E / (1 + NU)
     LAMBDA = E * NU / (1 + NU) / (1 - 2*NU)
-    stressfunc = - MU * disp.symgrad(case.geometry) + LAMBDA * disp.div(case.geometry) * fn.eye(disp.shape[0])
+    stressfunc = - MU * disp.symgrad(refgeom) + LAMBDA * disp.div(refgeom) * fn.eye(disp.shape[0])
 
     if geom.shape == (2,):
         stressfunc = stressfunc[tuple('xyz'.index(c) for c in stress)]
