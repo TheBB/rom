@@ -70,6 +70,14 @@ def to_dataset(obj, group, name):
         subgroup.attrs['type'] = 'CSRMatrix' if isinstance(obj, sp.csr_matrix) else 'CSCMatrix'
         return subgroup
 
+    if isinstance(obj, sp.coo_matrix):
+        subgroup = group.require_group(name)
+        subgroup['data'] = obj.data
+        subgroup['row'] = obj.row
+        subgroup['col'] = obj.col
+        subgroup.attrs['shape'] = obj.shape
+        subgroup.attrs['type'] = 'COOMatrix'
+
     if isinstance(obj, np.ndarray):
         group[name] = obj
         group[name].attrs['type'] = 'Array'
@@ -94,6 +102,8 @@ def from_dataset(group):
     if type_ in {'CSRMatrix', 'CSCMatrix'}:
         cls = sp.csr_matrix if type_ == 'CSRMatrix' else sp.csc_matrix
         return cls((group['data'][:], group['indices'][:], group['indptr'][:]), shape=group.attrs['shape'])
+    if type_ == 'COOMatrix':
+        return sp.coo_matrix((group['data'][:], (group['row'][:], group['col'][:])), shape=group.attrs['shape'])
 
     raise NotImplementedError(f'Unknown type: {type_}')
 
