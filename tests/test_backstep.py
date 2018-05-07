@@ -34,7 +34,7 @@ def test_divergence_matrix(case, mu):
     phys_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
 
     test_mx = case['divergence'](mu)
-    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+    np.testing.assert_almost_equal(phys_mx.export('dense'), test_mx.toarray())
 
 
 def test_laplacian_matrix(case, mu):
@@ -45,7 +45,7 @@ def test_laplacian_matrix(case, mu):
     phys_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
 
     test_mx = case['laplacian'](mu)
-    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+    np.testing.assert_almost_equal(phys_mx.export('dense'), test_mx.toarray())
 
 
 def test_masses(case, mu):
@@ -56,13 +56,13 @@ def test_masses(case, mu):
     phys_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
 
     test_mx = case['v-h1s'](mu)
-    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+    np.testing.assert_almost_equal(phys_mx.export('dense'), test_mx.toarray())
 
     itg = fn.outer(pbasis, pbasis)
     phys_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9')
 
     test_mx = case['p-l2'](mu)
-    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+    np.testing.assert_almost_equal(phys_mx.export('dense'), test_mx.toarray())
 
 
 def test_convective_tensor(case, mu):
@@ -102,27 +102,27 @@ def test_convection(case, mu):
     # c(du, up, v)
     convfunc = (vbasis[:,_,:] * vfunc.grad(geom)[_,:,:]).sum(-1)
     itg = (vbasis[:,_,:] * convfunc[_,:,:]).sum(-1)
-    test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9').toarray()
+    test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9').export('dense')
     comp = (cmx * lhs[_,_,:]).sum(2)
     np.testing.assert_almost_equal(comp, test_mx)
 
     # c(up, du, v)
     convfunc = (vfunc[_,_,:] * vbasis.grad(geom)).sum(-1)
     itg = (vbasis[:,_,:] * convfunc[_,:,:]).sum(-1)
-    test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9').toarray()
+    test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9').export('dense')
     comp = (cmx * lhs[_,:,_]).sum(1)
     np.testing.assert_almost_equal(comp, test_mx)
 
     # c(du, gu, v)
     convfunc = (vbasis[:,_,:] * lfunc.grad(geom)[_,:,:]).sum(-1)
     itg = (vbasis[:,_,:] * convfunc[_,:,:]).sum(-1)
-    test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9').toarray()
+    test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9').export('dense')
     np.testing.assert_almost_equal(cmx2, test_mx)
 
     # c(gu, du, v)
     convfunc = (lfunc[_,_,:] * vbasis.grad(geom)).sum(-1)
     itg = (vbasis[:,_,:] * convfunc[_,:,:]).sum(-1)
-    test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9').toarray()
+    test_mx = domain.integrate(itg, geometry=geom, ischeme='gauss9').export('dense')
     np.testing.assert_almost_equal(cmx1, test_mx)
 
     # c(up, gu, v)

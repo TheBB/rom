@@ -64,7 +64,7 @@ def test_bases(mu, case):
 
     Z = case.geometry(mu).grad(case.refgeom)
     detZ = fn.determinant(Z)
-    zdiff = np.sqrt(domain.integrate((Z - J)**2, geometry=refgeom, ischeme='gauss9').toarray())
+    zdiff = np.sqrt(domain.integrate((Z - J)**2, geometry=refgeom, ischeme='gauss9').export('dense'))
     np.testing.assert_almost_equal(zdiff, 0.0)
 
     c_vbasis = fn.matmat(vbasis, Z.transpose()) / detZ
@@ -75,9 +75,9 @@ def test_bases(mu, case):
     pdiff = domain.integrate((a_pbasis - c_pbasis)**2, geometry=refgeom, ischeme='gauss9')
     np.testing.assert_almost_equal(pdiff, 0.0)
 
-    vdiff = np.sqrt(domain.integrate((a_vbasis - b_vbasis)**2, geometry=refgeom, ischeme='gauss9').toarray())
+    vdiff = np.sqrt(domain.integrate((a_vbasis - b_vbasis)**2, geometry=refgeom, ischeme='gauss9').export('dense'))
     np.testing.assert_almost_equal(vdiff, 0.0)
-    vdiff = domain.integrate((a_vbasis - c_vbasis)**2, geometry=refgeom, ischeme='gauss9').toarray()
+    vdiff = domain.integrate((a_vbasis - c_vbasis)**2, geometry=refgeom, ischeme='gauss9').export('dense')
     np.testing.assert_almost_equal(vdiff, 0.0)
 
 
@@ -89,7 +89,7 @@ def test_divergence_matrix(mu, case):
     phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
     test_mx = case['divergence'](mu)
-    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+    np.testing.assert_almost_equal(phys_mx.export('dense'), test_mx.toarray())
 
 
 def test_laplacian_matrix(mu, case):
@@ -100,7 +100,7 @@ def test_laplacian_matrix(mu, case):
     phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
     test_mx = case['laplacian'](mu)
-    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+    np.testing.assert_almost_equal(phys_mx.export('dense'), test_mx.toarray())
 
 
 def test_mass_matrix(mu, case):
@@ -111,7 +111,7 @@ def test_mass_matrix(mu, case):
     phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
     test_mx = case['v-h1s'](mu)
-    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+    np.testing.assert_almost_equal(phys_mx.export('dense'), test_mx.toarray())
 
 
 def test_convection(mu, case):
@@ -128,5 +128,4 @@ def test_convection(mu, case):
     phys_conv = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
     test_conv, = affine.integrate(case['convection'](mu, cont=(a,b,c), case=case))
-    print(phys_conv, test_conv)
     np.testing.assert_almost_equal(phys_conv, test_conv)

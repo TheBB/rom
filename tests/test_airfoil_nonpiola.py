@@ -42,7 +42,7 @@ def test_divergence_matrix(mu, case):
     phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
     test_mx = case['divergence'](mu)
-    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+    np.testing.assert_almost_equal(phys_mx.export('dense'), test_mx.toarray())
 
 
 def test_laplacian_matrix(mu, case):
@@ -53,7 +53,7 @@ def test_laplacian_matrix(mu, case):
     phys_mx = case.domain.integrate(itg, geometry=trfgeom, ischeme='gauss9')
 
     test_mx = case['laplacian'](mu)
-    np.testing.assert_almost_equal(phys_mx.toarray(), test_mx.toarray())
+    np.testing.assert_almost_equal(phys_mx.export('dense'), test_mx.toarray())
 
 
 def test_convection(mu, case):
