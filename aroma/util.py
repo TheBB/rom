@@ -55,6 +55,12 @@ import string
 from nutils import log, function as fn, topology, config
 
 
+_SCALARS = (
+    float, np.float, np.float128, np.float64, np.float32, np.float16,
+    int, np.int, np.int64, np.int32, np.int16, np.int8, np.int0,
+)
+
+
 def to_dataset(obj, group, name):
     if isinstance(obj, (fn.Array, topology.Topology, dict, type(None))):
         group[name] = np.string_(pickle.dumps(obj))
