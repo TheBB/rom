@@ -205,6 +205,21 @@ class Affine(list):
         return Affine(zip(scales, values))
 
 
+class MaybeScipyBackend(matrix.Scipy):
+
+    def assemble(self, data, index, shape):
+        if len(shape) > 2:
+            return matrix.Numpy().assemble(data, index, shape)
+        return super().assemble(data, index, shape)
+
+
+class COOTensorBackend(matrix.Backend):
+
+    def assemble(self, data, index, shape):
+        assert len(index) == len(shape) == 3
+        return COOTensorIntegrand(shape, *index, data)
+
+
 class MetaIntegrand(type):
 
     def __new__(cls, name, bases, attrs):
@@ -419,20 +434,17 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
             self.prop(**kwargs)
             return self
         domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme', **kwargs)
-        value = domain.integrate(self.obj, geometry=geom, ischeme=ischeme)
+        with MaybeScipyBackend():
+            value = domain.integrate(self.obj, geometry=geom, ischeme=ischeme)
         if isinstance(value, matrix.Matrix):
             value = value.core
         return Integrand.make(value)
 
     def _highdim_cache(self, **kwargs):
-        obj = self.obj
-        while obj.ndim > 2:
-            obj = fn.ravel(obj, 1)
         domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme', **kwargs)
-        value = domain.integrate(obj, geometry=geom, ischeme=ischeme)
-        value = sp.coo_matrix(value.core)
-        indices = np.unravel_index(value.col, self.shape[1:])
-        return COOTensorIntegrand(self.shape, value.row, *indices, value.data)
+        with COOTensorBackend():
+            value = domain.integrate(self.obj, geometry=geom, ischeme=ischeme)
+        return value
 
     def _contract(self, contraction):
         axes, obj = [], self.obj
@@ -466,9 +478,8 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
             obj = obj * p[(_,)*i + (s,s) + (_,) * (self.ndim - i - 1)]
             obj = obj.sum(i+1)
         domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
-        retval = domain.integrate(obj, geometry=geom, ischeme=ischeme)
-        if isinstance(retval, matrix.Matrix):
-            retval = retval.core
+        with matrix.Numpy():
+            retval = domain.integrate(obj, geometry=geom, ischeme=ischeme)
         return NumpyArrayIntegrand(retval)
 
 
@@ -571,9 +582,8 @@ class NutilsDelayedIntegrand(Integrand):
             setattr(ns, name, func)
         integrand = getattr(ns, self._evaluator)(self._code)
         domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
-        retval = domain.integrate(integrand, geometry=geom, ischeme=ischeme)
-        if isinstance(retval, matrix.Matrix):
-            retval = retval.core
+        with matrix.Numpy():
+            retval = domain.integrate(integrand, geometry=geom, ischeme=ischeme)
         return NumpyArrayIntegrand(retval)
 
 
@@ -702,9 +712,9 @@ class LazyNutilsIntegral(LazyIntegral):
         assert all(arg._domain is domain for arg in args[1:])
         assert all(arg._geometry is geom for arg in args[1:])
         assert all(arg._ischeme == ischeme for arg in args[1:])
-        retval = domain.integrate([arg._obj for arg in args], geometry=geom, ischeme=ischeme)
-        retval = [r.core if isinstance(r, matrix.Matrix) else r for r in retval]
-        return retval
+        with MaybeScipyBackend():
+            retval = domain.integrate([arg._obj for arg in args], geometry=geom, ischeme=ischeme)
+        return [r.core if isinstance(r, matrix.Matrix) else r for r in retval]
 
     def __init__(self, obj, domain, geometry, ischeme):
         self._obj = obj

@@ -39,7 +39,7 @@
 
 import numpy as np
 from scipy.misc import factorial
-from nutils import mesh, function as fn, log, _
+from nutils import mesh, function as fn, log, _, matrix
 from os import path
 
 from aroma.case import NutilsCase
@@ -144,7 +144,8 @@ def mk_lift(case, V):
     mx = fn.outer(vbasis.grad(geom)).sum([-1, -2])
     mx -= fn.outer(pbasis, vbasis.div(geom))
     mx -= fn.outer(vbasis.div(geom), pbasis)
-    mx = domain.integrate(mx, geometry=geom, ischeme='gauss9')
+    with matrix.Scipy():
+        mx = domain.integrate(mx, geometry=geom, ischeme='gauss9')
     rhs = np.zeros(pbasis.shape)
     lhs = mx.solve(rhs, constrain=cons)
     vsol = vbasis.dot(lhs)
