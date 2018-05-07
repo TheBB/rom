@@ -14,7 +14,7 @@ setup(
     install_requires=[
         'click',
         'h5py',
-        'nutils',
+        'nutils>=4.0',
         'numpy',
         'scipy',
         'sharedmem',

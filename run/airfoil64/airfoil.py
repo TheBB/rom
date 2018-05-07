@@ -74,7 +74,8 @@ def import_ensemble(piola: bool = False):
 
         vind = case.basis_indices('v')
         itg = fn.outer(vbasis).sum([-1]) + fn.outer(vgrad).sum([-1,-2])
-        mx = case.domain.integrate(itg, geometry=geom, ischeme='gauss9').core[np.ix_(vind,vind)]
+        with matrix.Scipy():
+            mx = case.domain.integrate(itg, geometry=geom, ischeme='gauss9').core[np.ix_(vind,vind)]
         itg = (vbasis * vsol[_,:]).sum([-1]) + (vgrad * vsol.grad(geom)[_,:,:]).sum([-1,-2])
         rhs = case.domain.integrate(itg, geometry=geom, ischeme='gauss9')[vind]
         lhs[vind] = matrix.ScipyMatrix(mx).solve(rhs)
