@@ -322,8 +322,10 @@ class AffineIntegral(Affine):
         return self
 
     def cache_lifts(self, **kwargs):
-        for sub in log.iter('axes', list(self._lift.values())):
-            sub.cache_main(**kwargs)
+        self._lift = {
+            key: sub.cache_main(**kwargs)
+            for key, sub in log.iter('axes', list(self._lift.items()))
+        }
 
     def ensure_shareable(self):
         for value in self.values:

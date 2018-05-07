@@ -374,12 +374,16 @@ class Case:
         return obj
 
     def precompute(self, force=False, **kwargs):
+        new = []
         for name, value in self.integrals.items():
             with log.context(name):
-                value.cache_main(force=force, **kwargs)
+                value = value.cache_main(force=force, **kwargs)
                 for scale, lift in self.lift:
                     value.contract_lift(scale, lift)
                 value.cache_lifts(force=force, **kwargs)
+                new.append((name, value))
+        for name, value in new:
+            self.integrals[name] = value
 
     def ensure_shareable(self):
         for value in self.integrals.values():
