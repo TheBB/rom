@@ -149,35 +149,55 @@ class SparsityPattern:
         self.indices = indices
         self.shape = shape
         self.ndim = len(shape)
+        self._exporters = {}
 
     @property
     def T(self):
         return SparsityPattern(self.indices[::-1], self.shape[::-1])
 
-    def eliminate(self, axes):
+    def contract_pattern(self, axes):
         remaining = [i for i in range(self.ndim) if i not in axes]
         indices = tuple(self.indices[i] for i in remaining)
         shape = tuple(self.shape[i] for i in remaining)
         return SparsityPattern(indices, shape)
 
-    def export(self, data, format='csr'):
+    def contract_data(self, data, contraction):
+        data = np.copy(data)
+        for i, c in enumerate(contraction):
+            if c is None:
+                continue
+            data *= c[self.indices[i]]
+        return data
+
+    def cache_exporter(self, format='csr'):
+        self._exporters[format] = self.exporter(format)
+
+    def exporter(self, format='csr'):
+        if format in self._exporters:
+            return self._exporters[format]
         if format == 'csr' and self.ndim == 2:
-            return sp.csr_matrix((data, self.indices), shape=self.shape)
+            return lambda d: sp.csr_matrix((d, self.indices), shape=self.shape)
         if format == 'coo' and self.ndim == 2:
-            return sp.coo_matrix((data, self.indices), shape=self.shape)
+            return lambda d: sp.coo_matrix((d, self.indices), shape=self.shape)
         if format == 'dense' and self.ndim == 0:
-            return np.sum(data)
+            return lambda d: np.sum(d)
         if format == 'dense' and self.ndim == 1:
             col = np.zeros_like(self.indices[0])
-            matrix = sp.coo_matrix((data, (self.indices[0], col)), shape=self.shape + (1,))
-            return matrix.toarray().reshape(self.shape)
+            def ret(d):
+                matrix = sp.coo_matrix((d, (self.indices[0], col)), shape=self.shape + (1,))
+                return matrix.toarray().reshape(self.shape)
+            return ret
         if format == 'dense' and self.ndim == 3:
             flat_index = np.ravel_multi_index(self.indices[1:], self.shape[1:])
             flat_shape = (self.shape[0], np.product(self.shape[1:]))
-            matrix = sp.coo_matrix((data, (self.indices[0], flat_index)), shape=flat_shape)
-            matrix = matrix.toarray()
-            return np.reshape(matrix, self.shape)
+            def ret(d):
+                matrix = sp.coo_matrix((d, (self.indices[0], flat_index)), shape=flat_shape)
+                return matrix.toarray().reshape(self.shape)
+            return ret
         raise NotImplementedError(f'{self.ndim} {format}')
+
+    def export(self, data, format='csr'):
+        return self.exporter(format)(data)
 
 
 class SparseArray:
@@ -212,14 +232,9 @@ class SparseArray:
         return SparseArray(coo.data, (coo.row, coo.col), coo.shape)
 
     def contract(self, contraction):
-        axes = []
-        data = np.copy(self.data)
-        for i, c in enumerate(contraction):
-            if c is None:
-                continue
-            data *= c[self.pattern.indices[i]]
-            axes.append(i)
-        return SparseArray(data, self.pattern.eliminate(axes))
+        data = self.pattern.contract_data(self.data, contraction)
+        pattern = self.pattern.contract_pattern(tuple(i for i, c in enumerate(contraction) if c is not None))
+        return SparseArray(data, pattern)
 
     def export(self, format='csr'):
         return self.pattern.export(self.data, format)
@@ -232,8 +247,10 @@ class SparseArray:
             pa, pb, pc = projection
             P, __ = pa.shape
             ret = np.empty((P, pb.shape[0], pc.shape[0]), self.data.dtype)
+
+            exporter = self.pattern.contract_pattern((0,)).exporter('csr')
             for i in log.iter('index', range(P), length=P):
-                mx = self.contract((pa[i], None, None)).export('csr')
+                mx = exporter(self.pattern.contract_data(self.data, (pa[i], None, None)))
                 ret[i] = pb.dot(mx.dot(pc.T))
             return ret
 
