@@ -142,18 +142,67 @@ class VectorAssembler:
         self.row, self.order, self.inds = map(shared_array, (self.row, self.order, self.inds))
 
 
-class SparseArray:
+class SparsityPattern:
 
-    def __init__(self, data, indices, shape):
+    def __init__(self, indices, shape):
         assert len(shape) == len(indices)
         self.indices = indices
-        self.data = data
         self.shape = shape
         self.ndim = len(shape)
 
     @property
     def T(self):
-        return SparseArray(self.data, self.indices[::-1], self.shape[::-1])
+        return SparsityPattern(self.indices[::-1], self.shape[::-1])
+
+    def eliminate(self, axes):
+        remaining = [i for i in range(self.ndim) if i not in axes]
+        indices = tuple(self.indices[i] for i in remaining)
+        shape = tuple(self.shape[i] for i in remaining)
+        return SparsityPattern(indices, shape)
+
+    def export(self, data, format='csr'):
+        if format == 'csr' and self.ndim == 2:
+            return sp.csr_matrix((data, self.indices), shape=self.shape)
+        if format == 'coo' and self.ndim == 2:
+            return sp.coo_matrix((data, self.indices), shape=self.shape)
+        if format == 'dense' and self.ndim == 0:
+            return np.sum(data)
+        if format == 'dense' and self.ndim == 1:
+            col = np.zeros_like(self.indices[0])
+            matrix = sp.coo_matrix((data, (self.indices[0], col)), shape=self.shape + (1,))
+            return matrix.toarray().reshape(self.shape)
+        if format == 'dense' and self.ndim == 3:
+            flat_index = np.ravel_multi_index(self.indices[1:], self.shape[1:])
+            flat_shape = (self.shape[0], np.product(self.shape[1:]))
+            matrix = sp.coo_matrix((data, (self.indices[0], flat_index)), shape=flat_shape)
+            matrix = matrix.toarray()
+            return np.reshape(matrix, self.shape)
+        raise NotImplementedError(f'{self.ndim} {format}')
+
+
+class SparseArray:
+
+    def __init__(self, *args):
+        if len(args) == 3:
+            data, indices, shape = args
+            pattern = SparsityPattern(indices, shape)
+        elif len(args) == 2:
+            data, pattern = args
+
+        self.data = data
+        self.pattern = pattern
+
+    @property
+    def shape(self):
+        return self.pattern.shape
+
+    @property
+    def ndim(self):
+        return self.pattern.ndim
+
+    @property
+    def T(self):
+        return SparseArray(self.data, self.pattern.T)
 
     def __add__(self, other):
         assert isinstance(other, SparseArray)
@@ -163,33 +212,17 @@ class SparseArray:
         return SparseArray(coo.data, (coo.row, coo.col), coo.shape)
 
     def contract(self, contraction):
-        remaining = []
+        axes = []
         data = np.copy(self.data)
         for i, c in enumerate(contraction):
             if c is None:
-                remaining.append(i)
-            else:
-                data *= c[self.indices[i]]
-        return SparseArray(data, tuple(self.indices[i] for i in remaining), tuple(self.shape[i] for i in remaining))
+                continue
+            data *= c[self.pattern.indices[i]]
+            axes.append(i)
+        return SparseArray(data, self.pattern.eliminate(axes))
 
     def export(self, format='csr'):
-        if format == 'csr' and self.ndim == 2:
-            return sp.csr_matrix((self.data, self.indices), shape=self.shape)
-        if format == 'coo' and self.ndim == 2:
-            return sp.coo_matrix((self.data, self.indices), shape=self.shape)
-        if format == 'dense' and self.ndim == 0:
-            return np.sum(self.data)
-        if format == 'dense' and self.ndim == 1:
-            col = np.zeros_like(self.indices[0])
-            matrix = sp.coo_matrix((self.data, (self.indices[0], col)), shape=self.shape + (1,))
-            return matrix.toarray().reshape(self.shape)
-        if format == 'dense' and self.ndim == 3:
-            flat_index = np.ravel_multi_index(self.indices[1:], self.shape[1:])
-            flat_shape = (self.shape[0], np.product(self.shape[1:]))
-            matrix = sp.coo_matrix((self.data, (self.indices[0], flat_index)), shape=flat_shape)
-            matrix = matrix.toarray()
-            return np.reshape(matrix, self.shape)
-        raise NotImplementedError(f'{self.ndim} {format}')
+        return self.pattern.export(self.data, format)
 
     def project(self, projection):
         # TODO: Remove this condition
@@ -198,11 +231,9 @@ class SparseArray:
         if self.ndim == 3:
             pa, pb, pc = projection
             P, __ = pa.shape
-            ass = CSRAssembler(self.shape[1:], self.indices[1], self.indices[2])
             ret = np.empty((P, pb.shape[0], pc.shape[0]), self.data.dtype)
             for i in log.iter('index', range(P), length=P):
-                data = self.data * pa[i, self.indices[0]]
-                mx = ass(data)
+                mx = self.contract((pa[i], None, None)).export('csr')
                 ret[i] = pb.dot(mx.dot(pc.T))
             return ret
 
