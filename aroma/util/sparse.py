@@ -100,46 +100,29 @@ class CSRAssembler:
         )
 
 
-class VectorAssembler:
+class DenseExporter:
 
-    def __init__(self, shape, inds):
-        assert len(shape) == 1
-        assert np.max(inds) < shape[0]
+    def __init__(self, indices, shape):
+        # Sort all the indices
+        indices = np.array(indices)
+        order = np.lexsort(indices)
+        indices = indices[:, order]
 
-        order = np.lexsort((inds,))
-        inds = inds[order]
-        mask = inds[1:] != inds[:-1]
+        # Combine sequentially identical indices into one
+        mask = np.bitwise_or.reduce(indices[:,1:] != indices[:,:-1])
         mask = np.append(True, mask)
-        self.row = inds[mask]
-        inds, = np.nonzero(mask)
+        indices = indices[:, mask]
 
-        self.order, self.inds = order, inds
+        self._collapse_pts, = np.nonzero(mask)
+        self._order = order
+        self._indices = indices
         self.shape = shape
 
-    def write(self, group):
-        to_dataset(self.row, group, 'row')
-        to_dataset(self.order, group, 'order')
-        to_dataset(self.inds, group, 'inds')
-        group.attrs['shape'] = self.shape
-        group.attrs['type'] = 'VectorAssembler'
-
-    @staticmethod
-    def read(group):
-        retval = VectorAssembler.__new__(VectorAssembler)
-        retval.row = group['row'][:]
-        retval.order = group['order'][:]
-        retval.inds = group['inds'][:]
-        retval.shape = tuple(group.attrs['shape'])
-        return retval
-
     def __call__(self, data):
-        data = np.add.reduceat(data[self.order], self.inds)
+        data = np.add.reduceat(data[self._order], self._collapse_pts)
         retval = np.zeros(self.shape, dtype=data.dtype)
-        retval[self.row] = data
+        retval[tuple(self._indices)] = data
         return retval
-
-    def ensure_shareable(self):
-        self.row, self.order, self.inds = map(shared_array, (self.row, self.order, self.inds))
 
 
 class SparsityPattern:
@@ -181,19 +164,8 @@ class SparsityPattern:
             return lambda d: sp.coo_matrix((d, self.indices), shape=self.shape)
         if format == 'dense' and self.ndim == 0:
             return lambda d: np.sum(d)
-        if format == 'dense' and self.ndim == 1:
-            col = np.zeros_like(self.indices[0])
-            def ret(d):
-                matrix = sp.coo_matrix((d, (self.indices[0], col)), shape=self.shape + (1,))
-                return matrix.toarray().reshape(self.shape)
-            return ret
-        if format == 'dense' and self.ndim == 3:
-            flat_index = np.ravel_multi_index(self.indices[1:], self.shape[1:])
-            flat_shape = (self.shape[0], np.product(self.shape[1:]))
-            def ret(d):
-                matrix = sp.coo_matrix((d, (self.indices[0], flat_index)), shape=flat_shape)
-                return matrix.toarray().reshape(self.shape)
-            return ret
+        if format == 'dense':
+            return DenseExporter(self.indices, self.shape)
         raise NotImplementedError(f'{self.ndim} {format}')
 
     def export(self, data, format='csr'):
