@@ -2,7 +2,7 @@ import numpy as np
 from nutils import mesh, function as fn, _
 import pytest
 
-from aroma.affine import mu, COOTensorIntegrand, Affine, AffineIntegral
+from aroma.affine import mu, Affine, AffineIntegral
 
 
 def test_add_ar():
@@ -14,23 +14,23 @@ def test_add_ar():
     np.testing.assert_almost_equal(obj({'a': -0.1, 'b': 3.2}), 3.2*J - 0.1*I)
 
 
-def test_cootensor():
-    I = np.array([0, 0, 0, 0, 1, 1, 1, 1])
-    J = np.array([0, 0, 1, 1, 0, 0, 1, 1])
-    K = np.array([0, 1, 0, 1, 0, 1, 0, 1])
-    V = np.array([0, 1, 2, 3, 4, 5, 6, 7])
+# def test_cootensor():
+#     I = np.array([0, 0, 0, 0, 1, 1, 1, 1])
+#     J = np.array([0, 0, 1, 1, 0, 0, 1, 1])
+#     K = np.array([0, 1, 0, 1, 0, 1, 0, 1])
+#     V = np.array([0, 1, 2, 3, 4, 5, 6, 7])
 
-    itg = COOTensorIntegrand((2,2,2), I, J, K, V)
-    np.testing.assert_almost_equal(itg.get((None,None,None)), V.reshape((2,2,2)))
+#     itg = COOTensorIntegrand((2,2,2), I, J, K, V)
+#     np.testing.assert_almost_equal(itg.get((None,None,None)), V.reshape((2,2,2)))
 
-    I = np.array([0, 0, 0, 0, 1, 1, 1, 1, 1])
-    J = np.array([0, 0, 1, 1, 0, 0, 1, 1, 1])
-    K = np.array([0, 1, 0, 1, 0, 1, 0, 1, 1])
-    V = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8])
+#     I = np.array([0, 0, 0, 0, 1, 1, 1, 1, 1])
+#     J = np.array([0, 0, 1, 1, 0, 0, 1, 1, 1])
+#     K = np.array([0, 1, 0, 1, 0, 1, 0, 1, 1])
+#     V = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8])
 
-    R = np.array([0, 1, 2, 3, 4, 5, 6, 15])
-    itg = COOTensorIntegrand((2,2,2), I, J, K, V)
-    np.testing.assert_almost_equal(itg.get((None,None,None)), R.reshape((2,2,2)))
+#     R = np.array([0, 1, 2, 3, 4, 5, 6, 15])
+#     itg = COOTensorIntegrand((2,2,2), I, J, K, V)
+#     np.testing.assert_almost_equal(itg.get((None,None,None)), R.reshape((2,2,2)))
 
 
 def test_nutils_tensor():

@@ -41,7 +41,16 @@ from collections import OrderedDict
 from nutils import matrix, function as fn, _
 
 from aroma import util
-from aroma.affine.integrands import Integrand, ThinWrapperIntegrand, LazyIntegral, COOTensorIntegrand, NumpyArrayIntegrand
+from aroma.util.sparse import SparseArray
+from aroma.affine.integrands import Integrand, ThinWrapperIntegrand, LazyIntegral,  NumpyArrayIntegrand
+
+
+class SparseBackend(matrix.Backend):
+
+    def assemble(self, data, index, shape):
+        if len(shape) > 1:
+            return SparseArray(data, index, shape)
+        return matrix.Numpy().assemble(data, index, shape)
 
 
 class MaybeScipyBackend(matrix.Scipy):
@@ -50,13 +59,6 @@ class MaybeScipyBackend(matrix.Scipy):
         if len(shape) > 2:
             return matrix.Numpy().assemble(data, index, shape)
         return super().assemble(data, index, shape)
-
-
-class COOTensorBackend(matrix.Backend):
-
-    def assemble(self, data, index, shape):
-        assert len(index) == len(shape) == 3
-        return COOTensorIntegrand(shape, *index, data)
 
 
 class NutilsArrayIntegrand(ThinWrapperIntegrand):
@@ -72,24 +74,14 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
         super().__init__(obj)
 
     def cache(self, force=False, **kwargs):
-        if self.ndim >= 3 and force:
-            return self._highdim_cache(**kwargs)
-        elif self.ndim >= 3:
+        if self.ndim >= 3 and not force:
             # Store properties for later integration
             self.prop(**kwargs)
             return self
         domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme', **kwargs)
-        with MaybeScipyBackend():
+        with SparseBackend():
             value = domain.integrate(self.obj, geometry=geom, ischeme=ischeme)
-        if isinstance(value, matrix.Matrix):
-            value = value.core
         return Integrand.make(value)
-
-    def _highdim_cache(self, **kwargs):
-        domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme', **kwargs)
-        with COOTensorBackend():
-            value = domain.integrate(self.obj, geometry=geom, ischeme=ischeme)
-        return value
 
     def _contract(self, contraction):
         axes, obj = [], self.obj
