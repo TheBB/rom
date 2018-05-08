@@ -113,6 +113,9 @@ class DenseExporter:
         mask = np.append(True, mask)
         indices = indices[:, mask]
 
+        # Compress into flat indices, needs less memory
+        indices = np.ravel_multi_index(tuple(indices), shape)
+
         self._collapse_pts, = np.nonzero(mask)
         self._order = order
         self._indices = indices
@@ -121,7 +124,7 @@ class DenseExporter:
     def __call__(self, data):
         data = np.add.reduceat(data[self._order], self._collapse_pts)
         retval = np.zeros(self.shape, dtype=data.dtype)
-        retval[tuple(self._indices)] = data
+        retval.flat[self._indices] = data
         return retval
 
 
