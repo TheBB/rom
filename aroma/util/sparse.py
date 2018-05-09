@@ -43,82 +43,45 @@ import scipy.sparse as sp
 import scipy.sparse._sparsetools as sptools
 
 
-class CSRAssembler:
+def _normalize(indices):
+    # Sort indices in lexicographic order
+    indices = np.array(indices)
+    order = np.lexsort(indices)
+    indices = indices[:, order]
 
-    def __init__(self, shape, row, col):
+    # Combine sequentially identical indices into one
+    mask = np.bitwise_or.reduce(indices[:,1:] != indices[:,:-1])
+    mask = np.append(True, mask)
+    indices = indices[:, mask]
+    collapse_pts, = np.nonzero(mask)
+
+    return order, collapse_pts, indices
+
+
+class CSRExporter:
+
+    def __init__(self, indices, shape):
         assert len(shape) == 2
-        assert np.max(row) < shape[0]
-        assert np.max(col) < shape[1]
-
-        order = np.lexsort((row, col))
-        row, col = row[order], col[order]
-        mask = ((row[1:] != row[:-1]) | (col[1:] != col[:-1]))
-        mask = np.append(True, mask)
-        row, col = row[mask], col[mask]
-        inds, = np.nonzero(mask)
-
-        M, N = shape
-        idx_dtype = sp.sputils.get_index_dtype((row, col), maxval=max(len(row), N))
-        self.row = row.astype(idx_dtype, copy=False)
-        self.col = col.astype(idx_dtype, copy=False)
-
-        self.order, self.inds = order, inds
+        self._order, self._collapse_pts, self._indices = _normalize(indices)
         self.shape = shape
 
-    def write(self, group):
-        to_dataset(self.row, group, 'row')
-        to_dataset(self.col, group, 'col')
-        to_dataset(self.order, group, 'order')
-        to_dataset(self.inds, group, 'inds')
-        group.attrs['shape'] = self.shape
-        group.attrs['type'] = 'CSRAssembler'
-
-    @staticmethod
-    def read(group):
-        retval = CSRAssembler.__new__(CSRAssembler)
-        retval.row = group['row'][:]
-        retval.col = group['col'][:]
-        retval.order = group['order'][:]
-        retval.inds = group['inds'][:]
-        retval.shape = tuple(group.attrs['shape'])
-        return retval
-
     def __call__(self, data):
-        data = np.add.reduceat(data[self.order], self.inds)
-
+        data = np.add.reduceat(data[self._order], self._collapse_pts)
         M, N = self.shape
-        indptr = np.empty(M+1, dtype=self.row.dtype)
-        indices = np.empty_like(self.col, dtype=self.row.dtype)
+        row, col = self._indices
+        indptr = np.empty(M+1, dtype=row.dtype)
+        indices = np.empty_like(col)
         new_data = np.empty_like(data)
 
-        sptools.coo_tocsr(M, N, len(self.row), self.row, self.col, data, indptr, indices, new_data)
+        sptools.coo_tocsr(M, N, len(row), row, col, data, indptr, indices, new_data)
         return sp.csr_matrix((new_data, indices, indptr), shape=self.shape)
-
-    def ensure_shareable(self):
-        self.row, self.col, self.order, self.inds = map(
-            shared_array, (self.row, self.col, self.order, self.inds)
-        )
 
 
 class DenseExporter:
 
     def __init__(self, indices, shape):
-        # Sort all the indices
-        indices = np.array(indices)
-        order = np.lexsort(indices)
-        indices = indices[:, order]
-
-        # Combine sequentially identical indices into one
-        mask = np.bitwise_or.reduce(indices[:,1:] != indices[:,:-1])
-        mask = np.append(True, mask)
-        indices = indices[:, mask]
-
-        # Compress into flat indices, needs less memory
-        indices = np.ravel_multi_index(tuple(indices), shape)
-
-        self._collapse_pts, = np.nonzero(mask)
-        self._order = order
-        self._indices = indices
+        self._order, self._collapse_pts, indices = _normalize(indices)
+        self._indices = np.ravel_multi_index(tuple(indices), shape)
         self.shape = shape
 
     def __call__(self, data):
@@ -141,6 +104,10 @@ class SparsityPattern:
     def T(self):
         return SparsityPattern(self.indices[::-1], self.shape[::-1])
 
+    @property
+    def nnz(self):
+        return len(self.indices[0])
+
     def contract_pattern(self, axes):
         remaining = [i for i in range(self.ndim) if i not in axes]
         indices = tuple(self.indices[i] for i in remaining)
@@ -162,7 +129,9 @@ class SparsityPattern:
         if format in self._exporters:
             return self._exporters[format]
         if format == 'csr' and self.ndim == 2:
-            return lambda d: sp.csr_matrix((d, self.indices), shape=self.shape)
+            if self.nnz == 0:
+                return lambda d: sp.csr_matrix(self.shape, dtype=d.dtype)
+            return CSRExporter(self.indices, self.shape)
         if format == 'coo' and self.ndim == 2:
             return lambda d: sp.coo_matrix((d, self.indices), shape=self.shape)
         if format == 'dense' and self.ndim == 0:
