@@ -213,6 +213,6 @@ def elasticity(case, mu):
     try:
         lhs = solve(matrix, rhs, case.constraints, solver='cg', atol=1e-10, precon='SPLU')
     except TypeError:
-        lhs = matrix.solve(rhs, constrain=case.cons)
+        lhs = solve(matrix, rhs, case.constraints)
 
     return lhs
