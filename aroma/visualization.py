@@ -99,7 +99,7 @@ def deformation(case, mu, lhs, stress='xx', name='solution', **kwargs):
     if geom.shape == (2,):
         stressfunc = stressfunc[tuple('xyz'.index(c) for c in stress)]
         mesh, stressdata = case.domain.elem_eval([geom, stressfunc], separate=True, ischeme='bezier3')
-        with _plot(name=name, **kwargs) as plt:
+        with _plot('u', name=name, **kwargs) as plt:
             plt.mesh(mesh, stressdata)
             _colorbar(plt, **kwargs)
 
