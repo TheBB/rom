@@ -58,6 +58,45 @@ def _normalize(indices):
     return order, collapse_pts, indices
 
 
+def _normalize_data(indices, data):
+    order, cpts, indices = _normalize(indices)
+    return indices, np.add.reduceat(data[:,order], cpts, axis=1)
+
+
+def _unify(ia, da, ib, db):
+    if len(ib[0]) == 0:
+        return ia, np.vstack([da, np.zeros((db.shape[0], da.shape[1]))])
+    if len(ia[0]) == 0:
+        return ib, np.vstack([np.zeros((da.shape[0], db.shape[1])), db])
+
+    ia, da = _normalize_data(ia, da)
+    ib, db = _normalize_data(ib, db)
+
+    M, N = ia.shape[1], ib.shape[1]
+    tot_indices = np.hstack((ia, ib))
+    iuniq, I = np.unique(tot_indices, axis=1, return_inverse=True)
+
+    duniq = np.zeros((da.shape[0] + db.shape[0], iuniq.shape[1]))
+    duniq[:da.shape[0], I[:M]] += da
+    duniq[da.shape[0]:, I[-N:]] += db
+
+    return iuniq, duniq
+
+
+def unify(arrays):
+    assert all(array.shape == arrays[0].shape for array in arrays[1:])
+
+    root, *arrays = arrays
+    indices, data = root.indices, np.array([root.data])
+
+    while arrays:
+        array, *arrays = arrays
+        indices, data = _unify(indices, data, array.indices, np.array([array.data]))
+
+    pattern = SparsityPattern(indices, root.shape)
+    return pattern, data
+
+
 class CSRExporter:
 
     def __init__(self, indices, shape):
@@ -157,12 +196,20 @@ class SparseArray:
         self.pattern = pattern
 
     @property
+    def nnz(self):
+        return self.pattern.nnz
+
+    @property
     def shape(self):
         return self.pattern.shape
 
     @property
     def ndim(self):
         return self.pattern.ndim
+
+    @property
+    def indices(self):
+        return self.pattern.indices
 
     @property
     def T(self):
