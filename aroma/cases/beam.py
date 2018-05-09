@@ -44,12 +44,28 @@ from aroma.case import NutilsCase
 from aroma.affine import NutilsArrayIntegrand
 
 
+def _graded(left, right, npts, factor):
+    delta = (1 - factor) / (1 - factor**(npts-1))
+    pts = [0.0, delta]
+    for _ in range(npts - 2):
+        delta *= factor
+        pts.append(pts[-1] + delta)
+    pts = np.array(pts)
+    return pts / pts[-1] * (right - left) + left
+
+
 class beam(NutilsCase):
 
-    def __init__(self, nel=10, ndim=2, L=15, override=False, finalize=True):
+    def __init__(self, nel=10, ndim=2, L=15, override=False, finalize=True, graded=False):
         L /= 5
-        xpts = np.linspace(0, L, int(L*5*nel+1))
-        yzpts = np.linspace(0, 0.2, nel+1)
+        if graded:
+            # HACK!
+            xpts = _graded(0, L, int(L*3*nel+1), 1.04)
+            yzpts = _graded(0, 0.1, nel//2 + 1, 1.3)
+            yzpts = np.hstack([yzpts[:-1], 0.2 - yzpts[::-1]])
+        else:
+            xpts = np.linspace(0, L, int(L*5*nel+1))
+            yzpts = np.linspace(0, 0.2, nel+1)
         if ndim == 2:
             domain, geom = mesh.rectilinear([xpts, yzpts])
         else:
