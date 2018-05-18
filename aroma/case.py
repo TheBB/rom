@@ -38,7 +38,7 @@
 
 from beautifultable import BeautifulTable
 from collections import defaultdict, OrderedDict, namedtuple
-from nutils import function as fn, log, plot
+from nutils import function as fn, log, plot, matrix
 import numpy as np
 import math
 from matplotlib.tri import Triangulation
@@ -472,7 +472,9 @@ class NutilsCase(HifiCase):
             basis = basis[...,component]
             zero = zero[...,component]
 
-        super().constrain(boundary.project(zero, onto=basis, geometry=self.refgeom, ischeme='gauss2'))
+        with matrix.Scipy():
+            projected = boundary.project(zero, onto=basis, geometry=self.refgeom, ischeme='gauss2')
+        super().constrain(projected)
 
     def project_lift(self, function, basis, ischeme=None):
         basis = self.bases[basis].obj
