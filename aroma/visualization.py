@@ -51,7 +51,7 @@ def _plot(suffix, name='solution', figsize=(10,10), index=None, mesh=None,
     ndigits = 0 if index is None else 3
     with nutils.plot.PyPlot(f'{name}-{suffix}', figsize=figsize, index=index, ndigits=ndigits) as plt:
         yield plt
-        if mesh: plt.segments(mesh, linewidth=0.1, color='black')
+        if mesh is not None: plt.segments(mesh, linewidth=0.1, color='black')
         plt.aspect('equal')
         plt.autoscale(enable=True, axis='both', tight=True)
         if xlim: plt.xlim(*xlim)
