@@ -144,10 +144,11 @@ def mk_lift(case, V):
     x, y = geom
     vbasis, pbasis = case.bases['v'].obj, case.bases['p'].obj
 
-    cons = domain.boundary['left'].project((0,0), onto=vbasis, geometry=geom, ischeme='gauss1')
-    cons = domain.boundary['right'].select(-x).project(
-        (1,0), onto=vbasis, geometry=geom, ischeme='gauss9', constrain=cons,
-    )
+    with matrix.Scipy():
+        cons = domain.boundary['left'].project((0,0), onto=vbasis, geometry=geom, ischeme='gauss1')
+        cons = domain.boundary['right'].select(-x).project(
+            (1,0), onto=vbasis, geometry=geom, ischeme='gauss9', constrain=cons,
+        )
 
     mx = fn.outer(vbasis.grad(geom)).sum([-1, -2])
     mx -= fn.outer(pbasis, vbasis.div(geom))
