@@ -1,6 +1,6 @@
 import click
 import numpy as np
-from nutils import log, config
+from nutils import log, config, plot
 from aroma import cases, solvers, util, quadrature, reduction, ensemble as ens, visualization
 import multiprocessing
 
@@ -12,7 +12,7 @@ def main():
 
 @util.filecache('airfoil-{fast}-{piola}.case')
 def get_case(fast: bool = False, piola: bool = False):
-    case = cases.airfoil(amax=35, piola=piola)
+    case = cases.airfoil(amax=35, piola=piola, nelems=60)
     case.restrict(viscosity=6.0)
     case.precompute(force=fast)
     return case
@@ -74,7 +74,25 @@ def force_err(hicase, locase, hifi, lofi, scheme):
 @click.option('--piola/--no-piola', default=False)
 @util.common_args
 def disp(fast, piola):
-    print(get_case(fast, piola))
+    case = get_case(fast, piola)
+    print(case)
+
+    d = 3e-2
+    pts = case.domain.elem_eval(case.refgeom, ischeme='bezier3', separate=True)
+    with plot.PyPlot('domain', ndigits=0, figsize=(10,10)) as plt:
+        plt.mesh(pts)
+    with plot.PyPlot('domain-close', ndigits=0, figsize=(10,10)) as plt:
+        plt.mesh(pts)
+        plt.xlim(-1,1)
+        plt.ylim(-1,1)
+    with plot.PyPlot('domain-trailing', ndigits=0, figsize=(10,10)) as plt:
+        plt.mesh(pts)
+        plt.xlim(.5-d,.5+d)
+        plt.ylim(-d,d)
+    with plot.PyPlot('domain-leading', ndigits=0, figsize=(10,10)) as plt:
+        plt.mesh(pts)
+        plt.xlim(-.5-d,-.5+d)
+        plt.ylim(-d,d)
 
 
 @main.command()
