@@ -85,17 +85,25 @@ def mk_mesh(nelems, radius, fname='NACA0015', cylrot=0.0):
     pspace = np.linspace(0, 2*np.pi, cpts.shape[0] + 1)
     rspace = np.linspace(0, 1, nelems + 1)
     domain, refgeom = mesh.rectilinear([rspace, pspace], periodic=(1,))
-    basis = domain.basis('spline', degree=3)
+    basis = domain.basis('spline', degree=(1,1))
 
     angle = np.linspace(0, 2*np.pi, cpts.shape[0], endpoint=False) - cylrot
     angle = np.hstack([[angle[-1]], angle[:-1]])
     upts = radius * np.vstack([np.cos(angle), np.sin(angle)]).T
 
-    interp = np.linspace(0, 1, nelems + 3) ** 3
+    c = np.log(1.14) * nelems
+    interp = np.linspace(0, 1, nelems + 1)
+    interp = (np.exp(c * interp) - 1) / (np.exp(c) - 1)
+
     cc = np.vstack([(1-i)*cpts + i*upts for i in interp])
     geom = fn.asarray([basis.dot(cc[:,0]), basis.dot(cc[:,1])])
 
-    return domain, refgeom, geom
+    # Re-interpolate for higher order
+    qbasis = domain.basis('spline', degree=2).vector(2)
+    qgeom = domain.project(geom, onto=qbasis, ischeme='gauss9', geometry=refgeom)
+    qgeom = qbasis.dot(qgeom)
+
+    return domain, refgeom, qgeom
 
 
 def mk_bases(case, piola):
@@ -111,16 +119,16 @@ def mk_bases(case, piola):
         nr, na = case.domain.shape
         rkts = np.arange(nr+1)
         pkts = np.arange(na+1)
-        rmul = [2] * len(rkts)
-        rmul[0] = 3
-        rmul[-1] = 3
+        rmul = [3] * len(rkts)
+        rmul[0] = 4
+        rmul[-1] = 4
         pmul = [2] * len(pkts)
 
         thbasis = case.domain.basis(
-            'spline', degree=(2,2),
+            'spline', degree=(3,3),
             knotvalues=[rkts,pkts], knotmultiplicities=[rmul,pmul],
         )
-        bases = [thbasis[:,_]*(1,0), thbasis[:,_]*(0,1), case.domain.basis('spline', degree=1)]
+        bases = [thbasis[:,_]*(1,0), thbasis[:,_]*(0,1), case.domain.basis('spline', degree=2)]
 
     vnbasis, vtbasis, pbasis = fn.chain(bases)
     vbasis = vnbasis + vtbasis
