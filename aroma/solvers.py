@@ -55,9 +55,10 @@ def solve(mx, rhs, cons, **kwargs):
     if isinstance(mx, np.ndarray):
         mx = matrix.NumpyMatrix(mx)
     else:
-        coo = mx.tocoo()
-        with matrix.MKL() as mkl:
-            mx = mkl.assemble(coo.data, np.array([coo.row, coo.col]), coo.shape)
+        # coo = mx.tocoo()
+        # with matrix.MKL() as mkl:
+        #     mx = mkl.assemble(coo.data, np.array([coo.row, coo.col]), coo.shape)
+        mx = matrix.ScipyMatrix(mx)
     return mx.solve(rhs, constrain=cons, **kwargs)
 
 
@@ -100,7 +101,7 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     assert 'v-h1s' in case
 
     stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
-    lhs = solve(stokes_mat, stokes_rhs, case.constraints)
+    lhs = solve(stokes_mat, stokes_rhs, case.constraints, solver='cg', atol=1e-3, precon='splu')
 
     stokes_mat += case['convection'](mu, lift=1) + case['convection'](mu, lift=2)
     stokes_rhs -= case['convection'](mu, lift=(1,2))
@@ -119,7 +120,7 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
         rhs = stokes_rhs - stokes_mat @ lhs - rh
         ns_mat = stokes_mat + lh
 
-        update = solve(ns_mat, rhs, case.constraints)
+        update = solve(ns_mat, rhs, case.constraints, solver='cg', atol=1e-3, precon='splu')
         lhs += update
 
         update_norm = np.sqrt(update @ vmass @ update)
