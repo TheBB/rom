@@ -108,8 +108,9 @@ def solve(angle, velocity, fast, piola, index):
     mu = case.parameter(angle=angle, velocity=velocity)
     with util.time():
         lhs = solvers.navierstokes(case, mu)
+
     visualization.velocity(case, mu, lhs, name='full', axes=False, colorbar=True)
-    visualization.pressure(case, mu, lhs, name='full', axes=False, colorbar=True)
+    visualization.pressure(case, mu, lhs, name='full', axes=False, colorbar=True, xlim=(-1,1), ylim=(-1,1))
 
 
 @main.command()
@@ -132,7 +133,7 @@ def rsolve(angle, velocity, piola, sups, nred, index):
             lhs = solvers.navierstokes(case, mu)
 
     visualization.velocity(case, mu, lhs, name='red', axes=False, colorbar=True)
-    visualization.pressure(case, mu, lhs, name='red', axes=False, colorbar=True)
+    visualization.pressure(case, mu, lhs, name='red', axes=False, colorbar=True, xlim=(-1,1), ylim=(-1,1))
 
 
 @main.command()
