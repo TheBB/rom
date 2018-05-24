@@ -33,6 +33,7 @@ def get_ensemble(fast: bool = False, piola: bool = False, num: int = 10):
 @util.filecache('airfoil-{piola}-{sups}-{nred}.rcase')
 def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: int = None, num: int = None):
     case = get_case(fast, piola)
+    del case.integrals['force']
     ensemble = get_ensemble(fast, piola, num)
 
     reducer = reduction.EigenReducer(case, ensemble)

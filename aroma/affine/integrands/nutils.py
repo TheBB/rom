@@ -38,7 +38,7 @@
 
 
 from collections import OrderedDict
-from nutils import matrix, function as fn, _
+from nutils import matrix, function as fn, _, log
 
 from aroma import util
 from aroma.affine.integrands import Integrand, ThinWrapperIntegrand, LazyIntegral, COOTensorIntegrand, NumpyArrayIntegrand
@@ -228,7 +228,11 @@ class NutilsDelayedIntegrand(Integrand):
         integrand = getattr(ns, self._evaluator)(self._code)
         domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
         with matrix.Numpy():
-            retval = domain.integrate(integrand, geometry=geom, ischeme=ischeme)
+            retval = 0
+            M, _ = domain.shape
+            for i in log.iter('slice', range(M)):
+                retval += domain[i:i+1,:].integrate(integrand, geometry=geom, ischeme=ischeme)
+            # retval = domain.integrate(integrand, geometry=geom, ischeme=ischeme)
         return NumpyArrayIntegrand(retval)
 
 
