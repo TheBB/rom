@@ -164,17 +164,17 @@ def test_lift(case, mu):
     np.testing.assert_almost_equal(comp, case['convection'](mu, lift=(1,2)))
 
 
-def test_pickle(case, mu):
-    filename = os.path.join(tempfile.mkdtemp(), 'test.case')
-    with h5py.File(filename, 'w') as f:
-        case.write(f)
-    with h5py.File(filename, 'r') as f:
-        ncase = Case.read(f)
-    os.remove(filename)
+# def test_pickle(case, mu):
+#     filename = os.path.join(tempfile.mkdtemp(), 'test.case')
+#     with h5py.File(filename, 'w') as f:
+#         case.write(f)
+#     with h5py.File(filename, 'r') as f:
+#         ncase = Case.read(f)
+#     os.remove(filename)
 
-    old_mx = case['divergence'](mu)
-    new_mx = ncase['divergence'](mu)
-    np.testing.assert_almost_equal(old_mx.toarray(), new_mx.toarray())
+#     old_mx = case['divergence'](mu)
+#     new_mx = ncase['divergence'](mu)
+#     np.testing.assert_almost_equal(old_mx.toarray(), new_mx.toarray())
 
 
 def test_project(case, mu):

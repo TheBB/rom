@@ -42,6 +42,7 @@ from nutils import log, _
 import scipy.sparse as sp
 
 from aroma import util
+from aroma.util.sparse import SparseArray
 
 
 class MetaIntegrand(type):
@@ -77,7 +78,7 @@ class Integrand(metaclass=MetaIntegrand):
         if isinstance(obj, Integrand):
             return obj
         if not Integrand.acceptable(obj):
-            raise NotImplementedError
+            raise NotImplementedError(f"Couldn't find {type(obj)} acceptable as an integrand")
         return Integrand.get_subclass(obj)(obj)
 
     def __init__(self):
@@ -194,161 +195,115 @@ class NumpyArrayIntegrand(ThinWrapperIntegrand):
         return NumpyArrayIntegrand(obj)
 
 
-class ScipyArrayIntegrand(ThinWrapperIntegrand):
+# class ScipyArrayIntegrand(ThinWrapperIntegrand):
+
+#     optimized = True
+
+#     @classmethod
+#     def accepts(cls, obj):
+#         return isinstance(obj, sp.spmatrix)
+
+#     def get(self, contraction):
+#         if all(c is None for c in contraction):
+#             return self.obj
+#         ca, cb = contraction
+#         if ca is None:
+#             return self.obj.dot(cb)
+#         elif cb is None:
+#             return self.obj.T.dot(ca)
+#         return ca.dot(self.obj.dot(cb.T))
+
+#     def cache(self, **kwargs):
+#         return self
+
+#     def contract(self, contraction):
+#         assert len(contraction) == 2
+
+#         ca, cb = contraction
+#         if ca is None and cb is None:
+#             return self
+#         assert ca is None or cb is None
+
+#         if ca is None:
+#             return NumpyArrayIntegrand(self.obj.dot(cb))
+#         return NumpyArrayIntegrand(self.obj.T.dot(ca))
+
+#     def project(self, projection):
+#         if all(p is None for p in projection):
+#             return self
+#         pa, pb = projection
+#         if pa is None:
+#             return NumpyArrayIntegrand(self.obj.dot(pb.T))
+#         elif pb is None:
+#             return NumpyArrayIntegrand(self.obj.T.dot(pa.T).T)
+#         return NumpyArrayIntegrand(pa.dot(self.obj.dot(pb.T)))
+
+
+class SparseArrayIntegrand(ThinWrapperIntegrand):
 
     optimized = True
 
     @classmethod
     def accepts(cls, obj):
-        return isinstance(obj, sp.spmatrix)
+        return isinstance(obj, SparseArray)
 
     def get(self, contraction):
-        if all(c is None for c in contraction):
-            return self.obj
-        ca, cb = contraction
-        if ca is None:
-            return self.obj.dot(cb)
-        elif cb is None:
-            return self.obj.T.dot(ca)
-        return ca.dot(self.obj.dot(cb.T))
+        assert len(contraction) == self.ndim
+
+        obj = self.obj.contract(contraction)
+        if obj.ndim == 2:
+            return obj.export('csr')
+        return obj.export('dense')
+
+        cc = tuple(c is None for c in contraction)
+        raise NotImplementedError(f'{self.ndim} {cc}')
+
+    def contract(self, contraction):
+        assert len(contraction) == self.ndim
+
+        obj = self.obj.contract(contraction)
+        if obj.ndim < 2:
+            return Integrand.make(obj.export('dense'))
+        return Integrand.make(obj)
 
     def cache(self, **kwargs):
         return self
 
-    def contract(self, contraction):
-        assert len(contraction) == 2
-
-        ca, cb = contraction
-        if ca is None and cb is None:
-            return self
-        assert ca is None or cb is None
-
-        if ca is None:
-            return NumpyArrayIntegrand(self.obj.dot(cb))
-        return NumpyArrayIntegrand(self.obj.T.dot(ca))
-
     def project(self, projection):
-        if all(p is None for p in projection):
-            return self
-        pa, pb = projection
-        if pa is None:
-            return NumpyArrayIntegrand(self.obj.dot(pb.T))
-        elif pb is None:
-            return NumpyArrayIntegrand(self.obj.T.dot(pa.T).T)
-        return NumpyArrayIntegrand(pa.dot(self.obj.dot(pb.T)))
+        return NumpyArrayIntegrand(self.obj.project(projection))
 
+#     def write(self, group, name):
+#         sub = group.require_group(name)
+#         datagrp = sub.require_group('data')
+#         util.to_dataset(self.indices[0], datagrp, 'indices-i')
+#         util.to_dataset(self.indices[1], datagrp, 'indices-j')
+#         util.to_dataset(self.indices[2], datagrp, 'indices-k')
+#         util.to_dataset(self.data, datagrp, 'data')
+#         datagrp.attrs['shape'] = self.shape
+#         sub.attrs['type'] = 'COOTensorIntegrand'
 
-class COOTensorIntegrand(Integrand):
+#         assemblers = datagrp.require_group('assemblers')
+#         for key, assembler in self.assemblers.items():
+#             name = ','.join(str(s) for s in key)
+#             ass_grp = assemblers.require_group(name)
+#             assembler.write(ass_grp)
 
-    optimized = True
+#         return sub
 
-    def __init__(self, shape, *args):
-        super().__init__()
-        assert len(shape) == 3
-        assert len(shape) == len(args) - 1
-        self.shape = shape
-        self.ndim = len(shape)
+#     @staticmethod
+#     def read(group):
+#         datagrp = group['data']
+#         retval = COOTensorIntegrand.__new__(COOTensorIntegrand)
+#         retval.indices = datagrp['indices-i'][:], datagrp['indices-j'][:], datagrp['indices-k'][:]
+#         retval.data = datagrp['data'][:]
+#         retval.shape = tuple(datagrp.attrs['shape'])
 
-        nz = np.nonzero(args[-1])
-        *indices, self.data = [arg[nz] for arg in args]
+#         retval.assemblers = {}
+#         for key, grp in datagrp['assemblers'].items():
+#             key = tuple(int(i) for i in key.split(','))
+#             retval.assemblers[key] = getattr(util, grp.attrs['type']).read(grp)
 
-        fits = all(np.max(i) <= np.iinfo(np.int32).max for i in indices)
-        idx_dtype = np.int32 if fits else np.int64
-        indices = tuple(i.astype(idx_dtype, copy=True) for i in indices)
-        self.indices = indices
-
-        # TODO: Figure out in advance which assemblers we will need
-        self.assemblers = {
-            (1,): util.CSRAssembler((shape[0], shape[2]), indices[0], indices[2]),
-            (2,): util.CSRAssembler((shape[0], shape[1]), indices[0], indices[1]),
-            (1,2): util.VectorAssembler((shape[0],), indices[0])
-        }
-
-    def write(self, group, name):
-        sub = group.require_group(name)
-        datagrp = sub.require_group('data')
-        util.to_dataset(self.indices[0], datagrp, 'indices-i')
-        util.to_dataset(self.indices[1], datagrp, 'indices-j')
-        util.to_dataset(self.indices[2], datagrp, 'indices-k')
-        util.to_dataset(self.data, datagrp, 'data')
-        datagrp.attrs['shape'] = self.shape
-        sub.attrs['type'] = 'COOTensorIntegrand'
-
-        assemblers = datagrp.require_group('assemblers')
-        for key, assembler in self.assemblers.items():
-            name = ','.join(str(s) for s in key)
-            ass_grp = assemblers.require_group(name)
-            assembler.write(ass_grp)
-
-        return sub
-
-    @staticmethod
-    def read(group):
-        datagrp = group['data']
-        retval = COOTensorIntegrand.__new__(COOTensorIntegrand)
-        retval.indices = datagrp['indices-i'][:], datagrp['indices-j'][:], datagrp['indices-k'][:]
-        retval.data = datagrp['data'][:]
-        retval.shape = tuple(datagrp.attrs['shape'])
-
-        retval.assemblers = {}
-        for key, grp in datagrp['assemblers'].items():
-            key = tuple(int(i) for i in key.split(','))
-            retval.assemblers[key] = getattr(util, grp.attrs['type']).read(grp)
-
-        return retval
-
-    def ensure_shareable(self):
-        self.indices = tuple(util.shared_array(i) for i in self.indices)
-        self.data = util.shared_array(self.data)
-        for ass in self.assemblers.values():
-            ass.ensure_shareable()
-
-    def get(self, contraction):
-        retval = self._contract(contraction)
-        if not isinstance(retval, COOTensorIntegrand):
-            return retval
-        return retval.toarray()
-
-    def toarray(self):
-        # TODO: This could be more efficient, but this function should never be
-        # called in performance-critical code anyway
-        # Ravel down to a matrix, convert to scipy, then to numpy, then unravel
-        flat_index = np.ravel_multi_index(self.indices[1:], self.shape[1:])
-        flat_shape = (self.shape[0], np.product(self.shape[1:]))
-        matrix = sp.coo_matrix((self.data, (self.indices[0], flat_index)), shape=flat_shape)
-        matrix = matrix.toarray()
-        return np.reshape(matrix, self.shape)
-
-    def cache(self, **kwargs):
-        return self
-
-    def contract(self, contraction):
-        return Integrand.make(self._contract(contraction))
-
-    def _contract(self, contraction):
-        if all(c is None for c in contraction):
-            return self
-        contraction = [(i, c) for i, c in enumerate(contraction) if c is not None]
-        axes = tuple(i for i, __ in contraction)
-        data = np.copy(self.data)
-        for i, c in contraction:
-            data *= c[self.indices[i]]
-        if axes == (0,1,2):
-            return np.sum(data)
-        return self.assemblers[axes](data)
-
-    def project(self, projection):
-        # TODO: Remove this condition
-        assert all(p is not None for p in projection)
-        pa, pb, pc = projection
-        P, __ = pa.shape
-        ass = util.CSRAssembler(self.shape[1:], self.indices[1], self.indices[2])
-        ret = np.empty((P, pb.shape[0], pc.shape[0]), self.data.dtype)
-        for i in log.iter('index', range(P), length=P):
-            data = self.data * pa[i, self.indices[0]]
-            mx = ass(data)
-            ret[i] = pb.dot(mx.dot(pc.T))
-        return NumpyArrayIntegrand(ret)
+#         return retval
 
 
 class LazyIntegral:
