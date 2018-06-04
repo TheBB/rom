@@ -42,6 +42,7 @@ import numpy as np
 from nutils import function as fn, matrix, _, log
 
 from aroma import util
+import aroma.util.sparse as sparse
 from aroma.affine.integrands import *
 from aroma.affine.integrands.nutils import *
 
@@ -316,9 +317,13 @@ class AffineIntegral(Affine):
         return self
 
     def cache_main(self, **kwargs):
+        if self.ndim > 2 and kwargs.get('force', False):
+            return AffineSparse(self, **kwargs)
+
         self.values = (itg.cache(**kwargs) for itg in log.iter('term', list(self.values)))
         if self.optimized:
             self.fallback = None
+
         return self
 
     def cache_lifts(self, **kwargs):
@@ -331,24 +336,31 @@ class AffineIntegral(Affine):
         for value in self.values:
             value.ensure_shareable()
 
-    def contract_lift(self, scale, lift):
-        if self.ndim == 1:
-            return
-
+    def initialize_lift(self):
         free_axes = [i for i in range(self.ndim) if i not in self._freeze_lift]
         axes_combs = list(map(frozenset, chain.from_iterable(
             combinations(free_axes, naxes+1)
             for naxes in range(len(free_axes))
         )))
 
-        if not self._lift:
-            for axes in axes_combs:
-                sub_rep = AffineIntegral()
-                sub_rep.prop(**self._properties)
-                remaining_axes = [ax for ax in range(self.ndim) if ax not in axes]
-                frozen_axes = [i for i, ax in enumerate(remaining_axes) if ax in self._freeze_proj]
-                sub_rep.freeze(proj=frozen_axes)
-                self._lift[axes] = sub_rep
+        if self._lift:
+            return axes_combs
+
+        for axes in axes_combs:
+            sub_rep = AffineIntegral()
+            sub_rep.prop(**self._properties)
+            remaining_axes = [ax for ax in range(self.ndim) if ax not in axes]
+            frozen_axes = [i for i, ax in enumerate(remaining_axes) if ax in self._freeze_proj]
+            sub_rep.freeze(proj=frozen_axes)
+            self._lift[axes] = sub_rep
+
+        return axes_combs
+
+    def contract_lift(self, scale, lift):
+        if self.ndim == 1:
+            return
+
+        axes_combs = self.initialize_lift()
 
         for axes in log.iter('axes', axes_combs):
             contraction = [None] * self.ndim
@@ -371,9 +383,97 @@ class AffineIntegral(Affine):
         if not isinstance(proj, (tuple, list)):
             proj = (proj,) * (self.ndim - len(self._freeze_proj))
         assert len(proj) == self.ndim - len(self._freeze_proj)
-        proj = AffineIntegral._expand(proj, self._freeze_proj, self.ndim)
 
         new_values = [itg.project(proj) for itg in log.iter('term', list(self.values))]
+        new = AffineIntegral(zip(self.scales, new_values))
+
+        for axes, rep in log.iter('axes', list(self._lift.items())):
+            remaining_axes = [i for i in range(self.ndim) if i not in axes]
+            _proj = [proj[i] for i in remaining_axes if proj[i] is not None]
+            new._lift[axes] = rep.project(_proj)
+
+        return new
+
+
+class AffineSparse(AffineIntegral):
+
+    def __init__(self, parent, **kwargs):
+        assert parent.ndim == 3
+        root, *rest = parent.values
+
+        # Cache the first one
+        root = root.cache(**kwargs)
+        indices, data = root.obj.indices, np.array([root.obj.data])
+
+        # Add-in the rest of them
+        for itg in log.iter('term', list(rest)):
+            itg = itg.cache(**kwargs)
+            indices, data = sparse._unify(indices, data, itg.obj.indices, np.array([itg.obj.data]))
+
+        super().__init__(zip(parent.scales, data))
+        self._pattern = sparse.SparsityPattern(indices, parent.shape)
+        self._properties = parent._properties
+        self._freeze_proj = parent._freeze_proj
+        self._freeze_lift = parent._freeze_lift
+        self._lift = parent._lift
+
+    @property
+    def optimized(self):
+        return True
+
+    @property
+    def shape(self):
+        return self._pattern.shape
+
+    def __call__(self, pval, lift=None, cont=None, sym=False, case=None):
+        if isinstance(lift, int):
+            lift = (lift,)
+        if lift is not None:
+            return self._lift[frozenset(lift)](pval)
+        if cont is None:
+            cont = (None,) * self.ndim
+
+        data = sum(scl(pval) * d for scl, d in self)
+        data = self._pattern.contract_data(data, cont)
+        pattern = self._pattern.contract_pattern(tuple(i for i, c in enumerate(cont) if c is not None))
+        if pattern.ndim == 2:
+            retval = pattern.exporter('coo')(data)
+        else:
+            retval = pattern.exporter('dense')(data)
+
+        if sym:
+            retval = retval + retval.T
+        return retval
+
+    def contract_lift(self, scale, lift):
+        if self.ndim == 1:
+            return
+
+        axes_combs = self.initialize_lift()
+
+        for axes in log.iter('axes', axes_combs):
+            contraction = [None] * self.ndim
+            for ax in axes:
+                contraction[ax] = lift
+            sub_rep = self._lift[axes]
+            new_scales = [scl * scale**len(axes) for scl in self.scales]
+
+            new_values = [
+                SparseArrayIntegrand(SparseArray(d, self._pattern).contract(contraction))
+                for d in self.values
+            ]
+            sub_rep.extend(zip(new_scales, new_values))
+
+
+    def project(self, proj):
+        if not isinstance(proj, (tuple, list)):
+            proj = (proj,) * (self.ndim - len(self._freeze_proj))
+        assert len(proj) == self.ndim - len(self._freeze_proj)
+
+        new_values = [
+            Integrand.make(sparse.SparseArray(d, self._pattern).project(proj))
+            for d in self.values
+        ]
         new = AffineIntegral(zip(self.scales, new_values))
 
         for axes, rep in log.iter('axes', list(self._lift.items())):
