@@ -186,37 +186,39 @@ def _divs(fast: bool = False, piola: bool = False, num=8):
     np.savetxt(util.make_filename(_divs, 'airfoil-divs-{piola}.csv', piola=piola), results)
 
 
-def _bfuns(fast: bool = False, piola: bool = False, num=8):
-    __, solutions, supremizers = get_ensemble(fast, piola, num)
+def _bfuns(fast: bool = False, piola: bool = False, num=15):
+    ensemble = get_ensemble(fast, piola, num)
     case = get_case(fast, piola)
 
-    eig_sol = reduction.eigen(case, solutions, fields=['v', 'p'])
-    rb_sol = reduction.reduced_bases(case, solutions, eig_sol, (12, 12))
-    eig_sup = reduction.eigen(case, supremizers, fields=['v'])
-    rb_sup = reduction.reduced_bases(case, supremizers, eig_sup, (12,))
+    reducer = reduction.EigenReducer(case, ensemble)
+    reducer.add_basis('v', parent='v', ensemble='solutions', ndofs=6, norm='h1s')
+    reducer.add_basis('s', parent='v', ensemble='supremizers', ndofs=6, norm='h1s')
+    reducer.add_basis('p', parent='p', ensemble='solutions', ndofs=6, norm='l2')
+
+    projs = reducer.get_projections()
 
     for i in range(6):
-        solvers.plots(
-            case, case.parameter(), rb_sol['v'][i], colorbar=False, figsize=(13,8), fields=['v'],
+        visualization.velocity(
+            case, case.parameter(), projs['v'][i], colorbar=False, figsize=(13,8), fields=['v'],
             axes=False, xlim=(-4,9), ylim=(-4,4), density=3, lift=False,
-            plot_name=util.make_filename(_bfuns, 'bfun-v-{piola}', piola=piola), index=i,
+            name=util.make_filename(_bfuns, 'bfun-v-{piola}', piola=piola), index=i,
         )
-        solvers.plots(
-            case, case.parameter(), rb_sol['p'][i], colorbar=False, figsize=(10,10), fields=['p'],
+        visualization.pressure(
+            case, case.parameter(), projs['p'][i], colorbar=False, figsize=(10,10), fields=['p'],
             axes=False, xlim=(-2,2), ylim=(-2,2), lift=False,
-            plot_name=util.make_filename(_bfuns, 'bfun-p-{piola}', piola=piola), index=i,
+            name=util.make_filename(_bfuns, 'bfun-p-{piola}', piola=piola), index=i,
         )
-        solvers.plots(
-            case, case.parameter(), rb_sup['v'][i], colorbar=False, figsize=(10,10), fields=['v'],
+        visualization.velocity(
+            case, case.parameter(), projs['s'][i], colorbar=False, figsize=(10,10), fields=['v'],
             axes=False, density=2, lift=False,
-            plot_name=util.make_filename(_bfuns, 'bfun-s-{piola}', piola=piola), index=i,
+            name=util.make_filename(_bfuns, 'bfun-s-{piola}', piola=piola), index=i,
         )
 
 
 @main.command()
 @click.option('--fast/--no-fast', default=False)
 @click.option('--piola/--no-piola', default=False)
-@click.option('--num', '-n', default=8)
+@click.option('--num', '-n', default=15)
 @util.common_args
 def bfuns(fast, piola, num):
     _bfuns(fast=fast, piola=piola, num=num)
@@ -226,25 +228,20 @@ def _results(fast: bool = False, piola: bool = False, sups: bool = False, block:
     tcase = get_case(fast=fast, piola=piola)
     tcase.ensure_shareable()
 
-    scheme = list(quadrature.full(tcase.ranges(), 15))
-    ttime, tsol = ens.make_ensemble(tcase, solvers.navierstokes, scheme, parallel=True, return_time=True)
-
-    if not piola:
-        block = False
+    ensemble = get_ensemble(fast, piola, 15)
+    vmass = tcase['v-h1s'](tcase.parameter())
+    pmass = tcase['p-l2'](tcase.parameter())
+    block = block and piola
 
     res = []
     for nr in nred:
         rcase = get_reduced(piola=piola, sups=sups, nred=nr)
         solver = solvers.navierstokes_block if block else solvers.navierstokes
-        rtime, rsol = ens.make_ensemble(rcase, solver, scheme, return_time=True)
-        mu = tcase.parameter()
-        verrs = ens.errors(tcase, rcase, tsol, rsol, tcase['v-h1s'](mu), scheme)
-        perrs = ens.errors(tcase, rcase, tsol, rsol, tcase['p-l2'](mu), scheme)
-        ferrs = force_err(tcase, rcase, tsol, rsol, scheme)
-        res.append([
-            rcase.size // 3, rcase.meta['err-v'], rcase.meta['err-p'],
-            *verrs, *perrs, *ferrs, rtime
-        ])
+
+        rtime = ensemble.compute('reduced', rcase, solver)
+        verrs = ensemble.errors(tcase, 'solutions', rcase, 'reduced', vmass)
+        perrs = ensemble.errors(tcase, 'solutions', rcase, 'reduced', pmass)
+        res.append([rcase.ndofs // 3, rcase.meta['err-v'], rcase.meta['err-p'], *verrs, *perrs, *([0.0]*4), rtime])
 
     # Case size, exp v, exp p,
     # mean abs v, mean rel v, max abs v, max rel v,
