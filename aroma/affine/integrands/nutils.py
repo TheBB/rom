@@ -38,7 +38,8 @@
 
 
 from collections import OrderedDict
-from nutils import matrix, function as fn, _
+from nutils import matrix, function as fn, _, log
+import numpy as np
 
 from aroma import util
 from aroma.affine.integrands import Integrand, ThinWrapperIntegrand, LazyIntegral, COOTensorIntegrand, NumpyArrayIntegrand
@@ -225,10 +226,27 @@ class NutilsDelayedIntegrand(Integrand):
             if p is not None:
                 func = fn.matmat(p, func)
             setattr(ns, name, func)
-        integrand = getattr(ns, self._evaluator)(self._code)
+
+        shape = tuple(p.shape[0] for p in projection)
+        retval = np.zeros(shape)
+
+        pa, pb, pc = projection
         domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
-        with matrix.Numpy():
-            retval = domain.integrate(integrand, geometry=geom, ischeme=ischeme)
+        for ii, pa_col in log.iter('slice', enumerate(pa)):
+            itg = self._integrand((pa_col, None, None))
+            with matrix.Scipy():
+                mx = domain.integrate(itg, geometry=geom, ischeme=ischeme)
+            retval[ii] = pb.dot(mx.core.dot(pc.T))
+
+        # integrand = getattr(ns, self._evaluator)(self._code)
+        # domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
+        # with matrix.Numpy():
+        #     retval = 0
+        #     M, _ = domain.shape
+        #     for i in log.iter('slice', range(M)):
+        #         retval += domain[i:i+1,:].integrate(integrand, geometry=geom, ischeme=ischeme)
+        #     # retval = domain.integrate(integrand, geometry=geom, ischeme=ischeme)
+
         return NumpyArrayIntegrand(retval)
 
 

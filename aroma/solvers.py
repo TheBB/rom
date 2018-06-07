@@ -55,6 +55,9 @@ def solve(mx, rhs, cons, **kwargs):
     if isinstance(mx, np.ndarray):
         mx = matrix.NumpyMatrix(mx)
     else:
+        # coo = mx.tocoo()
+        # with matrix.MKL() as mkl:
+        #     mx = mkl.assemble(coo.data, np.array([coo.row, coo.col]), coo.shape)
         mx = matrix.ScipyMatrix(mx)
     return mx.solve(rhs, constrain=cons, **kwargs)
 
