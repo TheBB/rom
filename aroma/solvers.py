@@ -39,6 +39,7 @@
 
 from itertools import count
 import numpy as np
+import scipy as sp
 from nutils import function as fn, log, matrix
 
 from aroma.affine import integrate
@@ -202,6 +203,21 @@ def supremizer(case, mu, rhs):
     rhs = case['divergence'](mu).dot(rhs)
     mx = case['v-h1s'](mu)
     return solve(mx, rhs, conses)
+
+
+def infsup(case, mu):
+    if 's' in case.bases:
+        vinds = np.concatenate([case.bases['v'].indices, case.bases['s'].indices])
+    else:
+        vinds = np.concatenate([case.bases['v'].indices])
+    pinds = case.bases['p'].indices
+
+    vmass = case['v-h1s'](mu)[np.ix_(vinds, vinds)]
+    pmass = case['p-l2'](mu)[np.ix_(pinds, pinds)]
+    bmx = case['divergence'](mu)[np.ix_(vinds, pinds)]
+
+    left = bmx.T @ np.linalg.inv(vmass) @ bmx
+    return np.sqrt(sp.linalg.eigvalsh(left, pmass)[0])
 
 
 def elasticity(case, mu):
