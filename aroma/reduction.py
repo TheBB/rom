@@ -44,7 +44,7 @@ from nutils import log, plot, _, function as fn
 from aroma.case import LofiCase
 
 
-ReducedBasis = namedtuple('ReducedBasis', ['parent', 'ensemble', 'ndofs', 'norm'])
+ReducedBasis = namedtuple('ReducedBasis', ['parent', 'ensemble', 'ndofs', 'norm', 'clean'])
 Override = namedtuple('Override', ['combinations', 'soft'])
 
 
@@ -121,8 +121,8 @@ class EigenReducer(Reducer):
         for key, ens in ensemble.items():
             self._ensembles[key] = ens * ensemble.scheme[:,0,np.newaxis]
 
-    def add_basis(self, name, parent, ensemble, ndofs, norm):
-        self._bases[name] = ReducedBasis(parent, ensemble, ndofs, norm)
+    def add_basis(self, name, parent, ensemble, ndofs, norm, clean=True):
+        self._bases[name] = ReducedBasis(parent, ensemble, ndofs, norm, clean)
 
     def get_projections(self):
         if hasattr(self, '_projections'):
@@ -143,9 +143,11 @@ class EigenReducer(Reducer):
 
             reduced = ensemble.T.dot(eigvecs[:,:basis.ndofs]) / np.sqrt(eigvals[:basis.ndofs])
             indices = case.bases[basis.parent].indices
-            mask = np.ones(reduced.shape[0], dtype=np.bool)
-            mask[indices] = 0
-            reduced[mask,:] = 0
+
+            if basis.clean:
+                mask = np.ones(reduced.shape[0], dtype=np.bool)
+                mask[indices] = 0
+                reduced[mask,:] = 0
 
             projections[name] = reduced.T
 
