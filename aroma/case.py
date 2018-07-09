@@ -534,6 +534,10 @@ class LofiCase(Case):
         self.lift = DiscreteLifts(case)
         self.projection = projection
 
+    @property
+    def size(self):
+        return self.projection.shape[0]
+
     def write(self, group):
         super().write(group)
         group['projection'] = self.projection
