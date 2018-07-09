@@ -132,10 +132,15 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     return lhs
 
 
-def blocksolve(vv, sv, sp, rhs, V, S, P):
+def blocksolve_velocity(vv, rhs, V):
     lhs = np.zeros_like(rhs)
     lhs[V] = matrix.NumpyMatrix(vv).solve(rhs[V])
-    lhs[P] = matrix.NumpyMatrix(sp).solve(rhs[S] - sv @ lhs[V])
+    return lhs
+
+
+def blocksolve_pressure(sp, rhs, S, P):
+    lhs = np.zeros_like(rhs)
+    lhs[P] = matrix.NumpyMatrix(sp).solve(rhs[S])
     return lhs
 
 
@@ -157,7 +162,7 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
     mvv = case['laplacian-vv'](mu)
     msv = case['laplacian-sv'](mu)
     msp = case['divergence-sp'](mu)
-    lhs = blocksolve(mvv, msv, msp, stokes_rhs, V, S, P)
+    lhs = blocksolve_velocity(mvv, stokes_rhs, V)
 
     mvv += case['convection-vvv'](mu, lift=1) + case['convection-vvv'](mu, lift=2)
     msv += case['convection-svv'](mu, lift=1) + case['convection-svv'](mu, lift=2)
@@ -170,17 +175,12 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
     for it in count(1):
         cc = case['convection-vvv']
         nvv = mvv + cc(mu, cont=(None, lhs[V], None)) + cc(mu, cont=(None, None, lhs[V]))
-        cc = case['convection-svv']
-        nsv = msv + cc(mu, cont=(None, lhs[V], None)) + cc(mu, cont=(None, None, lhs[V]))
 
         rhs = stokes_rhs.copy()
         rhs[V] -= mvv @ lhs[V]
-        rhs[S] -= msv @ lhs[V]
-        rhs[S] -= msp @ lhs[P]
         rhs[V] -= case['convection-vvv'](mu, cont=(None,lhs[V],lhs[V]))
-        rhs[S] -= case['convection-svv'](mu, cont=(None,lhs[V],lhs[V]))
 
-        update = blocksolve(nvv, nsv, msp, rhs, V, S, P)
+        update = blocksolve_velocity(nvv, rhs, V)
         lhs += update
 
         update_norm = np.sqrt(update @ vmass @ update)
@@ -190,6 +190,13 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
 
         if it > maxit:
             raise IterationCountError
+
+    rhs = stokes_rhs.copy()
+    rhs[S] -= msv @ lhs[V]
+    rhs[S] -= msp @ lhs[P]
+    rhs[S] -= case['convection-svv'](mu, cont=(None,lhs[V],lhs[V]))
+    update = blocksolve_pressure(msp, rhs, S, P)
+    lhs += update
 
     return lhs
 
