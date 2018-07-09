@@ -206,7 +206,7 @@ class NutilsDelayedIntegrand(Integrand):
             # Store properties for later integration
             self.prop(**kwargs)
             return self
-        return NutilsArrayIntegrand(self._integrand()).cache(force=force, **kwargs)
+        return NutilsArrayIntegrand(self._integrand()).prop(**self._properties).cache(force=force, **kwargs)
 
     def get(self, contraction, mu=None, case=None):
         itg = self._integrand(contraction, mu=mu, case=case)
@@ -218,18 +218,20 @@ class NutilsDelayedIntegrand(Integrand):
         return NutilsArrayIntegrand(self._integrand(contraction)).prop(**self._properties)
 
     def project(self, projection):
-        ns = fn.Namespace()
-        for name, func in self._kwargs.items():
-            setattr(ns, name, func)
-        for p, (name, func) in zip(projection, self._defaults.items()):
-            if p is not None:
-                func = fn.matmat(p, func)
-            setattr(ns, name, func)
-        integrand = getattr(ns, self._evaluator)(self._code)
-        domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
-        with matrix.Numpy():
-            retval = domain.integrate(integrand, geometry=geom, ischeme=ischeme)
-        return NumpyArrayIntegrand(retval)
+        integrand = self.cache(force=True)
+        return integrand.project(projection)
+        # ns = fn.Namespace()
+        # for name, func in self._kwargs.items():
+        #     setattr(ns, name, func)
+        # for p, (name, func) in zip(projection, self._defaults.items()):
+        #     if p is not None:
+        #         func = fn.matmat(p, func)
+        #     setattr(ns, name, func)
+        # integrand = getattr(ns, self._evaluator)(self._code)
+        # domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
+        # with matrix.Numpy():
+        #     retval = domain.integrate(integrand, geometry=geom, ischeme=ischeme)
+        # return NumpyArrayIntegrand(retval)
 
 
 class LazyNutilsIntegral(LazyIntegral):

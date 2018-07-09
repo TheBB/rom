@@ -50,6 +50,19 @@ def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: in
     return reducer()
 
 
+@util.filecache('airfoil-combined-{nred}.rcase')
+def get_combined(nred: int = 10, fast: bool = False, num: int = 15):
+    case = get_case(fast, True)
+    del case.integrals['force']
+    ensemble = get_ensemble(fast, True, num)
+
+    reducer = reduction.CombinedReducer(case, ensemble)
+    reducer.add_basis('v', parent=['v', 'p'], ensemble='solutions', ndofs=nred, norm=['v-h1s', 'p-l2'])
+
+    reducer.plot_spectra('airfoil-spectrum-combined')
+    return reducer()
+
+
 def force_err(hicase, locase, hifi, lofi, scheme):
     abs_err, rel_err = np.zeros(2), np.zeros(2)
     max_abs_err, max_rel_err = np.zeros(2), np.zeros(2)
@@ -206,24 +219,23 @@ def _results(fast: bool = False, piola: bool = False, sups: bool = False, block:
     tcase = get_case(fast=fast, piola=piola)
     tcase.ensure_shareable()
 
-    scheme = list(quadrature.full(tcase.ranges(), 15))
-    ttime, tsol = ens.make_ensemble(tcase, solvers.navierstokes, scheme, parallel=True, return_time=True)
+    ensemble = get_ensemble(fast=fast, piola=piola, num=15)
 
     if not piola:
         block = False
 
     res = []
     for nr in nred:
-        rcase = get_reduced(piola=piola, sups=sups, nred=nr)
+        # rcase = get_reduced(piola=piola, sups=sups, nred=nr)
+        rcase = get_combined(nred=nr)
         solver = solvers.navierstokes_block if block else solvers.navierstokes
-        rtime, rsol = ens.make_ensemble(rcase, solver, scheme, return_time=True)
+        rtime = ensemble.compute('rsol', rcase, solver, parallel=False)
         mu = tcase.parameter()
-        verrs = ens.errors(tcase, rcase, tsol, rsol, tcase['v-h1s'](mu), scheme)
-        perrs = ens.errors(tcase, rcase, tsol, rsol, tcase['p-l2'](mu), scheme)
-        ferrs = force_err(tcase, rcase, tsol, rsol, scheme)
+        verrs = ensemble.errors(tcase, 'solutions', rcase, 'rsol', tcase['v-h1s'](tcase.parameter()))
+        perrs = ensemble.errors(tcase, 'solutions', rcase, 'rsol', tcase['p-l2'](tcase.parameter()))
         res.append([
-            rcase.size // 3, rcase.meta['err-v'], rcase.meta['err-p'],
-            *verrs, *perrs, *ferrs, rtime
+            rcase.size, rcase.meta['err-v'], 0.0,
+            *verrs, *perrs, rtime
         ])
 
     # Case size, exp v, exp p,
@@ -234,8 +246,9 @@ def _results(fast: bool = False, piola: bool = False, sups: bool = False, block:
     res = np.array(res)
     np.savetxt(
         util.make_filename(
-            _results, 'airfoil-results-{piola}-{sups}-{block}.csv',
-            piola=piola, sups=sups, block=block,
+            # _results, 'airfoil-results-{piola}-{sups}-{block}.csv',
+            _results, 'airfoil-results-combined.csv',
+            # piola=piola, sups=sups, block=block,
         ),
         res
     )
@@ -252,5 +265,17 @@ def results(fast, piola, sups, block, nred):
     return _results(fast=fast, piola=piola, sups=sups, block=block, nred=nred)
 
 
+@main.command()
+@util.common_args
+def zoop():
+    # get_combined(10)
+    # get_combined(20)
+    # get_combined(30)
+    # get_combined(40)
+    # get_combined(50)
+    _results(fast=False, piola=True, sups=False, block=False, nred=[10, 20, 30, 40, 50])
+
+
 if __name__ == '__main__':
-    main()
+    # main()
+    zoop()

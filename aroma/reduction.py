@@ -65,22 +65,23 @@ class Reducer:
 
         rcase = LofiCase(case, total_proj)
 
-        # Specify the geometry
-        for scale, value in log.iter('geometry', case.geometry):
-            rcase.geometry += scale, case.discretize(value)
+        # # Specify the geometry
+        # for scale, value in log.iter('geometry', case.geometry):
+        #     rcase.geometry += scale, case.discretize(value)
 
-        # Specify the bases
-        for name, basis in self._bases.items():
-            with log.context(name):
-                bfuns = np.array([
-                    case.solution(bfun, basis.parent, lift=False)
-                    for bfun in log.iter('mode', projections[name])
-                ])
-                rcase.bases.add(name, bfuns, length=basis.ndofs)
+        # # Specify the bases
+        # for name, basis in self._bases.items():
+        #     with log.context(name):
+        #         bfuns = np.array([
+        #             case.solution(bfun, basis.parent, lift=False)
+        #             for bfun in log.iter('mode', projections[name])
+        #         ])
+        #         rcase.bases.add(name, bfuns, length=basis.ndofs)
 
         # Project all the integrals
         for name in case:
             with log.context(name):
+                log.user(name)
                 if name not in self.overrides or self.overrides[name].soft:
                     rcase[name] = case[name].project(total_proj)
 
@@ -173,3 +174,34 @@ class EigenReducer(Reducer):
         filename = f'{filename}.csv'
         np.savetxt(filename, data)
         log.user(filename)
+
+
+class CombinedReducer(EigenReducer):
+
+    def get_projections(self):
+        if hasattr(self, '_projections'):
+            return self._projections
+
+        case = self.case
+        projections = OrderedDict()
+
+        for name, basis in self._bases.items():
+            mass = sum(case[norm](case.parameter()) for norm in basis.norm)
+            ensemble = self._ensembles[basis.ensemble]
+            corr = ensemble.dot(mass.dot(ensemble.T))
+            eigvals, eigvecs = np.linalg.eigh(corr)
+            eigvals = eigvals[::-1]
+            eigvecs = eigvecs[:,::-1]
+            self.meta[f'err-{name}'] = np.sqrt(1.0 - np.sum(eigvals[:basis.ndofs]) / np.sum(eigvals))
+            self._spectra[name] = eigvals
+
+            reduced = ensemble.T.dot(eigvecs[:,:basis.ndofs]) / np.sqrt(eigvals[:basis.ndofs])
+            indices = np.concatenate([case.bases[parent].indices for parent in basis.parent])
+            mask = np.ones(reduced.shape[0], dtype=np.bool)
+            mask[indices] = 0
+            reduced[mask,:] = 0
+
+            projections[name] = reduced.T
+
+        self._projections = projections
+        return projections
