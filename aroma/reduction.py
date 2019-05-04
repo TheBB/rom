@@ -61,7 +61,7 @@ class Reducer:
     def __call__(self):
         case = self.case
         projections = self.get_projections()
-        total_proj = np.vstack(projections.values())
+        total_proj = np.vstack(list(projections.values()))
 
         rcase = LofiCase(case, total_proj)
 
@@ -101,7 +101,7 @@ class ExplicitReducer(Reducer):
         super().__init__(case)
         self._projections = OrderedDict(kwargs)
         self._bases = OrderedDict([
-            (name, ReducedBasis(name, None, p.shape[0], None))
+            (name, ReducedBasis(name, None, p.shape[0], None, False))
             for name, p in kwargs.items()
         ])
 
