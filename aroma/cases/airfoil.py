@@ -38,7 +38,7 @@
 
 
 import numpy as np
-from scipy.misc import factorial
+from scipy.special import factorial
 from nutils import mesh, function as fn, log, _, matrix
 from os import path
 

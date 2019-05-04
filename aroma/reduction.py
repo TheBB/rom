@@ -61,7 +61,7 @@ class Reducer:
     def __call__(self):
         case = self.case
         projections = self.get_projections()
-        total_proj = np.vstack(projections.values())
+        total_proj = np.vstack(list(projections.values()))
 
         rcase = LofiCase(case, total_proj)
 
