@@ -90,7 +90,7 @@ def deformation(case, mu, lhs, stress='xx', name='solution', **kwargs):
     refgeom = case.geometry(mu)
     geom = refgeom + disp
 
-    E = mu['ymod']
+    E = mu['ymod1']
     NU = mu['prat']
     MU = E / (1 + NU)
     LAMBDA = E * NU / (1 + NU) / (1 - 2*NU)
@@ -98,7 +98,7 @@ def deformation(case, mu, lhs, stress='xx', name='solution', **kwargs):
 
     if geom.shape == (2,):
         stressfunc = stressfunc[tuple('xyz'.index(c) for c in stress)]
-        mesh, stressdata = case.domain.elem_eval([geom, stressfunc], separate=True, ischeme='bezier3')
+        mesh, stressdata = case.domain.elem_eval([geom, 1], separate=True, ischeme='bezier3')
         with _plot('u', name=name, **kwargs) as plt:
             plt.mesh(mesh, stressdata)
             _colorbar(plt, **kwargs)

@@ -43,4 +43,5 @@ from aroma.cases.beam import beam
 from aroma.cases.cavity import cavity
 from aroma.cases.channel import channel
 from aroma.cases.exact import exact
+from aroma.cases.halfbeam import halfbeam
 from aroma.cases.tshape import tshape

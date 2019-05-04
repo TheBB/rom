@@ -206,13 +206,19 @@ def supremizer(case, mu, rhs):
 
 def elasticity(case, mu):
     matrix = case['stiffness'](mu)
+    matrix += case['penalty'](mu)
     rhs = - case['stiffness'](mu, lift=1)
     if 'forcing' in case:
         rhs += case['forcing'](mu)
 
     try:
-        lhs = solve(matrix, rhs, case.constraints, solver='cg', atol=1e-10, precon='SPLU')
+        lhs = solve(matrix, rhs, case.constraints, solver='spsolve', atol=1e-10, precon='SPLU')
     except TypeError:
         lhs = solve(matrix, rhs, case.constraints)
+
+    print(lhs[858:869])
+    print(lhs[869:880])
+    # lhs[858:869] += 0.1
+    # lhs[869:880] += 0.1
 
     return lhs
