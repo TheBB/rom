@@ -146,7 +146,7 @@ def make_filename(func, fmt, *args, **kwargs):
 def common_args(func):
     @functools.wraps(func)
     def retval(verbose, nprocs, **kwargs):
-        with config(verbose=verbose, nprocs=nprocs), log.RichOutputLog():
+        with config(verbose=verbose, nprocs=nprocs), log.TeeLog(log.DataLog('.'), log.RichOutputLog()):
             return func(**kwargs)
     retval = click.option('--verbose', default=3)(retval)
     retval = click.option('--nprocs', default=cpu_count())(retval)
