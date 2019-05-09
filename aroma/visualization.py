@@ -85,7 +85,7 @@ def pressure(case, mu, lhs, lift=True, **kwargs):
         _colorbar(plt, **kwargs)
 
 
-def deformation(case, mu, lhs, stress='xx', name='solution', **kwargs):
+def deformation(case, mu, lhs, stress='xy', name='solution', **kwargs):
     disp = case.bases['u'].obj.dot(lhs)
     refgeom = case.geometry(mu)
     geom = refgeom + disp

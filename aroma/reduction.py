@@ -132,34 +132,76 @@ class EigenReducer(Reducer):
         projections = OrderedDict()
 
         for name, basis in self._bases.items():
-            mass = case[f'{basis.parent}-{basis.norm}'](case.parameter())
-            ensemble = self._ensembles[basis.ensemble]
-            corr = ensemble.dot(mass.dot(ensemble.T))
-            eigvals, eigvecs = np.linalg.eigh(corr)
-            eigvals = eigvals[::-1]
-            eigvecs = eigvecs[:,::-1]
-            self.meta[f'err-{name}'] = np.sqrt(1.0 - np.sum(eigvals[:basis.ndofs]) / np.sum(eigvals))
-            self._spectra[name] = eigvals
+            if isinstance(basis.ensemble, str):
+                mass = case[f'{basis.parent}-{basis.norm}'](case.parameter())
+                ensemble = self._ensembles[basis.ensemble]
+                corr = ensemble.dot(mass.dot(ensemble.T))
+                eigvals, eigvecs = np.linalg.eigh(corr)
+                eigvals = eigvals[::-1]
+                eigvecs = eigvecs[:,::-1]
+                self.meta[f'err-{name}'] = np.sqrt(1.0 - np.sum(eigvals[:basis.ndofs]) / np.sum(eigvals))
+                self._spectra[name] = eigvals
 
-            reduced = ensemble.T.dot(eigvecs[:,:basis.ndofs]) / np.sqrt(eigvals[:basis.ndofs])
-            indices = case.bases[basis.parent].indices
-            mask = np.ones(reduced.shape[0], dtype=np.bool)
-            mask[indices] = 0
-            reduced[mask,:] = 0
+                reduced = ensemble.T.dot(eigvecs[:,:basis.ndofs]) / np.sqrt(eigvals[:basis.ndofs])
+                indices = case.bases[basis.parent].indices
+                mask = np.ones(reduced.shape[0], dtype=np.bool)
+                mask[indices] = 0
+                reduced[mask,:] = 0
 
-            projections[name] = reduced.T
+                projections[name] = reduced.T
+
+            else:
+                masses = [case[f'{basis.parent}-{norm}'](case.parameter()) for norm in basis.norm]
+                ensembles = [self._ensembles[key] for key in basis.ensemble]
+                corrs = [ens.dot(mass.dot(ens.T)) for ens, mass in zip(ensembles, masses)]
+                eigdata = [np.linalg.eigh(corr) for corr in corrs]
+                eigvals = [ev[::-1] for (ev, __) in eigdata]
+                eigvecs = [ev[:,::-1] for (__, ev) in eigdata]
+
+                allevs = [(ix, ev) for ix, evs in enumerate(eigvals) for ev in evs]
+                allevs = sorted(allevs, key=lambda k: k[1], reverse=True)
+                nums = [sum(1 for (ix, __) in allevs[:basis.ndofs] if ix == i) for i in range(len(masses))]
+
+                log.user('Sub-ndofs:', ', '.join(str(n) for n in nums))
+
+                allevs_np = np.array([ev for __, ev in allevs])
+                self.meta[f'err-{name}'] = np.sqrt(1.0 - np.sum(allevs_np[:basis.ndofs]) / np.sum(allevs_np))
+                for i, evals in enumerate(eigvals):
+                    self._spectra[f'{name}({i})'] = evals
+
+                reduced = [
+                    ens.T.dot(evecs[:,:num]) / np.sqrt(evals[:num])
+                    for ens, evecs, evals, num in zip(ensembles, eigvecs, eigvals, nums)
+                ]
+                reduced = [
+                    (col, ev)
+                    for cols, evals in zip(reduced, eigvals)
+                    for col, ev in zip(cols.T, evals)
+                ]
+                reduced = sorted(reduced, key=lambda k: k[1], reverse=True)
+                reduced = np.array([col for col, __ in reduced]).T
+
+                indices = case.bases[basis.parent].indices
+                mask = np.ones(reduced.shape[0], dtype=np.bool)
+                mask[indices] = 0
+                reduced[mask,:] = 0
+
+                projections[name] = reduced.T
 
         self._projections = projections
         return projections
 
-    def plot_spectra(self, filename, figsize=(10,10), nvals=None):
+    def plot_spectra(self, filename, figsize=(10,10), nvals=None, normalize=True):
         self.get_projections()  # Compute spectra as a byproduct
 
         if nvals is None:
             nvals = max(len(evs) for evs in self._spectra.values())
 
         data = [evs[:nvals] for evs in self._spectra.values()]
-        data = np.vstack([d/d[0] for d in data])
+        if normalize:
+            data = np.vstack([d/d[0] for d in data])
+        else:
+            data = np.vstack(data)
         names = [f'{name}' for name in self._spectra]
 
         with plot.PyPlot(filename, index='', ndigits=0, figsize=figsize) as plt:
