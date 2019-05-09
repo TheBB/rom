@@ -57,7 +57,7 @@ def _graded(left, right, npts, factor):
 
 class halfbeam(NutilsCase):
 
-    def __init__(self, nel=10, L=15, penalty=1e10, override=False, finalize=True):
+    def __init__(self, nel=10, L=15, penalty=1e10, ratio=1000, override=False, finalize=True):
         L /= 5
         hnel = int(L*5*nel // 2)
 
@@ -70,10 +70,9 @@ class halfbeam(NutilsCase):
         NutilsCase.__init__(self, 'Elastic split beam', domain, geom)
 
         E1 = self.parameters.add('ymod1', 1e10, 9e10)
-        E2 = self.parameters.add('ymod2', 1e10, 9e10)
+        E2 = self.parameters.add('ymod2', 1e10 / ratio, 9e10 / ratio)
         NU = self.parameters.add('prat', 0.25, 0.42)
-        F1 = self.parameters.add('force1', -0.4e6, 0.4e6)
-        F2 = self.parameters.add('force2', -0.2e6, 0.2e6)
+        F1 = self.parameters.add('force1', -1e8, 1e8)
 
         mults = [[2] + [1] * (hnel-1) + [2] + [1] * (hnel-1) + [2], [2] + [1] * (nel-1) + [2]]
         basis = domain.basis('spline', degree=1, knotmultiplicities=mults).vector(2)
@@ -84,6 +83,7 @@ class halfbeam(NutilsCase):
 
         self.lift += 1, np.zeros((len(basis),))
         self.constrain('u', 'left')
+        self.constrain('u', 'right')
 
         MU1 = E1 / (1 + NU)
         MU2 = E2 / (1 + NU)
@@ -108,17 +108,28 @@ class halfbeam(NutilsCase):
         Linds = list(range(self.ndofs-L, self.ndofs))
         pen = sp.coo_matrix(((np.ones(L), (Linds, ldofs))), shape=(self.ndofs, self.ndofs))
         pen += sp.coo_matrix(((-np.ones(L), (Linds, rdofs))), shape=(self.ndofs, self.ndofs))
-        self['penalty'] += 1,  ScipyArrayIntegrand(sp.csc_matrix(pen + pen.T))
+        self['penalty'] += 1, ScipyArrayIntegrand(sp.csc_matrix(pen + pen.T))
+
+        # Even more hacky for the ROM part
+        bnd_lft = domain[:hnel,:].boundary['right']
+        bnd_rgt = domain[hnel:,:].boundary['left']
+        pts, wts = bnd_lft.elements[0].reference.getischeme('gauss5')
+        penalty_mx = np.zeros((self.ndofs, self.ndofs))
+        for el_lft, el_rgt in zip(bnd_lft.elements, bnd_rgt.elements):
+            udiff = (
+                basis.eval(_points=pts, _transforms=(el_lft.transform, el_lft.opposite)) -
+                basis.eval(_points=pts, _transforms=(el_rgt.transform, el_rgt.opposite))
+            )
+            penalty_mx += (udiff[:,:,_,:] * udiff[:,_,:,:] * wts[:,_,_,_]).sum(( 0,-1 ))
+        self['penalty-rom'] += 1e20, sp.csc_matrix(penalty_mx)
 
         normdot = fn.matmat(basis, geom.normal())
+        force_bnd = domain[hnel-11:hnel-1,:].boundary['top']
+        self['forcing'] += F1, NutilsArrayIntegrand(normdot).prop(domain=force_bnd)
 
-        irgt = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['right'])
-        ibtm = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['bottom'])
-        itop = NutilsArrayIntegrand(normdot).prop(domain=domain.boundary['top'])
-        self['forcing'] += F1, irgt
-        self['forcing'] -= F2, ibtm
-        self['forcing'] += F2, itop
-
-        self['u-h1s'] += 1, fn.outer(basis.grad(geom)).sum([-1,-2])
+        self['u-h1s'] = self['stiffness']
+        self['u-h1s-l'] = self['stiffness']
+        self['u-h1s-r'] = self['stiffness']
+        self['u-h1s-e'] = self['stiffness']
 
         self.verify()
