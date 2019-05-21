@@ -132,6 +132,9 @@ class EigenReducer(Reducer):
         projections = OrderedDict()
 
         for name, basis in self._bases.items():
+
+            # TODO: A lot of repeated code here. Try to collect as much as possible.
+
             if isinstance(basis.ensemble, str):
                 mass = case[f'{basis.parent}-{basis.norm}'](case.parameter())
                 ensemble = self._ensembles[basis.ensemble]
