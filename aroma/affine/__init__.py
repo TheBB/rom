@@ -51,32 +51,37 @@ class mu:
     __array_priority__ = 1.0
 
     def __init__(self, *args):
-        if len(args) == 1:
-            self.func = args[0]
-            return
-        self.oper, self.op1, self.op2 = args
+        self.oper, *self.operands = args
+
+    @property
+    def op1(self):
+        return self.operands[0]
+
+    @property
+    def op2(self):
+        return self.operands[1]
 
     def __str__(self):
-        if hasattr(self, 'oper'):
-            return f'({self.op1}) {self.oper} ({self.op2})'
-        return f"mu({repr(self.func)})"
+        opers = ', '.join(str(op) for op in self.operands)
+        return f"mu({repr(self.oper)}, {opers})"
 
     def __call__(self, p):
-        if hasattr(self, 'oper'):
-            if self.oper == '+':
-                return self.op1(p) + self.op2(p)
-            if self.oper == '-':
-                return self.op1(p) - self.op2(p)
-            if self.oper == '*':
-                return self.op1(p) * self.op2(p)
-            if self.oper == '/':
-                return self.op1(p) / self.op2(p)
-            if self.oper == '**':
-                return self.op1(p) ** self.op2(p)
-            raise ValueError(self.oper)
-        if isinstance(self.func, str):
-            return p[self.func]
-        return self.func
+        if self.oper == '+':
+            return self.op1(p) + self.op2(p)
+        if self.oper == '-':
+            return self.op1(p) - self.op2(p)
+        if self.oper == '*':
+            return self.op1(p) * self.op2(p)
+        if self.oper == '/':
+            return self.op1(p) / self.op2(p)
+        if self.oper == '**':
+            return self.op1(p) ** self.op2(p)
+        if isinstance(self.oper, str):
+            return p[self.oper]
+        if callable(self.oper):
+            return self.oper(*(op(p) for op in self.operands))
+        assert len(self.operands) == 0
+        return self.oper
 
     def _wrap(func):
         def ret(*args):
@@ -129,6 +134,12 @@ class mu:
     @_wrap
     def __rtruediv__(self, other):
         return mu('/', other, self)
+
+    def sin(self):
+        return mu(np.sin, self)
+
+    def cos(self):
+        return mu(np.cos, self)
 
 
 class Affine(list):
