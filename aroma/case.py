@@ -303,6 +303,7 @@ class Case:
         for param in self.parameters.values():
             if param.fixed is not None:
                 retval[param.name] = param.fixed
+                continue
             elif param.name in kwargs:
                 retval[param.name] = kwargs[param.name]
             elif index < len(args):
@@ -312,8 +313,11 @@ class Case:
             index += 1
         return retval
 
-    def ranges(self):
-        return [(p.minimum, p.maximum) for p in self.parameters.values() if p.fixed is None]
+    def ranges(self, ignore=()):
+        if isinstance(ignore, str):
+            ignore = (ignore,)
+        return [(p.minimum, p.maximum) for p in self.parameters.values()
+                if p.fixed is None and p.name not in ignore]
 
     def restrict(self, **kwargs):
         for name, value in kwargs.items():
