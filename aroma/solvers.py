@@ -49,12 +49,19 @@ class IterationCountError(Exception):
     pass
 
 
-def solve(mx, rhs, cons, **kwargs):
+def solve(mx, rhs, cons, solver='spsolve', **kwargs):
+    if solver == 'mkl':
+        if isinstance(mx, np.ndarray):
+            raise TypeError
+        mx = sp.sparse.coo_matrix(mx)
+        mx = matrix.MKLMatrix(mx.data, np.array([mx.row, mx.col]), mx.shape)
+        return mx.solve(rhs, constrain=cons, **kwargs)
+
     if isinstance(mx, np.ndarray):
         mx = matrix.NumpyMatrix(mx)
     else:
         mx = matrix.ScipyMatrix(mx)
-    return mx.solve(rhs, constrain=cons, **kwargs)
+    return mx.solve(rhs, constrain=cons, solver=solver, **kwargs)
 
 
 def _stokes_matrix(case, mu):
@@ -97,7 +104,7 @@ def navierstokes_conv(case, mu, lhs):
     return rh, lh
 
 
-def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
+def navierstokes(case, mu, newton_tol=1e-10, maxit=10, **kwargs):
     assert 'divergence' in case
     assert 'laplacian' in case
     assert 'convection' in case
@@ -116,7 +123,7 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
         rhs = stokes_rhs - stokes_mat @ lhs - rh
         ns_mat = stokes_mat + lh
 
-        update = solve(ns_mat, rhs, case.constraints)
+        update = solve(ns_mat, rhs, case.constraints, **kwargs)
         lhs += update
 
         update_norm = np.sqrt(update @ vmass @ update)
@@ -130,7 +137,7 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     return lhs
 
 
-def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10):
+def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10, **kwargs):
     stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
     stokes_mat += case['convection'](mu, lift=1) + case['convection'](mu, lift=2)
     stokes_rhs -= case['convection'](mu, lift=(1,2))
@@ -140,13 +147,16 @@ def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10):
     vmass_h1 = case['v-h1s'](mu)
     vmass_l2 = case['v-l2'](mu)
 
+    if 'mass-lift-dt' in case:
+        stokes_rhs -= case['mass-lift-dt'](mu)
+
     lhs = np.copy(cursol)
     for it in count(1):
         rh, lh = navierstokes_conv(case, mu, lhs)
         rhs = stokes_rhs - stokes_mat @ lhs - rh
         ns_mat = sys_mat + lh
 
-        update = solve(ns_mat, rhs, case.constraints)
+        update = solve(ns_mat, rhs, case.constraints, **kwargs)
         lhs += update
         stokes_rhs -= vmass_l2 @ update / dt
 
@@ -175,16 +185,33 @@ def navierstokes_time(case, mu, dt=1e-2, nsteps=100, timename='time', initsol=No
         lhs = initsol
     vmass_h1 = case['v-h1s'](mu)
 
-    solutions = [lhs]
+    solutions = [(mu, lhs)]
     for istep in range(1, nsteps+1):
+        mu = dict(**mu)
         mu[timename] += dt
         with log.context(f'Step {istep}'):
             lhs = navierstokes_timestep(case, mu, dt, lhs, **kwargs)
-        solutions.append(lhs)
+        if 'force' in case:
+            print(case['force'](mu, cont=(lhs, None)))
+        if 'xforce' in case and 'yforce' in case:
+            wx, wy, l = case['xforce'](mu), case['yforce'](mu), case.lift(mu)
+            u = lhs + l
+            xf = (
+                case['divergence'](mu, cont=(wx,u)) +
+                case['laplacian'](mu, cont=(wx,u)) +
+                case['convection'](mu, cont=(wx,u,u))
+            )
+            yf = (
+                case['divergence'](mu, cont=(wy,u)) +
+                case['laplacian'](mu, cont=(wy,u)) +
+                case['convection'](mu, cont=(wy,u,u))
+            )
+            xff = case['divergence'](mu, cont=(wx,u)) + case['laplacian'](mu, cont=(wx,u))
+            yff = case['divergence'](mu, cont=(wy,u)) + case['laplacian'](mu, cont=(wy,u))
+            print([xf, yf, xff, yff])
 
-    for i, (p, n) in enumerate(zip(solutions[:-1], solutions[1:])):
-        diff = np.sqrt((n - p) @ vmass_h1 @ (n - p))
-        log.user(f'Diff {i} -> {i+1}: {diff:.2e}')
+        np.save('sln.npy', lhs)
+        solutions.append((mu, lhs))
 
     return solutions
 

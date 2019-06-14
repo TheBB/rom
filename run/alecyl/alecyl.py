@@ -2,6 +2,7 @@ import click
 import numpy as np
 from nutils import log, config
 from aroma import cases, solvers, util, quadrature, reduction, ensemble as ens, visualization
+from aroma.affine import NumpyArrayIntegrand
 import multiprocessing
 
 
@@ -12,41 +13,47 @@ def main():
 
 @util.filecache('alecyl-{fast}-{piola}.case')
 def get_case(fast: bool = False, piola: bool = False):
-    case = cases.alecyl(piola=piola)
+    case = cases.alecyl(piola=piola, rmin=0.5, rmax=40, nelems=70)
+    case.restrict(velocity=1.0)
     case.precompute(force=fast)
     return case
 
 
-# @util.filecache('airfoil-{piola}-{num}.ens')
-# def get_ensemble(fast: bool = False, piola: bool = False, num: int = 10):
-#     case = get_case(fast, piola)
-#     case.ensure_shareable()
+@util.filecache('alecyl-{piola}-{num}.ens')
+def get_ensemble(fast: bool = False, piola: bool = False, num: int = 10):
+    case = get_case(fast, piola)
+    case.ensure_shareable()
 
-#     scheme = quadrature.full(case.ranges(), num)
-#     ensemble = ens.Ensemble(scheme)
-#     ensemble.compute('solutions', case, solvers.navierstokes, parallel=fast)
-#     ensemble.compute('supremizers', case, solvers.supremizer, parallel=True, args=[ensemble['solutions']])
-#     return ensemble
+    # Temporarily restrict time
+    case.restrict(time=0.0)
+    scheme = quadrature.sparse(case.ranges(), num)
+    case.restrict(time=None)
+
+    ensemble = ens.Ensemble(scheme)
+    args = [[0.05] * len(scheme), [500] * len(scheme)]
+    ensemble.compute('solutions', case, solvers.navierstokes_time, parallel=fast, time=True, args=args)
+    ensemble.compute('supremizers', case, solvers.supremizer, parallel=True, args=[ensemble['solutions']])
+    return ensemble
 
 
-# @util.filecache('airfoil-{piola}-{sups}-{nred}.rcase')
-# def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: int = None, num: int = None):
-#     case = get_case(fast, piola)
-#     ensemble = get_ensemble(fast, piola, num)
+@util.filecache('alecyl-{piola}-{sups}-{nred}.rcase')
+def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: int = None, num: int = None):
+    case = get_case(fast, piola)
+    ensemble = get_ensemble(fast, piola, num)
 
-#     reducer = reduction.EigenReducer(case, ensemble)
-#     reducer.add_basis('v', parent='v', ensemble='solutions', ndofs=nred, norm='h1s')
-#     if sups:
-#         reducer.add_basis('s', parent='v', ensemble='supremizers', ndofs=nred, norm='h1s')
-#     reducer.add_basis('p', parent='p', ensemble='solutions', ndofs=nred, norm='l2')
+    reducer = reduction.EigenReducer(case, ensemble)
+    reducer.add_basis('v', parent='v', ensemble='solutions', ndofs=nred, norm='h1s')
+    if sups:
+        reducer.add_basis('s', parent='v', ensemble='supremizers', ndofs=nred, norm='h1s')
+    reducer.add_basis('p', parent='p', ensemble='solutions', ndofs=nred, norm='l2')
 
-#     if sups and piola:
-#         reducer.override('convection', 'vvv', 'svv', soft=True)
-#         reducer.override('laplacian', 'vv', 'sv', soft=True)
-#         reducer.override('divergence', 'sp', soft=True)
+    # if sups and piola:
+    #     reducer.override('convection', 'vvv', 'svv', soft=True)
+    #     reducer.override('laplacian', 'vv', 'sv', soft=True)
+    #     reducer.override('divergence', 'sp', soft=True)
 
-#     reducer.plot_spectra(util.make_filename(get_reduced, 'airfoil-spectrum-{piola}', piola=piola))
-#     return reducer()
+    reducer.plot_spectra(util.make_filename(get_reduced, 'alecyl-spectrum-{piola}', piola=piola))
+    return reducer()
 
 
 # def force_err(hicase, locase, hifi, lofi, scheme):
@@ -73,23 +80,53 @@ def get_case(fast: bool = False, piola: bool = False):
 @click.option('--piola/--no-piola', default=False)
 @util.common_args
 def disp(fast, piola):
-    print(get_case(fast, piola))
+    case = get_case(fast, piola)
+    print(case)
 
 
 @main.command()
 @click.option('--velocity', default=1.0)
 @click.option('--viscosity', default=1.0)
+@click.option('--period', default=10.0)
+@click.option('--nsteps', default=500)
+@click.option('--timestep', default=0.5)
 @click.option('--fast/--no-fast', default=False)
 @click.option('--piola/--no-piola', default=False)
 @util.common_args
-def solve(velocity, viscosity, fast, piola):
+def solve(velocity, viscosity, period, nsteps, timestep, fast, piola):
     case = get_case(fast, piola)
     mu = case.parameter(velocity=velocity, viscosity=viscosity)
+
     with util.time():
-        lhs = solvers.navierstokes(case, mu)
-        # lhs = solvers.stokes(case, mu)
-    visualization.velocity(case, mu, lhs, name='full', axes=False, colorbar=True)
-    visualization.pressure(case, mu, lhs, name='full', axes=False, colorbar=True)
+        solutions = solvers.navierstokes_time(case, mu, maxit=10, nsteps=nsteps, dt=timestep, solver='mkl',
+                                              initsol=np.load('sln.npy'))
+                                              # )
+
+    forces = []
+    for i, (mu, lhs) in enumerate(solutions[::1]):
+        visualization.velocity(case, mu, lhs, name='dull', axes=False, colorbar=True, index=i, ndigits=4, streams=False)
+        if 'force' in case:
+            force = case['force'](mu, cont=(lhs, None))
+        elif 'xforce' in case and 'yforce' in case:
+            wx, wy, l = case['xforce'](mu), case['yforce'](mu), case.lift(mu)
+            u = lhs + l
+            xf = (
+                case['divergence'](mu, cont=(wx,u)) +
+                case['laplacian'](mu, cont=(wx,u)) +
+                case['convection'](mu, cont=(wx,u,u))
+            )
+            yf = (
+                case['divergence'](mu, cont=(wy,u)) +
+                case['laplacian'](mu, cont=(wy,u)) +
+                case['convection'](mu, cont=(wy,u,u))
+            )
+            xff = case['divergence'](mu, cont=(wx,u)) + case['laplacian'](mu, cont=(wx,u))
+            yff = case['divergence'](mu, cont=(wy,u)) + case['laplacian'](mu, cont=(wy,u))
+            force = [xf, yf, xff, yff]
+        forces.append([mu['time'], *force])
+        print('Step {}: time {:.2f} force {}'.format(i, mu['time'], force))
+
+    np.save('forces.npy', np.array(forces))
 
 
 # @main.command()
@@ -115,24 +152,24 @@ def solve(velocity, viscosity, fast, piola):
 #     visualization.pressure(case, mu, lhs, name='red', axes=False, colorbar=True)
 
 
-# @main.command()
-# @click.option('--fast/--no-fast', default=False)
-# @click.option('--piola/--no-piola', default=False)
-# @click.option('--num', '-n', default=8)
-# @util.common_args
-# def ensemble(fast, piola, num):
-#     get_ensemble(fast, piola, num)
+@main.command()
+@click.option('--fast/--no-fast', default=False)
+@click.option('--piola/--no-piola', default=False)
+@click.option('--num', '-n', default=8)
+@util.common_args
+def ensemble(fast, piola, num):
+    get_ensemble(fast, piola, num)
 
 
-# @main.command()
-# @click.option('--fast/--no-fast', default=False)
-# @click.option('--piola/--no-piola', default=False)
-# @click.option('--sups/--no-sups', default=True)
-# @click.option('--num', '-n', default=8)
-# @click.option('--nred', '-r', default=10)
-# @util.common_args
-# def reduce(fast, piola, sups, num, nred):
-#     get_reduced(piola, sups, nred, fast, num)
+@main.command()
+@click.option('--fast/--no-fast', default=False)
+@click.option('--piola/--no-piola', default=False)
+@click.option('--sups/--no-sups', default=True)
+@click.option('--num', '-n', default=8)
+@click.option('--nred', '-r', default=10)
+@util.common_args
+def reduce(fast, piola, sups, num, nred):
+    get_reduced(piola, sups, nred, fast, num)
 
 
 # def _divs(fast: bool = False, piola: bool = False, num=8):
@@ -164,85 +201,191 @@ def solve(velocity, viscosity, fast, piola):
 #     np.savetxt(util.make_filename(_divs, 'airfoil-divs-{piola}.csv', piola=piola), results)
 
 
-# def _bfuns(fast: bool = False, piola: bool = False, num=8):
-#     __, solutions, supremizers = get_ensemble(fast, piola, num)
-#     case = get_case(fast, piola)
+def _bfuns():
+    case = get_case(fast=True, piola=True)
+    rcase = get_reduced(piola=True, sups=True, nred=80)
 
-#     eig_sol = reduction.eigen(case, solutions, fields=['v', 'p'])
-#     rb_sol = reduction.reduced_bases(case, solutions, eig_sol, (12, 12))
-#     eig_sup = reduction.eigen(case, supremizers, fields=['v'])
-#     rb_sup = reduction.reduced_bases(case, supremizers, eig_sup, (12,))
+    rb_sol = {
+        'v': rcase.projection[:80,:],
+        's': rcase.projection[80:160,:],
+        'p': rcase.projection[160:,:],
+    }
 
-#     for i in range(6):
-#         solvers.plots(
-#             case, case.parameter(), rb_sol['v'][i], colorbar=False, figsize=(13,8), fields=['v'],
-#             axes=False, xlim=(-4,9), ylim=(-4,4), density=3, lift=False,
-#             plot_name=util.make_filename(_bfuns, 'bfun-v-{piola}', piola=piola), index=i,
-#         )
-#         solvers.plots(
-#             case, case.parameter(), rb_sol['p'][i], colorbar=False, figsize=(10,10), fields=['p'],
-#             axes=False, xlim=(-2,2), ylim=(-2,2), lift=False,
-#             plot_name=util.make_filename(_bfuns, 'bfun-p-{piola}', piola=piola), index=i,
-#         )
-#         solvers.plots(
-#             case, case.parameter(), rb_sup['v'][i], colorbar=False, figsize=(10,10), fields=['v'],
-#             axes=False, density=2, lift=False,
-#             plot_name=util.make_filename(_bfuns, 'bfun-s-{piola}', piola=piola), index=i,
-#         )
+    # eig_sol = reduction.eigen(case, solutions, fields=['v', 'p'])
+    # rb_sol = reduction.reduced_bases(case, solutions, eig_sol, (12, 12))
+    # eig_sup = reduction.eigen(case, supremizers, fields=['v'])
+    # rb_sup = reduction.reduced_bases(case, supremizers, eig_sup, (12,))
 
-
-# @main.command()
-# @click.option('--fast/--no-fast', default=False)
-# @click.option('--piola/--no-piola', default=False)
-# @click.option('--num', '-n', default=8)
-# @util.common_args
-# def bfuns(fast, piola, num):
-#     _bfuns(fast=fast, piola=piola, num=num)
+    for i in range(6):
+        visualization.velocity(
+            case, case.parameter(), rb_sol['v'][i], colorbar=False, figsize=(10,10), fields=['v'],
+            axes=False, density=2, lift=False, name='bfun-v-piola', index=i,
+        )
+        # visualization.pressure(
+        #     case, case.parameter(), rb_sol['p'][i], colorbar=False, figsize=(10,10), fields=['p'],
+        #     axes=False, lift=False, name='bfun-p-piola', index=i,
+        # )
+        # visualization.velocity(
+        #     case, case.parameter(), rb_sol['s'][i], colorbar=False, figsize=(10,10), fields=['v'],
+        #     axes=False, density=2, lift=False, name='bfun-s-piola', index=i,
+        # )
 
 
-# def _results(fast: bool = False, piola: bool = False, sups: bool = False, block: bool = False, nred=[10]):
-#     tcase = get_case(fast=fast, piola=piola)
-#     tcase.ensure_shareable()
-
-#     ensemble = get_ensemble(fast=fast, piola=piola, num=15)
-
-#     if not piola:
-#         block = False
-
-#     res = []
-#     for nr in nred:
-#         rcase = get_reduced(piola=piola, sups=sups, nred=nr)
-#         solver = solvers.navierstokes_block if block else solvers.navierstokes
-#         rtime = ensemble.compute('rsol', rcase, solver, parallel=False)
-#         mu = tcase.parameter()
-#         verrs = ensemble.errors(tcase, 'solutions', rcase, 'rsol', tcase['v-h1s'](mu))
-#         perrs = ensemble.errors(tcase, 'solutions', rcase, 'rsol', tcase['p-l2'](mu))
-#         res.append([rcase.size // 3, rcase.meta['err-v'], rcase.meta['err-p'], *verrs, *perrs, rtime])
-
-#     # Case size, exp v, exp p,
-#     # mean abs v, mean rel v, max abs v, max rel v,
-#     # mean abs p, mean rel p, max abs p, max rel p,
-#     # mean time usage
-#     res = np.array(res)
-#     np.savetxt(
-#         util.make_filename(
-#             _results, 'airfoil-results-{piola}-{sups}-{block}.csv',
-#             piola=piola, sups=sups, block=block,
-#         ),
-#         res
-#     )
+@main.command()
+@util.common_args
+def bfuns():
+    _bfuns()
 
 
-# @main.command()
-# @click.option('--fast/--no-fast', default=False)
-# @click.option('--piola/--no-piola', default=False)
-# @click.option('--sups/--no-sups', default=True)
-# @click.option('--block/--no-block', default=False)
-# @click.argument('nred', nargs=-1, type=int)
-# @util.common_args
-# def results(fast, piola, sups, block, nred):
-#     return _results(fast=fast, piola=piola, sups=sups, block=block, nred=nred)
+@util.filecache('alecyl-{piola}-{sups}.rens')
+def _results(fast: bool = False, piola: bool = False, sups: bool = False, block: bool = False, nred=[10]):
+    tcase = get_case(fast=fast, piola=piola)
+    tcase.ensure_shareable()
+
+    ensemble = get_ensemble(fast=fast, piola=piola, num=8)
+
+    tcase.restrict(time=0.0)
+    scheme = quadrature.sparse(tcase.ranges(), 8)
+    tcase.restrict(time=None)
+
+    if not piola:
+        block = False
+
+    for nr in nred:
+        _ensemble = ens.Ensemble(scheme)
+        args = [[0.05] * len(scheme), [500] * len(scheme)]
+
+        rcase = get_reduced(piola=piola, sups=sups, nred=nr)
+        rtime = _ensemble.compute(f'rsol-{nr}', rcase, solvers.navierstokes_time, time=True, parallel=False, args=args)
+
+        ensemble[f'rsol-{nr}'] = _ensemble[f'rsol-{nr}']
+
+    return ensemble
+
+
+@main.command()
+@click.option('--fast/--no-fast', default=False)
+@click.option('--piola/--no-piola', default=False)
+@click.option('--sups/--no-sups', default=True)
+@click.option('--block/--no-block', default=False)
+@click.argument('nred', nargs=-1, type=int)
+@util.common_args
+def results(fast, piola, sups, block, nred):
+    return _results(fast=fast, piola=piola, sups=sups, block=block, nred=nred)
+
+
+def _postprocess():
+    tcase = get_case(fast=True, piola=True)
+    ensemble = util.filecache('alecyl-piola-sups.rens')(lambda: None)()
+
+    res = []
+    tres = [np.linspace(0, 250, num=501)]
+    for nr in [10, 20, 30, 40, 50, 60, 70, 80]:
+        rcase = get_reduced(piola=True, sups=True, nred=nr)
+        mu = tcase.parameter()
+        verrs = ensemble.errors(tcase, 'solutions', rcase, f'rsol-{nr}', tcase['v-h1s'](mu))
+        perrs = ensemble.errors(tcase, 'solutions', rcase, f'rsol-{nr}', tcase['p-l2'](mu))
+        res.append([rcase.size // 3, rcase.meta['err-v'], rcase.meta['err-p'], *verrs, *perrs])
+
+        verrs = ensemble.errors(tcase, 'solutions', rcase, f'rsol-{nr}', tcase['v-h1s'](mu), summary=False)
+        perrs = ensemble.errors(tcase, 'solutions', rcase, f'rsol-{nr}', tcase['p-l2'](mu), summary=False)
+        abs_verrs = [
+            sum(wt * ve for (wt, *__), (ve, __) in zip(ensemble.scheme[i::501], verrs[i::501])) /
+            sum(wt for (wt, *__) in ensemble.scheme[i::501])
+            for i in range(501)
+        ]
+        rel_verrs = [
+            sum(wt * ve for (wt, *__), (__, ve) in zip(ensemble.scheme[i::501], verrs[i::501])) /
+            sum(wt for (wt, *__) in ensemble.scheme[i::501])
+            for i in range(501)
+        ]
+        abs_perrs = [
+            sum(wt * ve for (wt, *__), (ve, __) in zip(ensemble.scheme[i::501], verrs[i::501])) /
+            sum(wt for (wt, *__) in ensemble.scheme[i::501])
+            for i in range(501)
+        ]
+        rel_perrs = [
+            sum(wt * ve for (wt, *__), (__, ve) in zip(ensemble.scheme[i::501], verrs[i::501])) /
+            sum(wt for (wt, *__) in ensemble.scheme[i::501])
+            for i in range(501)
+        ]
+
+        tres.append(abs_verrs)
+        tres.append(rel_verrs)
+        tres.append(abs_perrs)
+        tres.append(rel_perrs)
+
+    # Case size, exp v, exp p,
+    # mean abs v, mean rel v, max abs v, max rel v,
+    # mean abs p, mean rel p, max abs p, max rel p,
+    res = np.array(res)
+    np.savetxt('alecyl-results-piola-sups-no-block.csv', res)
+    tres = np.array(tres).T
+    np.savetxt('alecyl-results-piola-sups-no-block-time.csv', tres)
+
+
+@main.command()
+@util.common_args
+def postprocess():
+    _postprocess()
+
+
+@util.filecache('alecyl-piola-sups-{nred}.rcase')
+def zomg(nred: int, rcase, piola: bool = True, sups: bool = True):
+    rcase.bases['v'].end = nred
+    rcase.bases['s'].start = nred
+    rcase.bases['s'].end = 2 * nred
+    rcase.bases['p'].start = 2 * nred
+    rcase.bases['p'].end = 3 * nred
+    rcase.bases['v'].obj = rcase.bases['v'].obj[:nred, ...]
+    rcase.bases['s'].obj = rcase.bases['s'].obj[:nred, ...]
+    rcase.bases['p'].obj = rcase.bases['p'].obj[:nred, ...]
+
+    i1 = [*range(nred), *range(80, 80+nred), *range(160, 160+nred)]
+    i2 = np.ix_(i1, i1)
+    i3 = np.ix_(i1, i1, i1)
+
+    rcase.projection = rcase.projection[i1,:]
+
+    def do(itg, i):
+        itg.values = [NumpyArrayIntegrand(v.obj[i]) for v in itg.values]
+
+    do(rcase.integrals['convection'], i3)
+    do(rcase.integrals['convection']._lift[frozenset((1,))], i2)
+    do(rcase.integrals['convection']._lift[frozenset((2,))], i2)
+    do(rcase.integrals['convection']._lift[frozenset((1,2))], i1)
+    do(rcase.integrals['divergence'], i2)
+    do(rcase.integrals['divergence']._lift[frozenset((0,))], i1)
+    do(rcase.integrals['forcing'], i1)
+    do(rcase.integrals['laplacian'], i2)
+    do(rcase.integrals['laplacian']._lift[frozenset((1,))], i1)
+    do(rcase.integrals['mass-lift-dt'], i1)
+    do(rcase.integrals['p-l2'], i2)
+    do(rcase.integrals['p-l2']._lift[frozenset((1,))], i1)
+    do(rcase.integrals['v-h1s'], i2)
+    do(rcase.integrals['v-h1s']._lift[frozenset((1,))], i1)
+    do(rcase.integrals['v-l2'], i2)
+    do(rcase.integrals['v-l2']._lift[frozenset((1,))], i1)
+
+    alleigs_v = np.load('alleigs-v.npy')
+    alleigs_s = np.load('alleigs-s.npy')
+    alleigs_p = np.load('alleigs-p.npy')
+
+    rcase.meta['err-v'] = np.sqrt(1.0 - np.sum(alleigs_v[:nred]) / np.sum(alleigs_v))
+    rcase.meta['err-s'] = np.sqrt(1.0 - np.sum(alleigs_s[:nred]) / np.sum(alleigs_s))
+    rcase.meta['err-p'] = np.sqrt(1.0 - np.sum(alleigs_p[:nred]) / np.sum(alleigs_p))
+
+    rcase._cons = rcase._cons[:3*nred]
+
+    return rcase
 
 
 if __name__ == '__main__':
     main()
+
+    # _postprocess()
+    # _bfuns()
+
+    # for k in [10, 20, 30, 40, 50, 60, 70]:
+    #     rcase = get_reduced(nred=80, piola=True, sups=True)
+    #     zomg(k, rcase)

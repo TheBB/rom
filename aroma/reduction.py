@@ -39,6 +39,7 @@
 
 from collections import OrderedDict, namedtuple
 import numpy as np
+from scipy.linalg import eigh, eigvalsh
 from nutils import log, plot, _, function as fn
 
 from aroma.case import LofiCase
@@ -138,14 +139,35 @@ class EigenReducer(Reducer):
             if isinstance(basis.ensemble, str):
                 mass = case[f'{basis.parent}-{basis.norm}'](case.parameter())
                 ensemble = self._ensembles[basis.ensemble]
+
+                print('computing corr', name)
                 corr = ensemble.dot(mass.dot(ensemble.T))
-                eigvals, eigvecs = np.linalg.eigh(corr)
+                print('computed corr', name)
+
+                print('computing all eigs', name)
+                eigvals = eigvalsh(corr, turbo=False)
                 eigvals = eigvals[::-1]
-                eigvecs = eigvecs[:,::-1]
+                np.save(f'alleigs-{name}.npy', eigvals)
                 self.meta[f'err-{name}'] = np.sqrt(1.0 - np.sum(eigvals[:basis.ndofs]) / np.sum(eigvals))
                 self._spectra[name] = eigvals
+                print('computed all eigs', name)
 
+                print('computing eigs', name)
+                eigvals, eigvecs = eigh(corr, turbo=False, eigvals=(len(corr)-basis.ndofs, len(corr)-1))
+                np.save(f'eigvals-{name}.npy', eigvals)
+                np.save(f'eigvecs-{name}.npy', eigvals)
+                del corr
+                print('computed eigs', name)
+
+                eigvals = eigvals[::-1]
+                eigvecs = eigvecs[:,::-1]
+
+                print('computing reds', name)
                 reduced = ensemble.T.dot(eigvecs[:,:basis.ndofs]) / np.sqrt(eigvals[:basis.ndofs])
+                np.save(f'reduced-{name}.npy', reduced)
+                del eigvecs
+                del eigvals
+                print('computed reds', name)
                 indices = case.bases[basis.parent].indices
 
                 if basis.clean:

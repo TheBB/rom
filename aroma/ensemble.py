@@ -55,7 +55,7 @@ class Ensemble(dict):
     def __init__(self, scheme):
         self.scheme = scheme
 
-    def compute(self, name, case, solver, parallel=False, args=None):
+    def compute(self, name, case, solver, parallel=False, args=None, time=False):
         quadrule = [case.parameter(*mu) for mu in self.scheme[:,1:]]
         args = repeat(()) if args is None else zip(*args)
         log.user(f'generating ensemble of {len(quadrule)} solutions')
@@ -69,7 +69,17 @@ class Ensemble(dict):
             pool = Pool()
             solutions = list(pool.imap(_solve, args))
         meantime = sum(t for t, _ in solutions) / len(solutions)
-        self[name] = np.array([s for __, s in solutions])
+        solutions = [s for __, s in solutions]
+
+        if time:
+            self[name] = np.array([sol for sols in solutions for (__, sol) in sols])
+            self.scheme = np.array([
+                [wt/len(sols), *prev, mu['time']]
+                for (wt, *prev), sols in zip(self.scheme, solutions)
+                for (mu, __) in sols
+            ])
+        else:
+            self[name] = np.array(solutions)
 
         return meantime
 
@@ -86,10 +96,11 @@ class Ensemble(dict):
             retval[key] = value[:]
         return retval
 
-    def errors(self, hicase, hiname, locase, loname, mass):
+    def errors(self, hicase, hiname, locase, loname, mass, summary=True):
         abs_err, rel_err = 0.0, 0.0
         max_abs_err, max_rel_err = 0.0, 0.0
 
+        errors = []
         for hilhs, lolhs, (weight, *mu) in zip(self[hiname], self[loname], self.scheme):
             mu = locase.parameter(*mu)
             lolhs = locase.solution_vector(lolhs, hicase, mu=mu)
@@ -101,7 +112,11 @@ class Ensemble(dict):
             max_rel_err = max(max_rel_err, rerr)
             abs_err += weight * aerr
             rel_err += weight * rerr
+            errors.append((aerr, rerr))
 
-        abs_err /= sum(w for w, *__ in self.scheme)
-        rel_err /= sum(w for w, *__ in self.scheme)
-        return abs_err, rel_err, max_abs_err, max_rel_err
+        if summary:
+            abs_err /= sum(w for w, *__ in self.scheme)
+            rel_err /= sum(w for w, *__ in self.scheme)
+            return abs_err, rel_err, max_abs_err, max_rel_err
+        else:
+            return np.array(errors)

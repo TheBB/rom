@@ -47,8 +47,9 @@ from nutils import function as fn
 
 @contextmanager
 def _plot(suffix, name='solution', figsize=(10,10), index=None, mesh=None,
-          xlim=None, ylim=None, axes=True, show=False, **kwargs):
-    ndigits = 0 if index is None else 3
+          xlim=None, ylim=None, axes=True, show=False, ndigits=3, **kwargs):
+    if index is None:
+        ndigits = 0
     with nutils.plot.PyPlot(f'{name}-{suffix}', figsize=figsize, index=index, ndigits=ndigits) as plt:
         yield plt
         if mesh is not None: plt.segments(mesh, linewidth=0.1, color='black')
@@ -65,7 +66,7 @@ def _colorbar(plt, clim=None, colorbar=False, **kwargs):
     if colorbar: plt.colorbar()
 
 
-def velocity(case, mu, lhs, density=1, lift=True, **kwargs):
+def velocity(case, mu, lhs, density=1, lift=True, streams=True, **kwargs):
     tri, mesh = case.triangulation(mu, lines=True)
     vvals = case.solution(lhs, 'v', mu, lift=lift)
     vnorm = np.linalg.norm(vvals, axis=-1)
@@ -73,7 +74,8 @@ def velocity(case, mu, lhs, density=1, lift=True, **kwargs):
     with _plot('v', mesh=mesh, **kwargs) as plt:
         plt.tripcolor(tri, vnorm, shading='gouraud')
         _colorbar(plt, **kwargs)
-        plt.streamplot(tri, vvals, spacing=0.1, density=density, color='black')
+        if streams:
+            plt.streamplot(tri, vvals, spacing=0.1, density=density, color='black')
 
 
 def pressure(case, mu, lhs, lift=True, **kwargs):

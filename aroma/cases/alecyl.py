@@ -52,8 +52,10 @@ def mk_mesh(nang, nrad, rmin, rmax):
     domain, refgeom = mesh.rectilinear([rspace, aspace], periodic=(1,))
 
     rad, theta = refgeom
-    x = (rad**3 * (rmax - rmin) + rmin) * fn.cos(theta)
-    y = (rad**3 * (rmax - rmin) + rmin) * fn.sin(theta)
+    K = 5
+    rad = (fn.exp(K * rad) - 1) / (np.exp(K) - 1)
+    x = (rad * (rmax - rmin) + rmin) * fn.cos(theta)
+    y = (rad * (rmax - rmin) + rmin) * fn.sin(theta)
     geom = fn.asarray([x, y])
 
     return domain, refgeom, geom
@@ -92,14 +94,24 @@ def mk_bases(case, piola):
     return vbasis, pbasis
 
 
-def mk_lift(case, V):
+def rotmat(angle):
+    return np.array([
+        [np.cos(angle), -np.sin(angle)],
+        [np.sin(angle), np.cos(angle)]
+    ])
+
+
+def mk_lift(case, V, FREQ, TIME):
     domain, geom = case.domain, case.refgeom
     x, y = geom
     vbasis, pbasis = case.bases['v'].obj, case.bases['p'].obj
 
     cons = domain.boundary['left'].project((0,0), onto=vbasis, geometry=geom, ischeme='gauss1')
-    cons = domain.boundary['right'].select(-x).project(
+    cons_x = domain.boundary['right'].select(-x).project(
         (1,0), onto=vbasis, geometry=geom, ischeme='gauss9', constrain=cons,
+    )
+    cons_y = domain.boundary['right'].select(-x).project(
+        (0,1), onto=vbasis, geometry=geom, ischeme='gauss9', constrain=cons,
     )
 
     mx = fn.outer(vbasis.grad(geom)).sum([-1, -2])
@@ -108,34 +120,66 @@ def mk_lift(case, V):
     with matrix.Scipy():
         mx = domain.integrate(mx, geometry=geom, ischeme='gauss9')
     rhs = np.zeros(pbasis.shape)
-    lhs = mx.solve(rhs, constrain=cons)
-    vsol = vbasis.dot(lhs)
 
-    vdiv = vsol.div(geom)**2
-    vdiv = np.sqrt(domain.integrate(vdiv, geometry=geom, ischeme='gauss9'))
-    log.user('Lift divergence (ref coord):', vdiv)
+    lhs_x = mx.solve(rhs, constrain=cons_x)
+    lhs_x[case.bases['p'].indices] = 0.0
 
-    lhs[case.bases['p'].indices] = 0.0
-    case.lift += V, lhs
+    lhs_y = mx.solve(rhs, constrain=cons_y)
+    lhs_y[case.bases['p'].indices] = 0.0
+
+    case.lift += V, lhs_x
+    # case.lift += - V * FREQ * (FREQ * TIME).cos(), lhs_y
+
+    # mass = domain.integrate(fn.outer(vbasis).sum((-1,)), geometry=geom, ischeme='gauss9')
+    # mass_v = mass.core @ lhs_y
+
+    # case['mass-lift-dt'] += - V * FREQ**2 * (FREQ * TIME).sin(), mass_v
+
     case.constrain('v', 'left')
     case.constrain('v', domain.boundary['right'].select(-x))
+    # xrot, _ = fn.matmat(rotmat(np.pi/4), geom)
+    # case.constrain('v', domain.boundary['right'].select(-xrot))
+    # xrot, _ = fn.matmat(rotmat(-np.pi/4), geom)
+    # case.constrain('v', domain.boundary['right'].select(-xrot))
+
+
+def mk_force(case, geom, vbasis, pbasis):
+    domain = case.domain
+
+    lapl = domain.integrate(fn.outer(vbasis.grad(geom)).sum((-1,-2)), geometry=geom, ischeme='gauss9')
+    zero = np.zeros((lapl.shape[0],))
+
+    xcons = domain.boundary['left'].project((1,0), onto=vbasis, geometry=geom, ischeme='gauss9')
+    xcons = domain.boundary['right'].project((0,0), onto=vbasis, geometry=geom, ischeme='gauss1', constrain=xcons)
+    xcons = domain.project(0, onto=pbasis, geometry=geom, ischeme='gauss1', constrain=xcons)
+    xtest = -lapl.solve(zero, constrain=xcons)
+
+    ycons = domain.boundary['left'].project((0,1), onto=vbasis, geometry=geom, ischeme='gauss9')
+    ycons = domain.boundary['right'].project((0,0), onto=vbasis, geometry=geom, ischeme='gauss1', constrain=ycons)
+    ycons = domain.project(0, onto=pbasis, geometry=geom, ischeme='gauss1', constrain=ycons)
+    ytest = -lapl.solve(zero, constrain=ycons)
+
+    case['xforce'] += 1, xtest
+    case['yforce'] += 1, ytest
 
 
 class alecyl(NutilsCase):
 
-    def __init__(self, nelems=30, rmin=1, rmax=10, amax=25, piola=True):
+    def __init__(self, nelems=60, rmin=1, rmax=10, piola=True):
         domain, refgeom, geom = mk_mesh(nelems, nelems, rmin, rmax)
         NutilsCase.__init__(self, 'ALE Flow around cylinder', domain, geom)
         self._refgeom = refgeom
 
         V = self.parameters.add('velocity', 1.0, 20.0)
-        NU = 1 / self.parameters.add('viscosity', 1.0, 1000.0)
+        NU = 1 / self.parameters.add('viscosity', 100.0, 150.0)
+        # FREQ = 2*np.pi / self.parameters.add('period', 20, 40)
+        TIME = self.parameters.add('time', 0.0, 25.0, default=0.0)
 
         self.geometry += 1, geom
 
         # Add bases and construct a lift function
         vbasis, pbasis = mk_bases(self, piola)
-        mk_lift(self, V)
+        mk_lift(self, V, None, TIME)
 
         self['divergence'] -= 1, fn.outer(vbasis.div(geom), pbasis)
         self['divergence'].freeze(lift=(1,))
@@ -146,3 +190,15 @@ class alecyl(NutilsCase):
         )
 
         self['v-h1s'] += 1, fn.outer(vbasis.grad(geom)).sum((-1, -2))
+        self['v-l2'] += 1, fn.outer(vbasis).sum((-1,))
+        self['p-l2'] += 1, fn.outer(pbasis)
+
+        # forcing = fn.matmat(vbasis, fn.asarray([0, 1]))
+        # self['forcing'] += FREQ**2 * (FREQ * TIME).sin(), forcing
+
+        # self['force'] += 1, pbasis[:,_] * geom.normal()
+        # self['force'] -= NU, fn.matmat(vbasis.grad(geom), geom.normal())
+        # self['force'].prop(domain=domain.boundary['left'])
+        # self['force'].freeze(proj=(1,), lift=(1,))
+
+        mk_force(self, geom, vbasis, pbasis)

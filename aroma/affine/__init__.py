@@ -46,6 +46,12 @@ from aroma.affine.integrands import *
 from aroma.affine.integrands.nutils import *
 
 
+_mufuncs = {
+    '__sin': np.sin,
+    '__cos': np.cos,
+}
+
+
 class mu:
 
     __array_priority__ = 1.0
@@ -76,10 +82,10 @@ class mu:
             return self.op1(p) / self.op2(p)
         if self.oper == '**':
             return self.op1(p) ** self.op2(p)
+        if self.oper in _mufuncs:
+            return _mufuncs[self.oper](*(op(p) for op in self.operands))
         if isinstance(self.oper, str):
             return p[self.oper]
-        if callable(self.oper):
-            return self.oper(*(op(p) for op in self.operands))
         assert len(self.operands) == 0
         return self.oper
 
@@ -136,10 +142,10 @@ class mu:
         return mu('/', other, self)
 
     def sin(self):
-        return mu(np.sin, self)
+        return mu('__sin', self)
 
     def cos(self):
-        return mu(np.cos, self)
+        return mu('__cos', self)
 
 
 class Affine(list):
