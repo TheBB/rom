@@ -331,9 +331,9 @@ class airfoil(NutilsCase):
                         vgrad, Bminus(i,theta,Q).transpose(), Rmat(j,theta), geom.normal()
                     )
 
-        for i in range(nterms):
-            self['force'] += ANG**i, pbasis[:,_] * fn.matmat(Rmat(i,theta), geom.normal())[_,:]
-        for i, term in enumerate(terms):
-            self['force'] -= ANG**i * NU, term
-        self['force'].prop(domain=domain.boundary['left'])
-        self['force'].freeze(proj=(1,), lift=(1,))
+        # for i in range(nterms):
+        #     self['force'] += ANG**i, pbasis[:,_] * fn.matmat(Rmat(i,theta), geom.normal())[_,:]
+        # for i, term in enumerate(terms):
+        #     self['force'] -= ANG**i * NU, term
+        # self['force'].prop(domain=domain.boundary['left'])
+        # self['force'].freeze(proj=(1,), lift=(1,))

@@ -12,7 +12,7 @@ def main():
 
 @util.filecache('airfoil-{fast}-{piola}.case')
 def get_case(fast: bool = False, piola: bool = False):
-    case = cases.airfoil(amax=35, piola=piola)
+    case = cases.airfoil(amax=35, piola=piola, nterms=8)
     case.restrict(viscosity=6.0)
     case.precompute(force=fast)
     return case
@@ -23,9 +23,9 @@ def get_ensemble(fast: bool = False, piola: bool = False, num: int = 10):
     case = get_case(fast, piola)
     case.ensure_shareable()
 
-    scheme = quadrature.full(case.ranges(), num)
+    scheme = quadrature.sparse(case.ranges(), num)
     ensemble = ens.Ensemble(scheme)
-    ensemble.compute('solutions', case, solvers.navierstokes, parallel=fast)
+    ensemble.compute('solutions', case, solvers.navierstokes, parallel=False)
     ensemble.compute('supremizers', case, solvers.supremizer, parallel=True, args=[ensemble['solutions']])
     return ensemble
 
@@ -103,6 +103,7 @@ def solve(angle, velocity, fast, piola, index):
 @click.option('--index', '-i', default=0)
 @util.common_args
 def rsolve(angle, velocity, piola, sups, nred, index):
+    tcase = get_case(piola=piola, fast=True)
     case = get_reduced(piola=piola, sups=sups, nred=nred)
     angle = -angle / 180 * np.pi
     mu = case.parameter(angle=angle, velocity=velocity)
@@ -113,8 +114,8 @@ def rsolve(angle, velocity, piola, sups, nred, index):
             log.user('solving non-block')
             lhs = solvers.navierstokes(case, mu)
 
-    visualization.velocity(case, mu, lhs, name='red', axes=False, colorbar=True)
-    visualization.pressure(case, mu, lhs, name='red', axes=False, colorbar=True)
+    visualization.velocity(tcase, mu, case.solution_vector(lhs, tcase, mu, lift=False), name='red', axes=False, colorbar=True)
+    visualization.pressure(tcase, mu, case.solution_vector(lhs, tcase, mu, lift=False), name='red', axes=False, colorbar=True)
 
 
 @main.command()
