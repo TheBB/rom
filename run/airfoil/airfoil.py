@@ -89,7 +89,7 @@ def solve(angle, velocity, fast, piola, index):
     angle = -angle / 180 * np.pi
     mu = case.parameter(angle=angle, velocity=velocity)
     with util.time():
-        lhs = solvers.navierstokes(case, mu)
+        lhs = solvers.navierstokes(case, mu, solver='mkl')
     visualization.velocity(case, mu, lhs, name='full', axes=False, colorbar=True)
     visualization.pressure(case, mu, lhs, name='full', axes=False, colorbar=True)
 
