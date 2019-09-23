@@ -16,7 +16,7 @@ def _check_exact(case, mu, lhs):
     pdiff = (psol - pexc) ** 2
 
     geom = case.geometry(mu)
-    verr, perr = case.domain.integrate([vdiff, pdiff], geometry=geom, ischeme='gauss9')
+    verr, perr = case.domain.integrate([vdiff * fn.J(geom), pdiff * fn.J(geom)], ischeme='gauss9')
 
     np.testing.assert_almost_equal(verr, 0.0)
     np.testing.assert_almost_equal(perr, 0.0)
@@ -73,27 +73,27 @@ def test_exact_stokes(e_exact, a_exact, mu):
 
     # Size of physical geometry
     pgeom = e_exact.geometry(mu)
-    size = e_exact.domain.integrate(1, geometry=pgeom, ischeme='gauss9')
+    size = e_exact.domain.integrate(fn.J(pgeom), ischeme='gauss9')
     np.testing.assert_almost_equal(size, mu['w'] * mu['h'])
 
     # Solenoidal in physical coordinates
     pgeom = e_exact.geometry(mu)
     vdiv = e_exact.basis('v', mu).dot(elhs + e_exact.lift(mu)).div(pgeom)
-    vdiv = np.sqrt(e_exact.domain.integrate(vdiv**2, geometry=pgeom, ischeme='gauss9'))
+    vdiv = np.sqrt(e_exact.domain.integrate(vdiv**2 * fn.J(pgeom), ischeme='gauss9'))
     np.testing.assert_almost_equal(0.0, vdiv)
 
     pgeom = a_exact.geometry(mu)
     vdiv = a_exact.basis('v', mu).dot(alhs + a_exact.lift(mu)).div(pgeom)
-    vdiv = np.sqrt(a_exact.domain.integrate(vdiv**2, geometry=pgeom, ischeme='gauss9'))
+    vdiv = np.sqrt(a_exact.domain.integrate(vdiv**2 * fn.J(pgeom), ischeme='gauss9'))
     np.testing.assert_almost_equal(0.0, vdiv)
 
     # Solenoidal in reference coordinates
     rgeom = e_exact.refgeom
     vdiv = e_exact.basis('v').dot(elhs).div(rgeom)
-    vdiv = np.sqrt(e_exact.domain.integrate(vdiv**2, geometry=rgeom, ischeme='gauss9'))
+    vdiv = np.sqrt(e_exact.domain.integrate(vdiv**2 * fn.J(rgeom), ischeme='gauss9'))
     np.testing.assert_almost_equal(0.0, vdiv)
 
     rgeom = a_exact.refgeom
     vdiv = a_exact.basis('v').dot(alhs).div(rgeom)
-    vdiv = np.sqrt(a_exact.domain.integrate(vdiv**2, geometry=rgeom, ischeme='gauss9'))
+    vdiv = np.sqrt(a_exact.domain.integrate(vdiv**2 * fn.J(rgeom), ischeme='gauss9'))
     np.testing.assert_almost_equal(0.0, vdiv)

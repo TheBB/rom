@@ -81,7 +81,7 @@ class cavity(NutilsCase):
         d1g = g.grad(geom)[1]
         velocity = fn.asarray((f*d1g, -d1f*g))
         pressure = d1f * d1g
-        total = domain.integrate(pressure, ischeme='gauss9', geometry=geom)
+        total = domain.integrate(pressure * fn.J(geom), ischeme='gauss9')
         pressure -= total / domain.volume(geometry=geom)
         force = pressure.grad(geom) - velocity.laplace(geom)
 

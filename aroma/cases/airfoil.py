@@ -145,13 +145,13 @@ def mk_lift(case, V):
     mx -= fn.outer(pbasis, vbasis.div(geom))
     mx -= fn.outer(vbasis.div(geom), pbasis)
     with matrix.Scipy():
-        mx = domain.integrate(mx, geometry=geom, ischeme='gauss9')
+        mx = domain.integrate(mx * fn.J(geom), ischeme='gauss9')
     rhs = np.zeros(pbasis.shape)
     lhs = mx.solve(rhs, constrain=cons)
     vsol = vbasis.dot(lhs)
 
     vdiv = vsol.div(geom)**2
-    vdiv = np.sqrt(domain.integrate(vdiv, geometry=geom, ischeme='gauss9'))
+    vdiv = np.sqrt(domain.integrate(vdiv * fn.J(geom), ischeme='gauss9'))
     log.user('Lift divergence (ref coord):', vdiv)
 
     lhs[case.bases['p'].indices] = 0.0
