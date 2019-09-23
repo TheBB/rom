@@ -39,6 +39,7 @@
 
 from collections import OrderedDict, namedtuple
 import numpy as np
+from scipy.linalg import eigh
 from nutils import log, plot, _, function as fn
 
 from aroma.case import LofiCase
@@ -130,13 +131,18 @@ class EigenReducer(Reducer):
                 mass = case[f'{basis.parent}-{basis.norm}'](case.parameter())
                 ensemble = self._ensembles[basis.ensemble]
                 corr = ensemble.dot(mass.dot(ensemble.T))
-                eigvals, eigvecs = np.linalg.eigh(corr)
+
+                eigvals, eigvecs = eigh(corr, turbo=False, eigvals=(len(corr)-basis.ndofs, len(corr)-1))
+                del corr
+
                 eigvals = eigvals[::-1]
                 eigvecs = eigvecs[:,::-1]
                 self.meta[f'err-{name}'] = np.sqrt(1.0 - np.sum(eigvals[:basis.ndofs]) / np.sum(eigvals))
                 self._spectra[name] = eigvals
 
                 reduced = ensemble.T.dot(eigvecs[:,:basis.ndofs]) / np.sqrt(eigvals[:basis.ndofs])
+                del eigvecs
+                del eigvals
                 indices = case.bases[basis.parent].indices
 
                 if basis.clean:
