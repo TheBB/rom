@@ -132,6 +132,69 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     return lhs
 
 
+def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10):
+    stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
+    stokes_mat += case['v-l2'](mu) / dt
+    stokes_mat += case['convection'](mu, lift=1) + case['convection'](mu, lift=2)
+    stokes_rhs -= case['convection'](mu, lift=(1,2))
+
+    sys_mat = stokes_mat + case['v-l2'](mu) / dt
+
+    vmass_h1 = case['v-h1s'](mu)
+    vmass_l2 = case['v-l2'](mu)
+
+    def conv(lhs):
+        c = case['convection']
+        rh = c(mu, cont=(None, lhs, lhs), case=case)
+        lh = c(mu, cont=(None, lhs, None), case=case) + c(mu, cont=(None, None, lhs), case=case)
+        rh, lh = integrate(rh, lh)
+        return rh, lh
+
+    lhs = np.copy(cursol)
+    for it in count(1):
+        rh, lh = conv(cursol)
+        rhs = stokes_rhs - stokes_mat @ lhs - rh
+        ns_mat = sys_mat + lh
+
+        update = solve(ns_mat, rhs, case.constraints)
+        lhs += update
+        stokes_rhs -= vmass_l2 @ update / dt
+
+        update_norm = np.sqrt(update @ vmass_h1 @ update)
+        log.user('update: {:.2e}'.format(update_norm))
+        if update_norm < newton_tol:
+            break
+
+        if it > maxit:
+            raise IterationCountError
+
+    return lhs
+
+
+def navierstokes_time(case, mu, dt=1e-2, nsteps=100, **kwargs):
+    assert 'divergence' in case
+    assert 'laplacian' in case
+    assert 'convection' in case
+    assert 'v-h1s' in case
+    assert 'v-l2' in case
+
+    stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
+    lhs = solve(stokes_mat, stokes_rhs, case.constraints)
+    vmass_h1 = case['v-h1s'](mu)
+
+    solutions = [lhs]
+    for istep in range(1, nsteps+1):
+        with log.context(f'Step {istep}'):
+            lhs = navierstokes_timestep(case, mu, dt, lhs, **kwargs)
+        solutions.append(lhs)
+
+    for i, (p, n) in enumerate(zip(solutions[:-1], solutions[1:])):
+        diff = np.sqrt((n - p) @ vmass_h1 @ (n - p))
+        log.user(f'Diff {i}: {diff:.2e}')
+
+    return solutions
+
+
 def blocksolve_velocity(vv, rhs, V):
     lhs = np.zeros_like(rhs)
     lhs[V] = matrix.NumpyMatrix(vv).solve(rhs[V])
