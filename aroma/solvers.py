@@ -139,10 +139,21 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10, **kwargs):
     return lhs
 
 
-def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10, **kwargs):
+def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10, tsolver='be', **kwargs):
+    assert tsolver in ('be', 'cn')
+
     stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
     stokes_mat += case['convection'](mu, lift=1) + case['convection'](mu, lift=2)
     stokes_rhs -= case['convection'](mu, lift=(1,2))
+
+    if tsolver == 'cn':
+        # TODO: The computations here should be computed with the previous timestep's mu
+        # this technically assumes that the problem has no explicit time dependency
+        stokes_mat /= 2
+        stokes_rhs -= stokes_mat @ cursol
+        rh_cn = case['convection'](mu, cont=(None, cursol, cursol))
+        rh_cn, = integrate(rh_cn)
+        stokes_rhs -= rh_cn / 2
 
     sys_mat = stokes_mat + case['v-l2'](mu) / dt
 
@@ -155,6 +166,11 @@ def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10, **kw
     lhs = np.copy(cursol)
     for it in count(1):
         rh, lh = navierstokes_conv(case, mu, lhs)
+
+        if tsolver == 'cn':
+            rh /= 2
+            lh /= 2
+
         rhs = stokes_rhs - stokes_mat @ lhs - rh
         ns_mat = sys_mat + lh
 
