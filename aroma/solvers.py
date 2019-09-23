@@ -346,3 +346,33 @@ def error(case, mu, field, lhs, norm='l2'):
     diff = fn.sum(diff * diff)
 
     return np.sqrt(case.domain.integrate(diff, geometry=geom, ischeme='gauss9'))
+
+
+def force(case, mu, lhs, prev=None, dt=None, method='recover', tsolver='be'):
+    mu = case.parameter()
+    if method == 'direct':
+        return case['force'](mu, cont=(lhs, None))
+    assert method == 'recover'
+    wx, wy = case['xforce'](mu), case['yforce'](mu)
+
+    if tsolver == 'cn':
+        assert prev is not None
+        assert dt is not None
+        def getf(w):
+            f = (case['laplacian'](mu, cont=(w, lhs)) + integrate(case['convection'](mu, cont=(w, lhs, lhs)))) / 2
+            f += (case['laplacian'](mu, cont=(w, prev)) + integrate(case['convection'](mu, cont=(w, prev, prev)))) / 2
+            f += case['divergence'](mu, cont=(w, lhs))
+            f += (case['v-l2'](mu, cont=(w, lhs)) - case['v-l2'](mu, cont=(w, prev))) / dt
+            return f
+    else:
+        def getf(w):
+            f = case['laplacian'](mu, cont=(w, lhs))
+            f += integrate(case['convection'](mu, cont=(w, lhs, lhs)))
+            f += case['divergence'](mu, cont=(w, lhs))
+            if prev is not None:
+                f += (case['v-l2'](mu, cont=(w, lhs)) - case['v-l2'](mu, cont=(w, prev))) / dt
+            return f
+
+    fx, fy = getf(wx), getf(wy)
+
+    return np.array([*fx, *fy])
