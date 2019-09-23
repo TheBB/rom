@@ -65,18 +65,9 @@ class Reducer:
 
         rcase = LofiCase(case, total_proj)
 
-        # Specify the geometry
-        for scale, value in log.iter('geometry', case.geometry):
-            rcase.geometry += scale, case.discretize(value)
-
-        # Specify the bases
+        # Specify the bases (only lengths)
         for name, basis in self._bases.items():
-            with log.context(name):
-                bfuns = np.array([
-                    case.solution(bfun, basis.parent, lift=False)
-                    for bfun in log.iter('mode', projections[name])
-                ])
-                rcase.bases.add(name, bfuns, length=basis.ndofs)
+            rcase.bases.add(name, None, length=basis.ndofs)
 
         # Project all the integrals
         for name in case:
