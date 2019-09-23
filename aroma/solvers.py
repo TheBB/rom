@@ -191,7 +191,7 @@ def navierstokes_time(case, mu, dt=1e-2, nsteps=100, timename='time', initsol=No
     for istep in range(1, nsteps+1):
         mu = dict(**mu)
         mu[timename] += dt
-        with log.context(f'Step {istep}'):
+        with log.context(f'Step {istep} (t = {mu[timename]:.2f})'):
             lhs = navierstokes_timestep(case, mu, dt, lhs, **kwargs)
         solutions.append((mu, lhs))
 
