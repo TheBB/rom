@@ -344,7 +344,6 @@ class Case:
         return obj
 
     def _read(self, group, sparse):
-        print('Case.read', sparse)
         self.name = group['name'][()]
         self._cons = group['constraints'][:]
 
