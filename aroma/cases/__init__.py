@@ -37,6 +37,7 @@
 # written agreement between you and SINTEF Digital.
 
 
+from aroma.cases.abdman import abdman
 from aroma.cases.airfoil import airfoil
 from aroma.cases.alecyl import alecyl
 from aroma.cases.backstep import backstep
