@@ -38,7 +38,7 @@
 
 from beautifultable import BeautifulTable
 from collections import defaultdict, OrderedDict, namedtuple
-from nutils import function as fn, log, plot, matrix
+from nutils import function as fn, log, plot, matrix, element
 import numpy as np
 import math
 from matplotlib.tri import Triangulation
@@ -424,7 +424,9 @@ class NutilsCase(HifiCase):
 
         # For two-dimensional geometries we pre-compute triangulation and meshlines
         if geometry.shape == (2,):
-            points = domain.elem_eval(geometry, ischeme=vscheme, separate=True)
+            sample = domain.sample(*element.parse_legacy_ischeme(vscheme))
+            points = sample.eval(geometry)
+            points = [points[ix] for ix in sample.index]
             triangles, edges = tri.triangulate(points, mergetol=1e-5)
             self.meta['triangulation'] = triangles
             self.meta['edges'] = edges
@@ -448,7 +450,7 @@ class NutilsCase(HifiCase):
         assert all(isinstance(basis.obj, fn.Array) for basis in self.bases.values())
 
     def discretize(self, obj):
-        return self.domain.elem_eval(obj, ischeme=self.meta['vscheme'])
+        return self.domain.sample(*element.parse_legacy_ischeme(self.meta['vscheme'])).eval(obj)
 
     def triangulation(self, mu, lines=False):
         points = self.discretize(self.geometry(mu))
@@ -461,7 +463,7 @@ class NutilsCase(HifiCase):
     def solution(self, lhs, field, mu=None, lift=True):
         lhs = self.solution_vector(lhs, mu, lift)
         func = self.basis(field, mu).dot(lhs)
-        return self.domain.elem_eval(func, ischeme=self.meta['vscheme'])
+        return self.domain.sample(*element.parse_legacy_ischeme(self.meta['vscheme'])).eval(func)
 
     def basis(self, name, mu=None):
         func = self.bases[name].obj
