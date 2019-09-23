@@ -43,6 +43,6 @@ def test_nutils_tensor():
     a += 1, itg
     a.prop(domain=domain, geometry=geom, ischeme='gauss9')
     a = a.cache_main(force=True)({})
-    b = domain.integrate(itg, geometry=geom, ischeme='gauss9')
+    b = domain.integrate(itg * fn.J(geom), ischeme='gauss9')
 
     np.testing.assert_almost_equal(a, b)

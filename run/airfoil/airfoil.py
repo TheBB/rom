@@ -156,7 +156,7 @@ def _divs(fast: bool = False, piola: bool = False, num=8):
         divs = []
         for i in range(10):
             vsol, = case.solution(rb_sol['v'][i], mu, ['v'], lift=True)
-            div = np.sqrt(case.domain.integrate(vsol.div(geom)**2, geometry=geom, ischeme='gauss9'))
+            div = np.sqrt(case.domain.integrate(vsol.div(geom)**2 * fn.J(geom), ischeme='gauss9'))
             log.user(f'{i}: {div:.2e}')
             divs.append(div)
 

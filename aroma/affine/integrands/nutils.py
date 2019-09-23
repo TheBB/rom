@@ -80,7 +80,7 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
             return self
         domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme', **kwargs)
         with MaybeScipyBackend():
-            value = domain.integrate(self.obj, geometry=geom, ischeme=ischeme)
+            value = domain.integrate(self.obj * fn.J(geom), ischeme=ischeme)
         if isinstance(value, matrix.Matrix):
             value = value.core
         return Integrand.make(value)
@@ -88,7 +88,7 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
     def _highdim_cache(self, **kwargs):
         domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme', **kwargs)
         with COOTensorBackend():
-            value = domain.integrate(self.obj, geometry=geom, ischeme=ischeme)
+            value = domain.integrate(self.obj * fn.J(geom), ischeme=ischeme)
         return value
 
     def _contract(self, contraction):
@@ -124,7 +124,7 @@ class NutilsArrayIntegrand(ThinWrapperIntegrand):
             obj = obj.sum(i+1)
         domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
         with matrix.Numpy():
-            retval = domain.integrate(obj, geometry=geom, ischeme=ischeme)
+            retval = domain.integrate(obj * fn.J(geom), ischeme=ischeme)
         return NumpyArrayIntegrand(retval)
 
 
@@ -228,7 +228,7 @@ class NutilsDelayedIntegrand(Integrand):
         integrand = getattr(ns, self._evaluator)(self._code)
         domain, geom, ischeme = self.prop('domain', 'geometry', 'ischeme')
         with matrix.Numpy():
-            retval = domain.integrate(integrand, geometry=geom, ischeme=ischeme)
+            retval = domain.integrate(integrand * fn.J(geom), ischeme=ischeme)
         return NumpyArrayIntegrand(retval)
 
 
@@ -241,7 +241,7 @@ class LazyNutilsIntegral(LazyIntegral):
         assert all(arg._geometry is geom for arg in args[1:])
         assert all(arg._ischeme == ischeme for arg in args[1:])
         with MaybeScipyBackend():
-            retval = domain.integrate([arg._obj for arg in args], geometry=geom, ischeme=ischeme)
+            retval = domain.integrate([arg._obj*fn.J(geom) for arg in args], ischeme=ischeme)
         return [r.core if isinstance(r, matrix.Matrix) else r for r in retval]
 
     def __init__(self, obj, domain, geometry, ischeme):
