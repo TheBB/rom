@@ -45,9 +45,6 @@ from nutils import function as fn, log, matrix
 from aroma.affine import integrate
 
 
-__all__ = ['stokes', 'navierstokes']
-
-
 class IterationCountError(Exception):
     pass
 
@@ -134,7 +131,6 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
 
 def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10):
     stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
-    stokes_mat += case['v-l2'](mu) / dt
     stokes_mat += case['convection'](mu, lift=1) + case['convection'](mu, lift=2)
     stokes_rhs -= case['convection'](mu, lift=(1,2))
 
@@ -152,7 +148,7 @@ def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10):
 
     lhs = np.copy(cursol)
     for it in count(1):
-        rh, lh = conv(cursol)
+        rh, lh = conv(lhs)
         rhs = stokes_rhs - stokes_mat @ lhs - rh
         ns_mat = sys_mat + lh
 
@@ -171,26 +167,30 @@ def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10):
     return lhs
 
 
-def navierstokes_time(case, mu, dt=1e-2, nsteps=100, **kwargs):
+def navierstokes_time(case, mu, dt=1e-2, nsteps=100, timename='time', initsol=None, **kwargs):
     assert 'divergence' in case
     assert 'laplacian' in case
     assert 'convection' in case
     assert 'v-h1s' in case
     assert 'v-l2' in case
 
-    stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
-    lhs = solve(stokes_mat, stokes_rhs, case.constraints)
+    if initsol is None:
+        stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
+        lhs = solve(stokes_mat, stokes_rhs, case.constraints)
+    else:
+        lhs = initsol
     vmass_h1 = case['v-h1s'](mu)
 
     solutions = [lhs]
     for istep in range(1, nsteps+1):
+        mu[timename] += dt
         with log.context(f'Step {istep}'):
             lhs = navierstokes_timestep(case, mu, dt, lhs, **kwargs)
         solutions.append(lhs)
 
     for i, (p, n) in enumerate(zip(solutions[:-1], solutions[1:])):
         diff = np.sqrt((n - p) @ vmass_h1 @ (n - p))
-        log.user(f'Diff {i}: {diff:.2e}')
+        log.user(f'Diff {i} -> {i+1}: {diff:.2e}')
 
     return solutions
 
