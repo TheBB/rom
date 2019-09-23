@@ -39,30 +39,54 @@
 
 from contextlib import contextmanager
 import numpy as np
-import nutils.plot
-from nutils import function as fn
-
-from nutils import function as fn
+from nutils import function as fn, export
+import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
+from matplotlib.tri import LinearTriInterpolator
 
 
 @contextmanager
 def _plot(suffix, name='solution', figsize=(10,10), index=None, mesh=None,
-          xlim=None, ylim=None, axes=True, show=False, **kwargs):
-    ndigits = 0 if index is None else 3
-    with nutils.plot.PyPlot(f'{name}-{suffix}', figsize=figsize, index=index, ndigits=ndigits) as plt:
-        yield plt
-        if mesh is not None: plt.segments(mesh, linewidth=0.1, color='black')
-        plt.aspect('equal')
+          xlim=None, ylim=None, axes=True, show=False, segments=None, **kwargs):
+    ndigits = 0 if index is None else 4
+    filename = f'{name}-{suffix}'
+    if index:
+        filename += f'-{index:0{ndigits}}'
+    filename += '.png'
+    with export.mplfigure(filename, figsize=figsize) as fig:
+        ax = fig.add_subplot(111)
+        yield (fig, ax)
+        if mesh is not None:
+            collection = LineCollection(mesh, colors='black', linewidth=0.1, alpha=1.0)
+            ax.add_collection(collection)
+        ax.set_aspect('equal')
         plt.autoscale(enable=True, axis='both', tight=True)
         if xlim: plt.xlim(*xlim)
         if ylim: plt.ylim(*ylim)
-        if not axes: plt.axis('off')
+        if not axes:
+            ax.axis('off')
         if show: plt.show()
 
 
-def _colorbar(plt, clim=None, colorbar=False, **kwargs):
-    if clim: plt.clim(*clim)
-    if colorbar: plt.colorbar()
+def _colorbar(fig, im, clim=None, colorbar=False, **kwargs):
+    if clim: im.set_clim(clim)
+    if colorbar: fig.colorbar(im)
+
+
+def _streamplot(ax, tri, vvals, spacing=1.0):
+    xmin, xmax = min(tri.x), max(tri.x)
+    ymin, ymax = min(tri.y), max(tri.y)
+
+    nx = int((xmax - xmin) / spacing)
+    ny = int((ymax - ymin) / spacing)
+    x = np.linspace(xmin, xmax, nx+2)[1:-1]
+    y = np.linspace(ymin, ymax, ny+2)[1:-1]
+
+    xgrid, ygrid = np.meshgrid(x, y)
+    u = LinearTriInterpolator(tri, vvals[:,0])(xgrid, ygrid)
+    v = LinearTriInterpolator(tri, vvals[:,1])(xgrid, ygrid)
+
+    ax.streamplot(x, y, u, v, density=1/spacing, color='black')
 
 
 def velocity(case, mu, lhs, density=1, lift=True, **kwargs):
@@ -70,19 +94,19 @@ def velocity(case, mu, lhs, density=1, lift=True, **kwargs):
     vvals = case.solution(lhs, 'v', mu, lift=lift)
     vnorm = np.linalg.norm(vvals, axis=-1)
 
-    with _plot('v', mesh=mesh, **kwargs) as plt:
-        plt.tripcolor(tri, vnorm, shading='gouraud')
-        _colorbar(plt, **kwargs)
-        plt.streamplot(tri, vvals, spacing=0.1, density=density, color='black')
+    with _plot('v', mesh=mesh, **kwargs) as (fig, ax):
+        im = ax.tripcolor(tri, vnorm, shading='gouraud')
+        _colorbar(fig, im, **kwargs)
+        _streamplot(ax, tri, vvals)
 
 
 def pressure(case, mu, lhs, lift=True, **kwargs):
     tri, mesh = case.triangulation(mu, lines=True)
     pvals = case.solution(lhs, 'p', mu, lift=lift)
 
-    with _plot('p', mesh=mesh, **kwargs) as plt:
-        plt.tripcolor(tri, pvals, shading='gouraud')
-        _colorbar(plt, **kwargs)
+    with _plot('p', mesh=mesh, **kwargs) as (fig, ax):
+        im = ax.tripcolor(tri, pvals, shading='gouraud')
+        _colorbar(fig, im, **kwargs)
 
 
 def deformation(case, mu, lhs, stress='xy', name='solution', **kwargs):
