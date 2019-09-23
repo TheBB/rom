@@ -47,8 +47,9 @@ from matplotlib.tri import LinearTriInterpolator
 
 @contextmanager
 def _plot(suffix, name='solution', figsize=(10,10), index=None, mesh=None,
-          xlim=None, ylim=None, axes=True, show=False, segments=None, **kwargs):
-    ndigits = 0 if index is None else 4
+          xlim=None, ylim=None, axes=True, show=False, segments=None, ndigits=4, **kwargs):
+    if ndigits is None:
+        ndigits = 0 if index is None else 4
     filename = f'{name}-{suffix}'
     if index:
         filename += f'-{index:0{ndigits}}'
