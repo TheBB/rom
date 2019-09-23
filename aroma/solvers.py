@@ -158,6 +158,7 @@ def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10, tsol
     sys_mat = stokes_mat + case['v-l2'](mu) / dt
 
     vmass_h1 = case['v-h1s'](mu)
+    pmass_l2 = case['v-h1s'](mu)
     vmass_l2 = case['v-l2'](mu)
 
     if 'mass-lift-dt' in case:
@@ -179,6 +180,7 @@ def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10, tsol
         stokes_rhs -= vmass_l2 @ update / dt
 
         update_norm = np.sqrt(update @ vmass_h1 @ update)
+        update_norm += np.sqrt(update @ pmass_l2 @ update)
         log.user('update: {:.2e}'.format(update_norm))
         if update_norm < newton_tol:
             break
