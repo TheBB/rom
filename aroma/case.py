@@ -327,15 +327,7 @@ class Case:
         if hasattr(self, 'extra_dofs'):
             group['extra_dofs'] = self.extra_dofs
 
-        meta = group.require_group('meta')
-        for key, value in self.meta.items():
-            meta[key] = value
-
         self.bases.write(group.require_group('bases'))
-        self.geometry.write(group.require_group('geometry'))
-        self.lift.write(group.require_group('lift'))
-        self.maps.write(group.require_group('maps'))
-        self.parameters.write(group.require_group('parameters'))
 
         if not sparse:
             self.integrals.write(group.require_group('integrals'))
@@ -352,23 +344,19 @@ class Case:
         return obj
 
     def _read(self, group, sparse):
+        print('Case.read', sparse)
         self.name = group['name'][()]
         self._cons = group['constraints'][:]
 
         if 'extra_dofs' in group:
             self.extra_dofs = group['extra_dofs'][()]
 
-        self.meta = {}
-        for key, value in group['meta'].items():
-            self.meta[key] = value[()]
-
         self.bases = Bases.read(group['bases'])
-        self.geometry = Affine.read(group['geometry'])
-        self.maps = Maps.read(group['maps'])
-        self.parameters = Parameters.read(group['parameters'])
 
         if not sparse:
             self.integrals = Integrals.read(group['integrals'])
+        else:
+            self.integrals = Integrals()
 
     def precompute(self, force=False, **kwargs):
         new = []
@@ -400,10 +388,28 @@ class HifiCase(Case):
 
     def _read(self, group, sparse):
         super()._read(group, sparse)
+        self.geometry = Affine.read(group['geometry'])
+        self.maps = Maps.read(group['maps'])
+        self.parameters = Parameters.read(group['parameters'])
         self.lift = Affine.read(group['lift'])
+
+        self.meta = {}
+        for key, value in group['meta'].items():
+            self.meta[key] = value[()]
 
     def solution_vector(self, lhs, mu, lift=True):
         return (lhs + self.lift(mu)) if lift else lhs
+
+    def write(self, group, sparse=False):
+        super().write(group, sparse)
+        self.geometry.write(group.require_group('geometry'))
+        self.lift.write(group.require_group('lift'))
+        self.maps.write(group.require_group('maps'))
+        self.parameters.write(group.require_group('parameters'))
+
+        meta = group.require_group('meta')
+        for key, value in self.meta.items():
+            meta[key] = value
 
 
 class NutilsCase(HifiCase):
@@ -425,8 +431,8 @@ class NutilsCase(HifiCase):
 
         self.geometry += mu(1), geometry
 
-    def write(self, group):
-        super().write(group)
+    def write(self, group, sparse=False):
+        super().write(group, sparse)
         util.to_dataset(self.domain, group, 'domain')
 
     def _read(self, group, sparse):
@@ -528,16 +534,19 @@ class LofiCase(Case):
     def parameters(self):
         return self.case.parameters
 
+    def triangulation(self, *args, **kwargs):
+        return self.case.triangulation(*args, **kwargs)
+
     def write(self, group):
         super().write(group)
         group['projection'] = self.projection
-        subgroup = group.require_group['hifi']
+        subgroup = group.require_group('hifi')
         self.case.write(subgroup, sparse=True)
 
     def _read(self, group, sparse=False):
-        super()._read(self, sparse=sparse)
+        super()._read(group, sparse=sparse)
         self.projection = group['projection'][:]
-        self.case = Case.read(group, sparse=True)
+        self.case = Case.read(group['hifi'], sparse=True)
 
     def solution(self, lhs, *args, **kwargs):
         lhs = self.projection.T.dot(lhs)
