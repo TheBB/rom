@@ -66,14 +66,16 @@ def solve(mx, rhs, cons, solver='spsolve', **kwargs):
         return mx.solve(rhs, constrain=cons, solver=solver, **kwargs)
 
 
-def _stokes_matrix(case, mu):
-    matrix = case['divergence'](mu, sym=True) + case['laplacian'](mu)
+def _stokes_matrix(case, mu, div=True, **kwargs):
+    matrix = case['laplacian'](mu)
+    if div:
+        matrix += case['divergence'](mu, sym=True)
     if 'stab-lhs' in case:
         matrix += case['stab-lhs'](mu, sym=True)
     return matrix
 
 
-def _stokes_rhs(case, mu):
+def _stokes_rhs(case, mu, **kwargs):
     rhs = - case['divergence'](mu, lift=0) - case['laplacian'](mu, lift=1)
     if 'forcing' in case:
         rhs += case['forcing'](mu)
@@ -84,8 +86,8 @@ def _stokes_rhs(case, mu):
     return rhs
 
 
-def _stokes_assemble(case, mu):
-    return _stokes_matrix(case, mu), _stokes_rhs(case, mu)
+def _stokes_assemble(case, mu, **kwargs):
+    return _stokes_matrix(case, mu, **kwargs), _stokes_rhs(case, mu, **kwargs)
 
 
 def stokes(case, mu):
@@ -142,7 +144,7 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10, **kwargs):
 def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10, tsolver='be', **kwargs):
     assert tsolver in ('be', 'cn')
 
-    stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
+    stokes_mat, stokes_rhs = _stokes_assemble(case, mu, div=(tsolver == 'be'))
     stokes_mat += case['convection'](mu, lift=1) + case['convection'](mu, lift=2)
     stokes_rhs -= case['convection'](mu, lift=(1,2))
 
@@ -156,6 +158,9 @@ def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10, tsol
         stokes_rhs -= rh_cn / 2
 
     sys_mat = stokes_mat + case['v-l2'](mu) / dt
+    if tsolver == 'cn':
+        divmx = case['divergence'](mu, sym=True)
+        sys_mat += divmx
 
     vmass_h1 = case['v-h1s'](mu)
     pmass_l2 = case['v-h1s'](mu)
@@ -174,6 +179,9 @@ def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10, tsol
 
         rhs = stokes_rhs - stokes_mat @ lhs - rh
         ns_mat = sys_mat + lh
+
+        if tsolver == 'cn':
+            rhs -= divmx @ lhs
 
         update = solve(ns_mat, rhs, case.constraints, **kwargs)
         lhs += update
