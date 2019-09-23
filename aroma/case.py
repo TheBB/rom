@@ -219,15 +219,7 @@ class Case:
 
     def __init__(self, name):
         self.name = name
-        self.meta = {}
-
-        self.bases = Bases()
-        self.geometry = Affine()
         self.integrals = Integrals()
-        self.lift = Affine()
-        self.maps = Maps()
-        self.parameters = Parameters()
-
         self._cons = None
 
     def __getitem__(self, key):
@@ -327,7 +319,7 @@ class Case:
         for name, value in kwargs.items():
             self.parameters[name].fixed = value
 
-    def write(self, group):
+    def write(self, group, sparse=False):
         group['type'] = self._ident_
         group['name'] = self.name
         group['constraints'] = self.constraints
@@ -341,37 +333,42 @@ class Case:
 
         self.bases.write(group.require_group('bases'))
         self.geometry.write(group.require_group('geometry'))
-        self.integrals.write(group.require_group('integrals'))
         self.lift.write(group.require_group('lift'))
         self.maps.write(group.require_group('maps'))
         self.parameters.write(group.require_group('parameters'))
 
+        if not sparse:
+            self.integrals.write(group.require_group('integrals'))
+
     @staticmethod
-    def read(group):
+    def read(group, sparse=False):
         cls = util.find_subclass(Case, group['type'][()])
         obj = cls.__new__(cls)
 
-        obj.name = group['name'][()]
-        obj._cons = group['constraints'][:]
-
-        if 'extra_dofs' in group:
-            obj.extra_dofs = group['extra_dofs'][()]
-
-        obj.meta = {}
-        for key, value in group['meta'].items():
-            obj.meta[key] = value[()]
-
-        obj.bases = Bases.read(group['bases'])
-        obj.geometry = Affine.read(group['geometry'])
-        obj.integrals = Integrals.read(group['integrals'])
-        obj.maps = Maps.read(group['maps'])
-        obj.parameters = Parameters.read(group['parameters'])
-
         # Lifts behave differently between high- and low-fidelity cases
-        obj._read(group)
+        obj._read(group, sparse=sparse)
 
         obj.verify()
         return obj
+
+    def _read(self, group, sparse):
+        self.name = group['name'][()]
+        self._cons = group['constraints'][:]
+
+        if 'extra_dofs' in group:
+            self.extra_dofs = group['extra_dofs'][()]
+
+        self.meta = {}
+        for key, value in group['meta'].items():
+            self.meta[key] = value[()]
+
+        self.bases = Bases.read(group['bases'])
+        self.geometry = Affine.read(group['geometry'])
+        self.maps = Maps.read(group['maps'])
+        self.parameters = Parameters.read(group['parameters'])
+
+        if not sparse:
+            self.integrals = Integrals.read(group['integrals'])
 
     def precompute(self, force=False, **kwargs):
         new = []
@@ -392,7 +389,17 @@ class Case:
 
 class HifiCase(Case):
 
-    def _read(self, group):
+    def __init__(self, *args, **kwargs):
+        self.meta = {}
+        self.parameters = Parameters()
+        self.bases = Bases()
+        self.geometry = Affine()
+        self.lift = Affine()
+        self.maps = Maps()
+        super().__init__(*args, **kwargs)
+
+    def _read(self, group, sparse):
+        super()._read(group, sparse)
         self.lift = Affine.read(group['lift'])
 
     def solution_vector(self, lhs, mu, lift=True):
@@ -422,8 +429,8 @@ class NutilsCase(HifiCase):
         super().write(group)
         util.to_dataset(self.domain, group, 'domain')
 
-    def _read(self, group):
-        super()._read(group)
+    def _read(self, group, sparse):
+        super()._read(group, sparse)
         self.domain = util.from_dataset(group['domain'])
 
     def shape(self, field):
@@ -499,67 +506,42 @@ class NutilsCase(HifiCase):
         return fn.inverse(self.geometry(mu).grad(self.refgeom))
 
 
-class DiscreteLifts(dict):
-
-    def __init__(self, case):
-        for bname, basis in case.bases.items():
-            for scale, vector in case.lift:
-                if (vector[basis.indices] == 0).all():
-                    continue
-                if bname not in self:
-                    self[bname] = Affine()
-                discr = case.solution(vector, bname, lift=False)
-                self[bname] += scale, discr
-
-    def write(self, group):
-        for key, value in self.items():
-            value.write(group.require_group(key))
-
-    @staticmethod
-    def read(group):
-        retval = DiscreteLifts.__new__(DiscreteLifts)
-        for key, value in group.items():
-            retval[key] = Affine.read(value)
-        return retval
-
-
 class LofiCase(Case):
 
     _ident_ = 'LofiCase'
 
     def __init__(self, case, projection):
-        super().__init__(case.name)
-        self.parameters = case.parameters
-        self.meta = case.meta
-        self.lift = DiscreteLifts(case)
+        self.bases = Bases()
         self.projection = projection
+        self.case = case
+        super().__init__(case.name)
 
     @property
     def size(self):
         return self.projection.shape[0]
 
+    @property
+    def meta(self):
+        return self.case.meta
+
+    @property
+    def parameters(self):
+        return self.case.parameters
+
     def write(self, group):
         super().write(group)
         group['projection'] = self.projection
+        subgroup = group.require_group['hifi']
+        self.case.write(subgroup, sparse=True)
 
-    def _read(self, group):
-        self.lift = DiscreteLifts.read(group['lift'])
+    def _read(self, group, sparse=False):
+        super()._read(self, sparse=sparse)
         self.projection = group['projection'][:]
+        self.case = Case.read(group, sparse=True)
 
-    def triangulation(self, mu, lines=False):
-        points = self.geometry(mu)
-        tri = Triangulation(points[:,0], points[:,1], self.meta['triangulation'])
-        if lines:
-            return tri, points[self.meta['edges']]
-        return tri
-
-    @util.multiple_to_single('field')
-    def solution(self, lhs, field, mu=None, lift=True):
-        lhs = lhs[self.bases[field].indices]
-        retval = np.tensordot(lhs, self.bases[field].obj, axes=1)
-        if lift and field in self.lift:
-            retval += self.lift[field](mu)
-        return retval
+    def solution(self, lhs, *args, **kwargs):
+        lhs = self.projection.T.dot(lhs)
+        return self.case.solution(lhs, *args, **kwargs)
 
     def solution_vector(self, lhs, case, *args, **kwargs):
         lhs = self.projection.T.dot(lhs)
