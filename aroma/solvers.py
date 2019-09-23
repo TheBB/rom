@@ -89,6 +89,14 @@ def stokes(case, mu):
     return lhs
 
 
+def navierstokes_conv(case, mu, lhs):
+    c = case['convection']
+    rh = c(mu, cont=(None, lhs, lhs), case=case)
+    lh = c(mu, cont=(None, lhs, None), case=case) + c(mu, cont=(None, None, lhs), case=case)
+    rh, lh = integrate(rh, lh)
+    return rh, lh
+
+
 def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
     assert 'divergence' in case
     assert 'laplacian' in case
@@ -103,15 +111,8 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10):
 
     vmass = case['v-h1s'](mu)
 
-    def conv(lhs):
-        c = case['convection']
-        rh = c(mu, cont=(None, lhs, lhs), case=case)
-        lh = c(mu, cont=(None, lhs, None), case=case) + c(mu, cont=(None, None, lhs), case=case)
-        rh, lh = integrate(rh, lh)
-        return rh, lh
-
     for it in count(1):
-        rh, lh = conv(lhs)
+        rh, lh = navierstokes_conv(case, mu, lhs)
         rhs = stokes_rhs - stokes_mat @ lhs - rh
         ns_mat = stokes_mat + lh
 
@@ -139,16 +140,9 @@ def navierstokes_timestep(case, mu, dt, cursol, newton_tol=1e-10, maxit=10):
     vmass_h1 = case['v-h1s'](mu)
     vmass_l2 = case['v-l2'](mu)
 
-    def conv(lhs):
-        c = case['convection']
-        rh = c(mu, cont=(None, lhs, lhs), case=case)
-        lh = c(mu, cont=(None, lhs, None), case=case) + c(mu, cont=(None, None, lhs), case=case)
-        rh, lh = integrate(rh, lh)
-        return rh, lh
-
     lhs = np.copy(cursol)
     for it in count(1):
-        rh, lh = conv(lhs)
+        rh, lh = navierstokes_conv(case, mu, lhs)
         rhs = stokes_rhs - stokes_mat @ lhs - rh
         ns_mat = sys_mat + lh
 
