@@ -332,3 +332,17 @@ def elasticity(case, mu):
         lhs = solve(matrix, rhs, case.constraints)
 
     return lhs
+
+
+# Assumes nutils
+def error(case, mu, field, lhs, norm='l2'):
+    exact = case.exact(mu, field)
+    numeric = case.basis(field, mu).dot(lhs)
+    geom = case.geometry(mu)
+
+    diff = exact - numeric
+    if norm == 'h1':
+        diff = diff.grad(geom)
+    diff = fn.sum(diff * diff)
+
+    return np.sqrt(case.domain.integrate(diff, geometry=geom, ischeme='gauss9'))
