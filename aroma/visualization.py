@@ -89,7 +89,7 @@ def _streamplot(ax, tri, vvals, spacing=1.0):
     ax.streamplot(x, y, u, v, density=1/spacing, color='black')
 
 
-def velocity(case, mu, lhs, density=1, lift=True, **kwargs):
+def velocity(case, mu, lhs, density=1, lift=True, streams=True, **kwargs):
     tri, mesh = case.triangulation(mu, lines=True)
     vvals = case.solution(lhs, 'v', mu, lift=lift)
     vnorm = np.linalg.norm(vvals, axis=-1)
@@ -97,7 +97,8 @@ def velocity(case, mu, lhs, density=1, lift=True, **kwargs):
     with _plot('v', mesh=mesh, **kwargs) as (fig, ax):
         im = ax.tripcolor(tri, vnorm, shading='gouraud')
         _colorbar(fig, im, **kwargs)
-        _streamplot(ax, tri, vvals)
+        if streams:
+            _streamplot(ax, tri, vvals)
 
 
 def pressure(case, mu, lhs, lift=True, **kwargs):
