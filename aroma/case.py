@@ -435,10 +435,14 @@ class NutilsCase(HifiCase):
     def write(self, group, sparse=False):
         super().write(group, sparse)
         util.to_dataset(self.domain, group, 'domain')
+        if hasattr(self, '_exact_solutions'):
+            util.to_dataset(self._exact_solutions, group, 'exact_solutions')
 
     def _read(self, group, sparse):
         super()._read(group, sparse)
         self.domain = util.from_dataset(group['domain'])
+        if 'exact_solutions' in group.keys():
+            self._exact_solutions = util.from_dataset(group['exact_solutions'])
 
     def shape(self, field):
         return self.bases[field].obj.shape[1:]
