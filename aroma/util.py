@@ -51,6 +51,7 @@ import scipy.sparse as sp
 import scipy.sparse._sparsetools as sptools
 import sharedmem
 import string
+import warnings
 
 from nutils import log, function as fn, topology, config
 
@@ -251,7 +252,10 @@ def collocate(domain, equation, points, index, size):
         '_points': np.array([pt]),
     } for elem, (__, pt) in zip(elements, points)]
 
-    data = np.array([equation.eval(**kwg)[0] for kwg in kwargs])
+    # Nutils will usually warn that explicit inflation is a bug
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        data = np.array([equation.eval(**kwg)[0] for kwg in kwargs])
 
     if equation.ndim == 2:
         data = np.transpose(data, (0, 2, 1))
