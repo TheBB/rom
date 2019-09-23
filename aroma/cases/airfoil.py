@@ -244,9 +244,9 @@ class airfoil(NutilsCase):
                 for i in range(nterms)
             ]
 
-        for i, term in enumerate(terms):
-            self['divergence'] -= ANG**i, term
-        self['divergence'].freeze(lift=(1,))
+        # for i, term in enumerate(terms):
+        #     self['divergence'] -= ANG**i, term
+        # self['divergence'].freeze(lift=(1,))
 
         # Stokes laplacian term
         D1 = fn.matmat(Q, P) - fn.matmat(P, Q)
@@ -267,8 +267,8 @@ class airfoil(NutilsCase):
                 -fn.outer(vgrad, fn.matmat(vgrad, D2.transpose())).sum([-1, -2]),
             ]
 
-        for i, term in enumerate(terms):
-            self['laplacian'] += ANG**i * NU, term
+        # for i, term in enumerate(terms):
+        #     self['laplacian'] += ANG**i * NU, term
 
         # Navier-Stokes convective term
         if piola:
@@ -299,19 +299,19 @@ class airfoil(NutilsCase):
                 x=geom, w=vbasis, u=vbasis, v=vbasis, J=('jacobian_inverse', (2,2)),
             )
 
-        for i, term in enumerate(terms):
-            self['convection'] += ANG**i, term
-        fallback.prop(domain=domain, geometry=geom, ischeme='gauss9')
-        self['convection'].fallback = fallback
+        # for i, term in enumerate(terms):
+        #     self['convection'] += ANG**i, term
+        # fallback.prop(domain=domain, geometry=geom, ischeme='gauss9')
+        # self['convection'].fallback = fallback
 
-        # Mass matrices
-        self['v-l2'] += 1, fn.outer(vbasis).sum([-1])
-        if piola:
-            M2 = fn.matmat(Q, P, P, Q)
-            self['v-l2'] -= ANG, fn.outer(vbasis, fn.matmat(vbasis, D1.transpose())).sum(-1)
-            self['v-l2'] -= ANG**2, fn.outer(vbasis, fn.matmat(vbasis, M2.transpose())).sum(-1)
-        self['v-h1s'] = self['laplacian'] / NU
-        self['p-l2'] += 1, fn.outer(pbasis)
+        # # Mass matrices
+        # self['v-l2'] += 1, fn.outer(vbasis).sum([-1])
+        # if piola:
+        #     M2 = fn.matmat(Q, P, P, Q)
+        #     self['v-l2'] -= ANG, fn.outer(vbasis, fn.matmat(vbasis, D1.transpose())).sum(-1)
+        #     self['v-l2'] -= ANG**2, fn.outer(vbasis, fn.matmat(vbasis, M2.transpose())).sum(-1)
+        # self['v-h1s'] = self['laplacian'] / NU
+        # self['p-l2'] += 1, fn.outer(pbasis)
 
         # Force on airfoil
         if piola:
