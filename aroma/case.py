@@ -303,6 +303,7 @@ class Case:
         for param in self.parameters.values():
             if param.fixed is not None:
                 retval[param.name] = param.fixed
+                continue
             elif param.name in kwargs:
                 retval[param.name] = kwargs[param.name]
             elif index < len(args):
