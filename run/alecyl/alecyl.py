@@ -22,14 +22,14 @@ def get_case(fast: bool = False, piola: bool = False):
 
 
 @util.filecache('alecyl-{piola}.ens')
-def get_ensemble(fast: bool = False, piola: bool = False):
+def get_ensemble(fast: bool = False, piola: bool = False, dt: float = 1e-2, nsteps: int = 100):
     case = get_case(fast, piola)
+    case.restrict(viscosity=100.0)
     mu = case.parameter(velocity=1, viscosity=100)
 
-    ensemble = ens.Ensemble(np.ones(1000)[:,np.newaxis])
-    solutions = np.load('solutions.npy')
-    ensemble['solutions'] = solutions[-1000:]
-    case.restrict(velocity=1, viscosity=100, time=0)
+    scheme = quadrature.full(case.ranges(ignore='time'), 1)
+    ensemble = ens.Ensemble(scheme)
+    ensemble.compute('solutions', case, solvers.navierstokes_time, time=True, kwargs={'dt': dt, 'nsteps': nsteps})
     ensemble.compute('supremizers', case, solvers.supremizer, parallel=False, args=[ensemble['solutions']])
 
     return ensemble
@@ -66,19 +66,22 @@ def disp(fast, piola):
 @click.option('--timestep', default=0.5)
 @click.option('--fast/--no-fast', default=False)
 @click.option('--piola/--no-piola', default=False)
+@click.option('--initsol', type=click.File('rb'), default=None)
 @util.common_args
-def solve(velocity, viscosity, nsteps, timestep, fast, piola):
+def solve(velocity, viscosity, nsteps, timestep, fast, piola, initsol):
     case = get_case(fast, piola)
     mu = case.parameter(velocity=velocity, viscosity=viscosity)
 
     with util.time():
-        solutions = solvers.navierstokes_time(case, mu, maxit=10, nsteps=nsteps, dt=timestep,
-                                              solver='mkl', tsolver='cn',
-                                              initsol=np.load('sln.npy'))
-                                              # )
+        kwargs = {'initsol': np.load(initsol)} if initsol else {}
+        timestepper = solvers.navierstokes_time(
+            case, mu, maxit=10, nsteps=nsteps, dt=timestep, solver='mkl', tsolver='cn', **kwargs,
+        )
+        solutions = []
+        for (mu, lhs) in timestepper:
+            solutions.append(lhs)
 
-    solutions = np.array([lhs for __, lhs in solutions])
-    np.save('solutions.npy', solutions)
+    np.save('solutions.npy', np.array(solutions))
 
 
 @main.command()
@@ -115,9 +118,11 @@ def rsolve(velocity, viscosity, piola, nsteps, timestep, sups, nred):
 @main.command()
 @click.option('--fast/--no-fast', default=False)
 @click.option('--piola/--no-piola', default=False)
+@click.option('--nsteps', default=500)
+@click.option('--timestep', default=0.5)
 @util.common_args
-def ensemble(fast, piola):
-    get_ensemble(fast, piola)
+def ensemble(fast, piola, nsteps, timestep):
+    get_ensemble(fast, piola, timestep, nsteps)
 
 
 @main.command()

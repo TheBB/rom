@@ -46,12 +46,15 @@ from aroma import util
 
 
 @util.parallel_log(return_time=True)
-def _solve(case, solver, mu, args):
-    return solver(case, mu, *args)
+def _solve(case, solver, time, mu, args, kwargs):
+    retval = solver(case, mu, *args, **kwargs)
+    if time:
+        retval = list(retval)
+    return retval
 
 
 def _splice(array, value, index):
-    return (*array[:index], index, *array[index:])
+    return (*array[:index], value, *array[index:])
 
 
 class Ensemble(dict):
@@ -59,17 +62,18 @@ class Ensemble(dict):
     def __init__(self, scheme):
         self.scheme = scheme
 
-    def compute(self, name, case, solver, parallel=False, args=None, time=False):
+    def compute(self, name, case, solver, parallel=False, args=None, kwargs=None, time=False):
         quadrule = [case.parameter(*mu) for mu in self.scheme[:,1:]]
         args = repeat(()) if args is None else zip(*args)
+        kwargs = {} if kwargs is None else kwargs
         log.user(f'generating ensemble of {len(quadrule)} solutions')
         if not parallel:
             solutions = [
-                _solve((n, case, solver, qpt, arg))
+                _solve((n, case, solver, time, qpt, arg, kwargs))
                 for n, qpt, arg in zip(count(), quadrule, args)
             ]
         else:
-            args = zip(count(), repeat(case), repeat(solver), quadrule, args)
+            args = zip(count(), repeat(case), repeat(solver), repeat(time), quadrule, args, repeat(kwargs))
             pool = Pool()
             solutions = list(pool.imap(_solve, args))
         meantime = sum(t for t, _ in solutions) / len(solutions)
