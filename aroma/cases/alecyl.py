@@ -171,20 +171,20 @@ class alecyl(NutilsCase):
         self['divergence'].freeze(lift=(1,))
         self['laplacian'] += NU, fn.outer(vbasis.grad(geom)).sum((-1, -2))
 
-        # self['convection'] += 1, NutilsDelayedIntegrand(
-        #     'w_ia u_jb v_ka,b', 'ijk', 'wuv',
-        #     x=geom, w=vbasis, u=vbasis, v=vbasis
-        # )
-
-        self['convection'] += 0.5, NutilsDelayedIntegrand(
-            'w_ia u_jb v_ka,b - w_ia,b u_jb v_ka', 'ijk', 'wuv',
+        self['convection'] += 1, NutilsDelayedIntegrand(
+            'w_ia u_jb v_ka,b', 'ijk', 'wuv',
             x=geom, w=vbasis, u=vbasis, v=vbasis
         )
 
-        self['convection'] += 0.5, NutilsDelayedIntegrand(
-            '(w_il v_kl) u_jm n_m', 'ijk', 'wuv',
-            n=geom.normal(), x=geom, w=vbasis, u=vbasis, v=vbasis,
-        ).prop(domain=domain.boundary['left'])
+        # self['convection'] += 0.5, NutilsDelayedIntegrand(
+        #     'w_ia u_jb v_ka,b - w_ia,b u_jb v_ka', 'ijk', 'wuv',
+        #     x=geom, w=vbasis, u=vbasis, v=vbasis
+        # )
+
+        # self['convection'] += 0.5, NutilsDelayedIntegrand(
+        #     '(w_il v_kl) u_jm n_m', 'ijk', 'wuv',
+        #     n=geom.normal(), x=geom, w=vbasis, u=vbasis, v=vbasis,
+        # ).prop(domain=domain.boundary['left'])
 
         self['v-h1s'] += 1, fn.outer(vbasis.grad(geom)).sum((-1, -2))
         self['v-l2'] += 1, fn.outer(vbasis).sum((-1,))
