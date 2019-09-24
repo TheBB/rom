@@ -50,12 +50,16 @@ def _solve(case, solver, mu, args):
     return solver(case, mu, *args)
 
 
+def _splice(array, value, index):
+    return (*array[:index], index, *array[index:])
+
+
 class Ensemble(dict):
 
     def __init__(self, scheme):
         self.scheme = scheme
 
-    def compute(self, name, case, solver, parallel=False, args=None):
+    def compute(self, name, case, solver, parallel=False, args=None, time=False):
         quadrule = [case.parameter(*mu) for mu in self.scheme[:,1:]]
         args = repeat(()) if args is None else zip(*args)
         log.user(f'generating ensemble of {len(quadrule)} solutions')
@@ -69,7 +73,18 @@ class Ensemble(dict):
             pool = Pool()
             solutions = list(pool.imap(_solve, args))
         meantime = sum(t for t, _ in solutions) / len(solutions)
-        self[name] = np.array([s for __, s in solutions])
+        solutions = [s for __, s in solutions]
+
+        if time:
+            ins_index = case.parameter_indexof('time')
+            self[name] = np.array([sol for sols in solutions for (__, sol) in sols])
+            self.scheme = np.array([
+                [wt/len(sols), *_splice(prev, mu['time'], ins_index)]
+                for (wt, *prev), sols in zip(self.scheme, solutions)
+                for (mu, __) in sols
+            ])
+        else:
+            self[name] = np.array(solutions)
 
         return meantime
 

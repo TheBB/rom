@@ -313,6 +313,15 @@ class Case:
             index += 1
         return retval
 
+    def parameter_indexof(self, name):
+        index = 0
+        for param in self.parameters.values():
+            if param.fixed is not None:
+                continue
+            if param.name == name:
+                return index
+            index += 1
+
     def ranges(self, ignore=()):
         if isinstance(ignore, str):
             ignore = (ignore,)
