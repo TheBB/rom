@@ -312,8 +312,11 @@ class Case:
             index += 1
         return retval
 
-    def ranges(self):
-        return [(p.minimum, p.maximum) for p in self.parameters.values() if p.fixed is None]
+    def ranges(self, ignore=()):
+        if isinstance(ignore, str):
+            ignore = (ignore,)
+        return [(p.minimum, p.maximum) for p in self.parameters.values()
+                if p.fixed is None and p.name not in ignore]
 
     def restrict(self, **kwargs):
         for name, value in kwargs.items():
