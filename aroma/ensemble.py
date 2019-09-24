@@ -101,10 +101,11 @@ class Ensemble(dict):
             retval[key] = value[:]
         return retval
 
-    def errors(self, hicase, hiname, locase, loname, mass):
+    def errors(self, hicase, hiname, locase, loname, mass, summary=True):
         abs_err, rel_err = 0.0, 0.0
         max_abs_err, max_rel_err = 0.0, 0.0
 
+        errors = []
         for hilhs, lolhs, (weight, *mu) in zip(self[hiname], self[loname], self.scheme):
             mu = locase.parameter(*mu)
             lolhs = locase.solution_vector(lolhs, hicase, mu=mu)
@@ -116,7 +117,11 @@ class Ensemble(dict):
             max_rel_err = max(max_rel_err, rerr)
             abs_err += weight * aerr
             rel_err += weight * rerr
+            errors.append((aerr, rerr))
 
-        abs_err /= sum(w for w, *__ in self.scheme)
-        rel_err /= sum(w for w, *__ in self.scheme)
-        return abs_err, rel_err, max_abs_err, max_rel_err
+        if summary:
+            abs_err /= sum(w for w, *__ in self.scheme)
+            rel_err /= sum(w for w, *__ in self.scheme)
+            return abs_err, rel_err, max_abs_err, max_rel_err
+        else:
+            return np.array(errors)
