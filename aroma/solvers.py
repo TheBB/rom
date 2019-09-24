@@ -213,15 +213,13 @@ def navierstokes_time(case, mu, dt=1e-2, nsteps=100, timename='time', initsol=No
         lhs = initsol
     vmass_h1 = case['v-h1s'](mu)
 
-    solutions = [(mu, lhs)]
+    yield (mu, lhs)
     for istep in range(1, nsteps+1):
         mu = dict(**mu)
         mu[timename] += dt
         with log.context(f'Step {istep} (t = {mu[timename]:.2f})'):
             lhs = navierstokes_timestep(case, mu, dt, lhs, **kwargs)
-        solutions.append((mu, lhs))
-
-    return solutions
+        yield(mu, lhs)
 
 
 def blocksolve_velocity(vv, rhs, V):
