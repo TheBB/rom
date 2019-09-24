@@ -40,7 +40,7 @@
 from collections import OrderedDict, namedtuple
 import numpy as np
 from scipy.linalg import eigh
-from nutils import log, plot, _, function as fn
+from nutils import log, export, _, function as fn
 
 from aroma.case import LofiCase
 
@@ -208,12 +208,13 @@ class EigenReducer(Reducer):
             data = np.vstack(data)
         names = [f'{name}' for name in self._spectra]
 
-        with plot.PyPlot(filename, index='', ndigits=0, figsize=figsize) as plt:
+        with export.mplfigure(f'{filename}.png', figsize=figsize) as fig:
+            ax = fig.add_subplot(111)
             for d in data:
-                plt.semilogy(range(1, nvals + 1), d)
-            plt.grid()
-            plt.xlim(0, nvals + 1)
-            plt.legend(names)
+                ax.semilogy(range(1, nvals + 1), d)
+            ax.grid()
+            ax.set_xlim(0, nvals + 1)
+            ax.legend(names)
 
         data = np.vstack([np.arange(1, nvals+1)[_,:], data]).T
         filename = f'{filename}.csv'
