@@ -10,4 +10,6 @@ __pycache__
 *.ens
 *.csv
 *.png
+*.mp4
+*.npy
 .ipynb_checkpoints
