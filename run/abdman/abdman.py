@@ -35,9 +35,9 @@ def main():
     pass
 
 
-@util.filecache('abdman-{nelems}-{degree}-{fast}-{piola}.case')
-def get_case(fast: bool = False, piola: bool = False, nelems: int = 10, degree: int = 2):
-    case = cases.abdman(nelems=nelems, piola=piola, degree=degree)
+@util.filecache('abdman-{kind}-{nelems}-{degree}-{fast}-{piola}.case')
+def get_case(fast: bool = False, piola: bool = False, nelems: int = 10, degree: int = 2, kind: str = 'simple'):
+    case = cases.abdman(nelems=nelems, piola=piola, degree=degree, timedep=kind)
     case.precompute(force=fast)
     return case
 
@@ -47,6 +47,8 @@ def get_case(fast: bool = False, piola: bool = False, nelems: int = 10, degree: 
 @click.option('--piola/--no-piola', default=False)
 @click.option('--nelems', default=10)
 @click.option('--degree', default=2)
+@click.option('--simple', 'kind', flag_value='simple', default=True)
+@click.option('--cubic', 'kind', flag_value='cubic')
 @util.common_args
 def disp(**kwargs):
     print(get_case(**kwargs))
@@ -58,23 +60,39 @@ def disp(**kwargs):
 @click.option('--nelems', default=10)
 @click.option('--degree', default=2)
 @click.option('--re', default=10.0)
+@click.option('--simple', 'kind', flag_value='simple', default=True)
+@click.option('--cubic', 'kind', flag_value='cubic')
 @util.common_args
 def solve(re, **kwargs):
     case = get_case(**kwargs)
     mu = case.parameter(re=re, time=0.0)
 
-    with util.time():
-        initsol = np.zeros(case.ndofs)
-        solutions = solvers.navierstokes_time(case, mu, dt=0.05, nsteps=20, solver='mkl',
-                                              initsol=initsol, newton_tol=1e-7, tsolver='cn')
+    # with util.time():
+    initsol = np.zeros(case.ndofs)
+    solutions = solvers.navierstokes_time(
+        case, mu, dt=0.05, nsteps=2, solver='mkl', initsol=initsol, newton_tol=1e-7, tsolver='cn'
+    )
 
+    phs = None
     for i, (mu, lhs) in enumerate(solutions):
         # Set mean pressure to zero (the hacky way)
         I = case.bases['p'].indices
         lhs[I] -= np.mean(lhs[I])
-
         visualization.velocity(case, mu, lhs, name='full', axes=False, colorbar=True, streams=False, index=i, ndigits=2)
         visualization.pressure(case, mu, lhs, name='full', axes=False, colorbar=True, index=i, ndigits=2)
+
+        log.user(mu['time'])
+        log.user(solvers.error(case, mu, 'v', case.solution_vector(lhs, mu), norm='h1'))
+        log.user(solvers.error(case, mu, 'p', case.solution_vector(lhs, mu), norm='l2'))
+
+        if phs is None:
+            phs = lhs
+            continue
+
+        pu = dict(mu)
+        pu['time'] -= 0.05
+
+        phs = lhs
 
 
 @main.command()

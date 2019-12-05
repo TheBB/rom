@@ -90,7 +90,7 @@ class abdman(NutilsCase):
 
     _ident_ = 'abdman'
 
-    def __init__(self, nelems=10, piola=False, degree=2):
+    def __init__(self, nelems=10, piola=False, degree=2, timedep='simple'):
         pts = np.linspace(0, 1, nelems + 1)
         domain, geom = mesh.rectilinear([pts, pts])
         NutilsCase.__init__(self, 'Abdulahque Manufactured Solution', domain, geom)
@@ -101,9 +101,6 @@ class abdman(NutilsCase):
         # Add bases and construct a lift function
         vbasis, pbasis = mk_bases(self, piola, degree)
         self.constrain('v', 'bottom')
-        # self.constrain('v', 'top')
-        # self.constrain('v', 'left')
-        # self.constrain('v', 'right')
         self.lift += 1, np.zeros(len(vbasis))
 
         self['divergence'] -= 1, fn.outer(vbasis.div(geom), pbasis)
@@ -120,8 +117,6 @@ class abdman(NutilsCase):
 
         # Body force
         x, y = geom
-        h = T
-        h1 = 1
         f = 4 * (x - x**2)**2
         f1 = f.grad(geom)[0]
         f2 = f1.grad(geom)[0]
@@ -130,6 +125,13 @@ class abdman(NutilsCase):
         g1 = g.grad(geom)[1]
         g2 = g1.grad(geom)[1]
         g3 = g2.grad(geom)[1]
+
+        # if timedep is None:
+        #     h = 1
+        #     h1 = 0
+        if timedep == 'simple':
+            h = T
+            h1 = 1
 
         # Body force
         self['forcing'] += h**2, fn.matmat(vbasis, fn.asarray([
@@ -146,12 +148,11 @@ class abdman(NutilsCase):
             domain = domain.boundary['left'] | domain.boundary['right'] | domain.boundary['top']
         )
 
-        # # Exact solutions
-        # # Here p is missing a factor of RE
-        # self._exact_solutions = {
-        #     'v': fn.asarray([f*g1, -f1*g]),
-        #     'p': f1 * g1,
-        # }
+        # Exact solutions
+        self._exact_solutions = {
+            'v': fn.asarray([f*g1, -f1*g]),
+            'p': f1 * g1,
+        }
 
         # self['force'] += 1, pbasis[:,_] * geom.normal()
         # self['force'] -= RE, fn.matmat(vbasis.grad(geom), geom.normal())
@@ -163,6 +164,6 @@ class abdman(NutilsCase):
     @multiple_to_single('field')
     def exact(self, mu, field):
         if field == 'v':
-            return self._exact_solutions['v']
+            return self._exact_solutions['v'] * mu['time']
         elif field == 'p':
-            return self._exact_solutions['p'] / mu['re']
+            return self._exact_solutions['p'] / mu['re'] * mu['time']
