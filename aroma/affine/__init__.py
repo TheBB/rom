@@ -37,13 +37,17 @@
 # written agreement between you and SINTEF Digital.
 
 
-from itertools import combinations, chain
+from functools import partial
+from itertools import combinations, chain, count
 import numpy as np
 from nutils import function as fn, matrix, _, log
 
 from aroma import util
 from aroma.affine.integrands import *
-from aroma.affine.integrands.nutils import *
+from aroma.affine.polyfit import Interpolator
+
+def islift(c):
+    return isinstance(c, str) and c == 'lift'
 
 
 _mufuncs = {
@@ -148,7 +152,212 @@ class mu:
         return mu('__cos', self)
 
 
-class Affine(list):
+class MuFunc:
+
+    def write(self, group):
+        group['type'] = self._ident_
+
+    @staticmethod
+    def read(group):
+        cls = util.find_subclass(MuFunc, group['type'][()])
+        obj = cls.__new__(cls)
+        obj._read(group)
+        return obj
+
+    def _read(self, group):
+        pass
+
+    def verify(self):
+        pass
+
+    def ensure_shareable(self):
+        pass
+
+
+class MuCallable(MuFunc):
+
+    _ident_ = 'MuCallable'
+
+    def __init__(self, shape, deps, scale=1):
+        self.shape = shape
+        self.deps = deps
+        if not isinstance(scale, mu):
+            scale = mu(scale)
+        self.scale = scale
+        self.lifts = {}
+
+    @property
+    def ndim(self):
+        return len(self.shape)
+
+    def __str__(self):
+        return f'MuCallable(shape={self.shape})'
+
+    def write(self, group):
+        super().write(group)
+        util.to_dataset(np.array(self.shape), group, 'shape')
+        util.to_dataset(self.deps, group, 'deps')
+        util.to_dataset(self.scale, group, 'scale')
+
+        liftgrp = group.require_group('lifts')
+        for axes, lift in self.lifts.items():
+            name = ','.join(str(s) for s in sorted(axes))
+            targetgrp = liftgrp.require_group(name)
+            lift.write(targetgrp)
+
+    def _read(self, group):
+        super()._read(group)
+        self.shape = tuple(util.from_dataset(group['shape']))
+        self.deps = util.from_dataset(group['deps'])
+        self.scale = util.from_dataset(group['scale'])
+
+        self.lifts = {}
+        if 'lifts' in group:
+            for axes, grp in group['lifts'].items():
+                axes = frozenset(map(int, axes.split(',')))
+                self.lifts[axes] = MuFunc.read(grp)
+
+    def evaluate(self, *args):
+        raise NotImplementedError
+
+    def __call__(self, case, pval, cont=None, sym=False, scale=True):
+        if cont is None:
+            cont = (None,) * self.ndim
+        if any(islift(c) for c in cont):
+            index = frozenset(i for i, c in enumerate(cont) if islift(c))
+            if index in self.lifts:
+                subcont = tuple(c for c in cont if not islift(c))
+                return self.lifts[index](case, pval, cont=subcont, sym=sym, scale=scale)
+            lift = case['lift'](pval)
+            cont = tuple((lift if islift(c) else c) for c in cont)
+        retval = self.evaluate(case, pval, cont)
+        if scale:
+            retval = self.scale(pval) * retval
+        if sym:
+            retval = retval + retval.T
+        return retval
+
+    def _self_project(self, case, proj, cont, tol=1e-8):
+        totdeps = set(self.deps)
+        if any(islift(c) for c in cont):
+            totdeps |= set(case.integrals['lift'].deps)
+        totdeps = case.parameters.sequence(totdeps)
+        nlifts = sum((1 if islift(c) else 0) for c in cont)
+
+        def wrapper(mu):
+            mu = {k: v for k, v in zip(totdeps, mu)}
+            if any(islift(c) for c in cont):
+                lift = case['lift'](mu, scale=False)
+                mcont = tuple((lift if islift(c) else c) for c in cont)
+            else:
+                mcont = cont
+            large = self.evaluate(case, mu, mcont)
+
+            # TODO: Improve this
+            if hasattr(large, 'project'):
+                return large.project(proj).obj
+            if large.ndim == 2:
+                pa, pb = proj
+                return pa.dot(large.dot(pb.T))
+            if large.ndim == 1:
+                pa, = proj
+                return pa.dot(large)
+            assert False
+
+        ranges = case.ranges(keep=totdeps)
+        interp = Interpolator(ranges, wrapper)
+        interp.activate_rule((4,) * len(ranges))
+
+        while True:
+            interp.expand_candidates()
+            increment = interp.activate_bfun()
+            log.user('increment', increment)
+
+            # TODO: Break condition needs to be smarter
+            if increment < tol:
+                break
+
+        scale = self.scale
+        if nlifts > 0:
+            scale = scale * case.integrals['lift'].scale ** nlifts
+        return MuPoly(interp.resolve(), totdeps, scale=scale)
+
+    def project(self, case, proj, **kwargs):
+        if not isinstance(proj, (tuple, list)):
+            proj = (proj,) * self.ndim
+        assert len(proj) == self.ndim
+
+        projected = self._self_project(case, proj, (None,) * self.ndim, **kwargs)
+
+        # TODO: Compute applicable lifts some other way
+        if self.ndim <= 1:
+            return projected
+        if self.ndim == 2:
+            num_lifts = (1,)
+        else:
+            num_lifts = (self.ndim - 2, self.ndim - 1)
+        for r in num_lifts:
+            for lift in map(frozenset, combinations(range(1, self.ndim), r)):
+                log.user(str(tuple(sorted(lift))))
+                cont = tuple(('lift' if i in lift else None) for i in range(self.ndim))
+                lproj = tuple(p for i, p in enumerate(proj) if i not in lift)
+                projected.lifts[lift] = self._self_project(case, lproj, cont)
+
+        return projected
+
+
+class MuObject(MuCallable):
+
+    def __init__(self, obj, shape, deps, scale=1):
+        super().__init__(shape, deps, scale=scale)
+        self.obj = obj
+
+    def write(self, group):
+        super().write(group)
+        util.to_dataset(self.obj, group, 'obj')
+
+    def _read(self, group):
+        super()._read(group)
+        self.obj = util.from_dataset(group['obj'])
+
+
+class MuPoly(MuObject):
+
+    _ident_ = 'MuPoly'
+
+    def __init__(self, poly, deps, scale=1):
+        super().__init__(poly, poly.shape, deps, scale=scale)
+
+    def evaluate(self, case, pval, cont):
+        mu = [pval[dep] for dep in self.deps]
+        retval = self.obj(mu)
+        return util.contract(retval, cont)
+
+
+class MuLambda(MuObject):
+
+    _ident_ = 'MuLambda'
+
+    def evaluate(self, case, pval, cont):
+        assert all(c is None for c in cont)
+        return self.obj(pval)
+
+
+class MuConstant(MuObject):
+
+    _ident_ = 'MuConstant'
+
+    def __init__(self, obj, scale=1):
+        super().__init__(obj, obj.shape, (), scale=scale)
+
+    def evaluate(self, case, pval, cont):
+        assert all(c is None for c in cont)
+        return self.obj
+
+
+class Affine(list, MuFunc):
+
+    _ident_ = 'Affine'
 
     @property
     def scales(self):
@@ -203,16 +412,25 @@ class Affine(list):
         assert all(isinstance(value, types) for value in self.values)
 
     def write(self, group):
+        super().write(group)
         for i, (scale, value) in enumerate(self):
             dataset = util.to_dataset(value, group, str(i))
             dataset.attrs['scale'] = str(scale)
 
-    @staticmethod
-    def read(group):
-        groups = [group[str(i)] for i in range(len(group))]
+    def _read(self, group):
+        super()._read(group)
+
+        nterms = 0
+        for i in count():
+            if str(i) in group:
+                nterms += 1
+            else:
+                break
+
+        groups = [group[str(i)] for i in range(nterms)]
         scales = [eval(grp.attrs['scale'], {}, {'mu': mu}) for grp in groups]
         values = [util.from_dataset(grp) for grp in groups]
-        return Affine(zip(scales, values))
+        self[:] = zip(scales, values)
 
 
 def _broadcast(args):
@@ -279,12 +497,13 @@ class AffineIntegral(Affine):
         return retval
 
     def write(self, group, lifts=True):
-        if self.fallback:
-            self.fallback.write(group, 'fallback')
-        terms = group.require_group('terms')
-        for i, (scale, value) in enumerate(self):
-            dataset = value.write(terms, str(i))
-            dataset.attrs['scale'] = str(scale)
+        super().write(group)
+        # if self.fallback:
+        #     self.fallback.write(group.require_group('fallback'))
+        # terms = group.require_group('terms')
+        # for i, (scale, value) in enumerate(self):
+        #     dataset = value.write(terms, str(i))
+        #     dataset.attrs['scale'] = str(scale)
         if not lifts:
             return
         lifts = group.require_group('lifts')
@@ -293,29 +512,21 @@ class AffineIntegral(Affine):
             target = lifts.require_group(name)
             sub_rep.write(target, lifts=False)
 
-    @staticmethod
-    def _read(group):
-        groups = [group[str(i)] for i in range(len(group))]
-        scales = [eval(grp.attrs['scale'], {}, {'mu': mu}) for grp in groups]
-        values = [Integrand.read(grp) for grp in groups]
-        return AffineIntegral(zip(scales, values))
+    # @staticmethod
+    # def _read(group):
+    #     groups = [group[str(i)] for i in range(len(group))]
+    #     scales = [eval(grp.attrs['scale'], {}, {'mu': mu}) for grp in groups]
+    #     values = [Integrand.read(grp) for grp in groups]
+    #     return AffineIntegral(zip(scales, values))
 
-    @staticmethod
-    def read(group):
-        retval = AffineIntegral._read(group['terms'])
-
-        retval.fallback = None
-        if 'fallback' in group:
-            retval.fallback = Integrand.read(group['fallback'])
-
+    def _read(self, group):
+        super()._read(group)
         lifts = {}
         for axes, grp in group['lifts'].items():
             axes = frozenset(int(i) for i in axes.split(','))
             sub = AffineIntegral._read(grp['terms'])
             lifts[axes] = sub
         retval._lift = lifts
-
-        return retval
 
     def verify(self):
         _broadcast(self.values)

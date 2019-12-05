@@ -43,6 +43,7 @@ import functools
 import time as timemod
 from multiprocessing import current_process, cpu_count
 import numpy as np
+from numpy import newaxis as _
 import h5py
 from os.path import exists
 import dill
@@ -63,11 +64,6 @@ _SCALARS = (
 
 
 def to_dataset(obj, group, name):
-    if isinstance(obj, (fn.Array, topology.Topology, dict, type(None))):
-        group[name] = np.string_(dill.dumps(obj))
-        group[name].attrs['type'] = 'PickledObject'
-        return group[name]
-
     if isinstance(obj, (sp.csr_matrix, sp.csc_matrix)):
         subgroup = group.require_group(name)
         subgroup['data'] = obj.data
@@ -93,6 +89,11 @@ def to_dataset(obj, group, name):
     if isinstance(obj, str):
         group[name] = obj
         group[name].attrs['type'] = 'String'
+        return group[name]
+
+    if isinstance(obj, (fn.Array, topology.Topology, dict, type(None), tuple, bool)) or callable(obj):
+        group[name] = np.string_(dill.dumps(obj))
+        group[name].attrs['type'] = 'PickledObject'
         return group[name]
 
     raise NotImplementedError(f'{type(obj)} to dataset')
@@ -386,3 +387,18 @@ class VectorAssembler:
 
     def ensure_shareable(self):
         self.row, self.order, self.inds = map(shared_array, (self.row, self.order, self.inds))
+
+
+def contract(obj, contraction):
+    axes = []
+    for i, cont in enumerate(contraction):
+        if cont is None:
+            continue
+        assert cont.ndim == 1
+        for __ in range(i):
+            cont = cont[_,...]
+        while cont.ndim < obj.ndim:
+            cont = cont[...,_]
+        obj = obj * cont
+        axes.append(i)
+    return obj.sum(tuple(axes))

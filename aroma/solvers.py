@@ -76,11 +76,13 @@ def _stokes_matrix(case, mu, div=True, **kwargs):
 
 
 def _stokes_rhs(case, mu, **kwargs):
-    rhs = - case['divergence'](mu, lift=0) - case['laplacian'](mu, lift=1)
+    # lift = case['lift'](mu)
+    # rhs = - case['divergence'](mu, lift=0) - case['laplacian'](mu, lift=1)
+    rhs = - case['divergence'](mu, cont=('lift', None)) - case['laplacian'](mu, cont=(None, 'lift'))
     if 'forcing' in case:
         rhs += case['forcing'](mu)
     if 'stab-lhs' in case:
-        rhs -= case['stab-lhs'](mu, lift=1)
+        rhs -= case['stab-lhs'](mu, cont=(None, 'lift'))
     if 'stab-rhs' in case:
         rhs += case['stab-rhs'](mu)
     return rhs
@@ -102,8 +104,8 @@ def stokes(case, mu):
 
 def navierstokes_conv(case, mu, lhs):
     c = case['convection']
-    rh = c(mu, cont=(None, lhs, lhs), case=case)
-    lh = c(mu, cont=(None, lhs, None), case=case) + c(mu, cont=(None, None, lhs), case=case)
+    rh = c(mu, cont=(None, lhs, lhs))
+    lh = c(mu, cont=(None, lhs, None)) + c(mu, cont=(None, None, lhs))
     rh, lh = integrate(rh, lh)
     return rh, lh
 
@@ -117,8 +119,9 @@ def navierstokes(case, mu, newton_tol=1e-10, maxit=10, **kwargs):
     stokes_mat, stokes_rhs = _stokes_assemble(case, mu)
     lhs = solve(stokes_mat, stokes_rhs, case.constraints)
 
-    stokes_mat += case['convection'](mu, lift=1) + case['convection'](mu, lift=2)
-    stokes_rhs -= case['convection'](mu, lift=(1,2))
+    lift = case['lift'](mu)
+    stokes_mat += case['convection'](mu, cont=(None, 'lift', None)) + case['convection'](mu, cont=(None, None, 'lift'))
+    stokes_rhs -= case['convection'](mu, cont=(None, 'lift', 'lift'))
 
     vmass = case['v-h1s'](mu)
 

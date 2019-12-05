@@ -39,10 +39,12 @@
 
 from contextlib import contextmanager
 import numpy as np
-from nutils import function as fn, export
+from nutils import function as fn, export, element
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-from matplotlib.tri import LinearTriInterpolator
+from matplotlib.tri import LinearTriInterpolator, Triangulation
+
+from aroma import tri
 
 
 @contextmanager
@@ -61,9 +63,9 @@ def _plot(suffix, name='solution', figsize=(10,10), index=None, mesh=None,
             collection = LineCollection(mesh, colors='black', linewidth=0.1, alpha=1.0)
             ax.add_collection(collection)
         ax.set_aspect('equal')
-        plt.autoscale(enable=True, axis='both', tight=True)
-        if xlim: plt.xlim(*xlim)
-        if ylim: plt.ylim(*ylim)
+        ax.autoscale(enable=True, axis='both', tight=True)
+        if xlim: ax.set_xlim(*xlim)
+        if ylim: ax.set_ylim(*ylim)
         if not axes:
             ax.axis('off')
         if show: plt.show()
@@ -88,6 +90,19 @@ def _streamplot(ax, tri, vvals, spacing=1.0):
     v = LinearTriInterpolator(tri, vvals[:,1])(xgrid, ygrid)
 
     ax.streamplot(x, y, u, v, density=1/spacing, color='black')
+
+
+def geometry(case, mu, **kwargs):
+    geom = case.geometry(mu)
+    sample = case.domain.sample('bezier', 3)
+    points = sample.eval(geom)
+
+    triangles, edges = tri.triangulate([points[ix] for ix in sample.index], mergetol=1e-5)
+    # trng = Triangulation(points[:,0], points[:,1], triangles)
+    mesh = points[edges]
+
+    with _plot('geometry', mesh=mesh, **kwargs) as (fig, ax):
+        pass
 
 
 def velocity(case, mu, lhs, density=1, lift=True, streams=True, **kwargs):
