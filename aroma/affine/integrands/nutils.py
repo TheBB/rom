@@ -41,7 +41,114 @@ from collections import OrderedDict
 from nutils import matrix, function as fn, _
 
 from aroma import util
+from aroma.affine import MuCallable
 from aroma.affine.integrands import Integrand, ThinWrapperIntegrand, LazyIntegral, COOTensorIntegrand, NumpyArrayIntegrand
+
+def unwrap(obj):
+    while isinstance(obj, matrix.Matrix):
+        obj = obj.core
+    return obj
+
+
+class Mass(MuCallable):
+
+    _ident_ = 'Mass'
+
+    def __init__(self, n, basisname, *deps, scale=1):
+        super().__init__((n, n), deps, scale=scale)
+        self.basisname = basisname
+
+    def write(self, group):
+        super().write(group)
+        util.to_dataset(self.basisname, group, 'basisname')
+
+    def _read(self, group):
+        super()._read(group)
+        self.basisname = util.from_dataset(group['basisname'])
+
+    def evaluate(self, case, mu, cont):
+        geom = case['geometry'](mu)
+        basis = case.basis(self.basisname, mu)
+        itg = fn.outer(basis)
+        if basis.ndim > 1:
+            itg = itg.sum([-1])
+        itg = util.contract(itg, cont)
+        with matrix.Scipy():
+            return unwrap(case.domain.integrate(itg * fn.J(geom), ischeme='gauss9'))
+
+
+class Laplacian(MuCallable):
+
+    _ident_ = 'Laplacian'
+
+    def __init__(self, n, basisname, *deps, scale=1):
+        super().__init__((n, n), deps, scale=scale)
+        self.basisname = basisname
+
+    def write(self, group):
+        super().write(group)
+        util.to_dataset(self.basisname, group, 'basisname')
+
+    def _read(self, group):
+        super()._read(group)
+        self.basisname = util.from_dataset(group['basisname'])
+
+    def evaluate(self, case, mu, cont):
+        geom = case['geometry'](mu)
+        vbasis = case.basis(self.basisname, mu)
+        itg = fn.outer(vbasis.grad(geom)).sum([-1, -2])
+        itg = util.contract(itg, cont)
+        with matrix.Scipy():
+            return unwrap(case.domain.integrate(itg * fn.J(geom), ischeme='gauss9'))
+
+
+class NSDivergence(MuCallable):
+
+    _ident_ = 'NSDivergence'
+
+    def __init__(self, n, *deps, scale=1):
+        super().__init__((n, n), deps, scale=scale)
+
+    def evaluate(self, case, mu, cont):
+        geom = case['geometry'](mu)
+        vbasis = case.basis('v', mu)
+        pbasis = case.basis('p', mu)
+        itg = -fn.outer(vbasis.div(geom), pbasis)
+        itg = util.contract(itg, cont)
+        with matrix.Scipy():
+            return unwrap(case.domain.integrate(itg * fn.J(geom), ischeme='gauss9'))
+
+
+class NSConvection(MuCallable):
+
+    _ident_ = 'NSConvection'
+
+    def __init__(self, n, *deps, scale=1):
+        super().__init__((n, n, n), deps, scale=scale)
+
+    def evaluate(self, case, mu, cont):
+        geom = case['geometry'](mu)
+        vbasis = case.basis('v', mu)
+        vgrad = vbasis.grad(geom)
+        itg = (vbasis[:,_,_,:,_] * vbasis[_,:,_,_,:] * vgrad[_,_,:,:,:]).sum([-1, -2])
+        itg = util.contract(itg, cont)
+        backend = matrix.Scipy if itg.ndim < 3 else COOTensorBackend
+        with backend():
+            return unwrap(case.domain.integrate(itg * fn.J(geom), ischeme='gauss9'))
+
+
+class PiolaTransform(MuCallable):
+
+    _ident_ = 'PiolaTransform'
+
+    def __init__(self, n, *deps):
+        super().__init__((n, n), deps)
+
+    def evaluate(self, case, mu, cont):
+        assert all(c is None for c in cont)
+        refgeom = case['geometry'](case.parameter())
+        trfgeom = case['geometry'](mu)
+        return trfgeom.grad(refgeom)
 
 
 class MaybeScipyBackend(matrix.Scipy):

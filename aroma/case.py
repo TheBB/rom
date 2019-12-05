@@ -44,7 +44,7 @@ import math
 from matplotlib.tri import Triangulation
 
 from aroma import util, tri
-from aroma.affine import mu, Affine, AffineIntegral
+from aroma.affine import mu, Affine, AffineIntegral, MuFunc
 
 
 def pp_table(headers):
@@ -110,6 +110,49 @@ class Parameters(OrderedDict):
         params = [Parameter.read(group[str(i)]) for i in range(len(group))]
         return Parameters([(param.name, param) for param in params])
 
+    def parameter(self, *args, **kwargs):
+        retval, index = {}, 0
+        for param in self.values():
+            if param.fixed is not None:
+                retval[param.name] = param.fixed
+                continue
+            elif param.name in kwargs:
+                retval[param.name] = kwargs[param.name]
+            elif index < len(args):
+                retval[param.name] = args[index]
+            else:
+                retval[param.name] = param.default
+            index += 1
+        return retval
+
+    def indexof(self, name):
+        index = 0
+        for param in self.parameters.values():
+            if param.fixed is not None:
+                continue
+            if param.name == name:
+                return index
+            index += 1
+
+    def ranges(self, ignore=None, keep=None):
+        if isinstance(ignore, str):
+            ignore = (ignore,)
+        if isinstance(keep, str):
+            keep = (keep,)
+
+        if keep is not None:
+            assert ignore is None
+            params = (p for p in self.values() if p.name in keep)
+        elif ignore is not None:
+            params = (p for p in self.values() if p.name not in ignore)
+        else:
+            params = self.values()
+
+        return [(p.minimum, p.maximum) for p in params if p.fixed is None]
+
+    def sequence(self, seq):
+        return tuple(p.name for p in self.values() if p.name in seq)
+
 
 class Basis:
 
@@ -163,14 +206,15 @@ class Integrals(OrderedDict):
     def __str__(self):
         table = pp_table(['Integral', 'lift', 'terms', 'opt', 'shape', 'types'])
         def put(value, axes=''):
-            itypes = set(str(g.__class__.__name__) for g in value.values)
-            itypes = {t[:-9] if t.endswith('Integrand') else t for t in itypes}
-            table.append_row([name, axes, len(value), 'Y' if value.optimized else '-',
-                              '·'.join(str(s) for s in value.shape), ', '.join(itypes)])
+            table.append_row([
+                name, axes, '??', '??',
+                '·'.join(str(s) for s in value.shape),
+                value.__class__.__name__
+            ])
 
         for name, value in self.items():
             put(value)
-            for axes, sub in value._lift.items():
+            for axes, sub in value.lifts.items():
                 axes = ','.join(str(a) for a in sorted(axes))
                 put(sub, axes)
 
@@ -194,25 +238,6 @@ class Integrals(OrderedDict):
         return Integrals({key: AffineIntegral.read(subgrp) for key, subgrp in group.items()})
 
 
-class Maps(OrderedDict):
-
-    def __getitem__(self, key):
-        if key not in self:
-            self[key] = Affine()
-        return super().__getitem__(key)
-
-    def write(self, group):
-        for key, value in self.items():
-            value.write(group.require_group(key))
-
-    @staticmethod
-    def read(group):
-        retval = Maps.__new__(Maps)
-        for key, value in group.items():
-            retval[key] = Affine.read(value)
-        return retval
-
-
 class Case:
 
     _ident_ = 'Case'
@@ -223,10 +248,13 @@ class Case:
         self._cons = None
 
     def __getitem__(self, key):
-        return self.integrals[key]
+        if key not in self.integrals:
+            raise KeyError
+        def wrapper(*args, **kwargs):
+            return self.integrals[key](self, *args, **kwargs)
+        return wrapper
 
     def __setitem__(self, key, value):
-        assert isinstance(value, AffineIntegral)
         self.integrals[key] = value
 
     def __contains__(self, key):
@@ -246,21 +274,16 @@ class Case:
         fields = ', '.join(fields)
         s += f'          Fields: {fields}\n'
 
-        if self.maps:
-            maps = [f'{key} ({len(value)})' for key, value in self.maps.items()]
-            maps = ', '.join(maps)
-            s += f'            Maps: {maps}\n'
-
         s += f'      Parameters: {len(self.parameters)}\n'
-        s += f'       Integrals: {len(self.parameters)}\n'
+        s += f'       Integrals: {len(self.integrals)}\n'
 
-        if isinstance(self.lift, Affine):
-            s += f'      Lift terms: {len(self.lift)}\n'
-        elif isinstance(self.lift, dict):
-            v = ', '.join(f'{key}: {len(value)}' for key, value in self.lift.items())
-            s += f'      Lift terms: {v}\n'
+        # if isinstance(self.lift, Affine):
+        #     s += f'      Lift terms: {len(self.lift)}\n'
+        # elif isinstance(self.lift, dict):
+        #     v = ', '.join(f'{key}: {len(value)}' for key, value in self.lift.items())
+        #     s += f'      Lift terms: {v}\n'
 
-        s += f'  Geometry terms: {len(self.geometry)}\n'
+        # s += f'        Geometry: {self.geometry}\n'
         s += f'            DoFs: {self.ndofs}\n'
 
         if self.parameters:
@@ -284,11 +307,6 @@ class Case:
             self._cons[:] = np.nan
         return self._cons
 
-    @property
-    def refgeom(self):
-        _, value = self.geometry[0]
-        return value
-
     def constrain(self, value):
         self._cons = np.where(np.isnan(self.constraints), value, self.constraints)
 
@@ -299,34 +317,13 @@ class Case:
         self.integrals.verify()
 
     def parameter(self, *args, **kwargs):
-        retval, index = {}, 0
-        for param in self.parameters.values():
-            if param.fixed is not None:
-                retval[param.name] = param.fixed
-                continue
-            elif param.name in kwargs:
-                retval[param.name] = kwargs[param.name]
-            elif index < len(args):
-                retval[param.name] = args[index]
-            else:
-                retval[param.name] = param.default
-            index += 1
-        return retval
+        return self.parameters.parameter(*args, **kwargs)
 
     def parameter_indexof(self, name):
-        index = 0
-        for param in self.parameters.values():
-            if param.fixed is not None:
-                continue
-            if param.name == name:
-                return index
-            index += 1
+        return self.parameters.indexof(name)
 
-    def ranges(self, ignore=()):
-        if isinstance(ignore, str):
-            ignore = (ignore,)
-        return [(p.minimum, p.maximum) for p in self.parameters.values()
-                if p.fixed is None and p.name not in ignore]
+    def ranges(self, **kwargs):
+        return self.parameters.ranges(**kwargs)
 
     def restrict(self, **kwargs):
         for name, value in kwargs.items():
@@ -393,30 +390,21 @@ class HifiCase(Case):
         self.meta = {}
         self.parameters = Parameters()
         self.bases = Bases()
-        self.geometry = Affine()
-        self.lift = Affine()
-        self.maps = Maps()
         super().__init__(*args, **kwargs)
 
     def _read(self, group, sparse):
         super()._read(group, sparse)
-        self.geometry = Affine.read(group['geometry'])
-        self.maps = Maps.read(group['maps'])
         self.parameters = Parameters.read(group['parameters'])
-        self.lift = Affine.read(group['lift'])
 
         self.meta = {}
         for key, value in group['meta'].items():
             self.meta[key] = value[()]
 
     def solution_vector(self, lhs, mu, lift=True):
-        return (lhs + self.lift(mu)) if lift else lhs
+        return (lhs + self['lift'](mu)) if lift else lhs
 
     def write(self, group, sparse=False):
         super().write(group, sparse)
-        self.geometry.write(group.require_group('geometry'))
-        self.lift.write(group.require_group('lift'))
-        self.maps.write(group.require_group('maps'))
         self.parameters.write(group.require_group('parameters'))
 
         meta = group.require_group('meta')
@@ -443,8 +431,6 @@ class NutilsCase(HifiCase):
             self.meta['triangulation'] = triangles
             self.meta['edges'] = edges
 
-        self.geometry += mu(1), geometry
-
     def write(self, group, sparse=False):
         super().write(group, sparse)
         util.to_dataset(self.domain, group, 'domain')
@@ -462,14 +448,13 @@ class NutilsCase(HifiCase):
 
     def verify(self):
         super().verify()
-        self.geometry.assert_isinstance(fn.Array)
         assert all(isinstance(basis.obj, fn.Array) for basis in self.bases.values())
 
     def discretize(self, obj):
         return self.domain.sample(*element.parse_legacy_ischeme(self.meta['vscheme'])).eval(obj)
 
     def triangulation(self, mu, lines=False):
-        points = self.discretize(self.geometry(mu))
+        points = self.discretize(self['geometry'](mu))
         tri = Triangulation(points[:,0], points[:,1], self.meta['triangulation'])
         if lines:
             return tri, points[self.meta['edges']]
@@ -483,8 +468,8 @@ class NutilsCase(HifiCase):
 
     def basis(self, name, mu=None):
         func = self.bases[name].obj
-        if name in self.maps and mu is not None:
-            J = self.maps[name](mu)
+        if f'{name}-trf' in self and mu is not None:
+            J = self[f'{name}-trf'](mu)
             func = fn.matmat(func, J.transpose())
         return func
 

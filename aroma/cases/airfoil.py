@@ -37,13 +37,15 @@
 # written agreement between you and SINTEF Digital.
 
 
+from functools import partial
 import numpy as np
 from scipy.special import factorial
 from nutils import mesh, function as fn, log, _, matrix
 from os import path
 
 from aroma.case import NutilsCase
-from aroma.affine import AffineIntegral, Integrand, NutilsDelayedIntegrand, mu
+from aroma.affine import MuLambda, MuConstant
+import aroma.affine.integrands.nutils as ntl
 
 
 def rotmat(angle):
@@ -51,31 +53,6 @@ def rotmat(angle):
         [fn.cos(angle), -fn.sin(angle)],
         [fn.sin(angle), fn.cos(angle)],
     ])
-
-
-eye = np.array([[1, 0], [0, 1]])
-P = np.array([[0, -1], [1, 0]])
-Ps = [eye, P, -eye, -P]
-
-
-def Pmat(i):
-    return Ps[i % 4]
-
-
-def Rmat(i, theta=None):
-    if i < 0:
-        return np.zeros((2,2))
-    if theta is not None:
-        return theta**i / factorial(i) * Pmat(i)
-    return Pmat(i) / factorial(i)
-
-
-def Bminus(i, theta, Q):
-    return Rmat(i, theta) + fn.matmat(Rmat(i-1, theta), Q, P)
-
-
-def Bplus(i, theta, Q):
-    return Rmat(i, theta) + fn.matmat(Rmat(i-1, theta), P, Q)
 
 
 def mk_mesh(nelems, radius, fname='NACA0015', cylrot=0.0):
@@ -100,7 +77,8 @@ def mk_mesh(nelems, radius, fname='NACA0015', cylrot=0.0):
 
 def mk_bases(case, piola):
     if piola:
-        J = case.refgeom.grad(case._refgeom)
+        mu = case.parameter()
+        J = case['geometry'](mu).grad(case.refgeom)
         detJ = fn.determinant(J)
         bases = [
             case.domain.basis('spline', degree=(3,2))[:,_] * J[:,0] / detJ,
@@ -128,212 +106,80 @@ def mk_bases(case, piola):
     case.bases.add('v', vbasis, length=len(bases[0]) + len(bases[1]))
     case.bases.add('p', pbasis, length=len(bases[2]))
 
-    return vbasis, pbasis
+    return vbasis, pbasis, len(pbasis)
 
 
-def mk_lift(case, V):
-    domain, geom = case.domain, case.refgeom
-    x, y = geom
-    vbasis, pbasis = case.bases['v'].obj, case.bases['p'].obj
+def mk_lift(case):
+    mu = case.parameter()
+    vbasis = case.basis('v', mu)
 
-    cons = domain.boundary['left'].project((0,0), onto=vbasis, geometry=geom, ischeme='gauss1')
-    cons = domain.boundary['right'].select(-x).project(
+    geom = case['geometry'](mu)
+    x, __ = geom
+    cons = case.domain.boundary['left'].project((0,0), onto=vbasis, geometry=geom, ischeme='gauss1')
+    cons = case.domain.boundary['right'].select(-x).project(
         (1,0), onto=vbasis, geometry=geom, ischeme='gauss9', constrain=cons,
     )
 
-    mx = fn.outer(vbasis.grad(geom)).sum([-1, -2])
-    mx -= fn.outer(pbasis, vbasis.div(geom))
-    mx -= fn.outer(vbasis.div(geom), pbasis)
-    with matrix.Scipy():
-        mx = domain.integrate(mx * fn.J(geom), ischeme='gauss9')
-    rhs = np.zeros(pbasis.shape)
-    lhs = mx.solve(rhs, constrain=cons)
-    vsol = vbasis.dot(lhs)
+    mx = case['laplacian'](mu) + case['divergence'](mu, sym=True)
+    lhs = matrix.ScipyMatrix(mx).solve(np.zeros(case.ndofs), constrain=cons)
 
+    vsol = vbasis.dot(lhs)
     vdiv = vsol.div(geom)**2
-    vdiv = np.sqrt(domain.integrate(vdiv * fn.J(geom), ischeme='gauss9'))
+    vdiv = np.sqrt(case.domain.integrate(vdiv * fn.J(geom), ischeme='gauss9'))
     log.user('Lift divergence (ref coord):', vdiv)
 
     lhs[case.bases['p'].indices] = 0.0
-    case.lift += V, lhs
-    case.constrain('v', 'left')
-    case.constrain('v', domain.boundary['right'].select(-x))
+    return lhs
 
 
-def nterms_rotmat_taylor(angle, threshold):
-    exact = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
-    approx = np.zeros((2,2))
-    nterms = 0
-    while np.linalg.norm(exact - approx) > threshold:
-        approx += Rmat(nterms, angle)
-        nterms += 1
-    return nterms
-
-
-def error_rotmat_taylor(nterms, angle):
-    exact = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
-    approx = sum(Rmat(i, angle) for i in range(nterms))
-    return np.linalg.norm(exact - approx)
-
-
-def intermediate(geom, rmin, rmax, nterms):
+def mk_theta(geom, rmin, rmax):
     r = fn.norm2(geom)
     diam = rmax - rmin
     theta = (lambda x: (1 - x)**3 * (3*x + 1))((r - rmin)/diam)
     theta = fn.piecewise(r, (rmin, rmax), 1, theta, 0)
-    dtheta = (lambda x: -12 * x * (1 - x)**2)((r - rmin)/diam) / diam
-    dtheta = fn.piecewise(r, (rmin, rmax), 0, dtheta, 0)
+    return theta
 
-    Q = fn.outer(geom) / r * dtheta
-    return theta, Q
+
+def geometry(mu, scale, theta, refgeom):
+    return rotmat(scale(mu) * theta).dot(refgeom)
 
 
 class airfoil(NutilsCase):
 
     def __init__(self, mesh=None, fname='NACA0015', cylrot=0.0, nelems=30, rmax=10, rmin=1,
-                 amax=25, lift=True, nterms=None, piola=True):
+                 amax=25, lift=True, piola=True):
+
         if mesh is None:
             domain, refgeom, geom = mk_mesh(nelems, rmax, fname=fname, cylrot=cylrot)
         else:
             domain, refgeom, geom = mesh
         NutilsCase.__init__(self, 'Flow around airfoil', domain, geom)
-        self._refgeom = refgeom
+        self.refgeom = refgeom
 
         ANG = self.parameters.add('angle', -np.pi*amax/180, np.pi*amax/180, default=0.0)
-        V = self.parameters.add('velocity', 1.0, 20.0)
-        NU = 1 / self.parameters.add('viscosity', 1.0, 1000.0)
+        V = self.parameters.add('velocity', 1.0, 20.0, default=1.0)
+        NU = 1 / self.parameters.add('viscosity', 1.0, 1000.0, default=1.0)
 
-        if nterms is None:
-            nterms = nterms_rotmat_taylor(np.pi * amax / 180, 1e-10)
-            log.user('nterms:', nterms)
-        else:
-            log.user('error: {:.2e}'.format(error_rotmat_taylor(nterms, np.pi * amax / 180)))
-        dterms = 2 * nterms - 1
+        theta = mk_theta(geom, rmin, rmax)
+        self['geometry'] = MuLambda(
+            partial(geometry, scale=ANG, theta=theta, refgeom=geom),
+            (2,), ('angle',)
+        )
 
-        # Some quantities we need
-        theta, Q = intermediate(geom, rmin, rmax, nterms)
-        self.theta = theta
+        vbasis, pbasis, nfuncs = mk_bases(self, piola)
 
-        # Add bases and construct a lift function
-        vbasis, pbasis = mk_bases(self, piola)
-        vgrad = vbasis.grad(geom)
-        if lift:
-            mk_lift(self, V)
+        self['divergence'] = ntl.NSDivergence(nfuncs, 'angle')
+        self['convection'] = ntl.NSConvection(nfuncs, 'angle')
+        self['laplacian'] = ntl.Laplacian(nfuncs, 'v', 'angle', scale=NU)
+        self['v-h1s'] = ntl.Laplacian(nfuncs, 'v', 'angle')
+        self['p-l2'] = ntl.Mass(nfuncs, 'p', 'angle')
 
-        # Geometry terms
-        for i in range(1, nterms):
-            term = fn.matmat(Rmat(i, theta), geom)
-            self.geometry += ANG**i, term
-
-        # Jacobian, for Piola mapping
         if piola:
-            for i in range(nterms):
-                self.maps['v'] += ANG**i, Bplus(i, theta, Q)
+            self['v-trf'] = ntl.PiolaTransform(2, 'angle')
 
-        # Stokes divergence term
-        if piola:
-            terms = [0] * dterms
-            for i in range(nterms):
-                for j in range(nterms):
-                    itg = fn.matmat(vbasis, Bplus(j, theta, Q).transpose()).grad(geom)
-                    itg = (itg * Bminus(i, theta, Q)).sum([-1, -2])
-                    terms[i+j] += fn.outer(itg, pbasis)
-        else:
-            terms = [
-                fn.outer((vgrad * Bminus(i, theta, Q)).sum([-1, -2]), pbasis)
-                for i in range(nterms)
-            ]
+        liftvec = mk_lift(self)
+        self['lift'] = MuConstant(liftvec, scale=V)
 
-        for i, term in enumerate(terms):
-            self['divergence'] -= ANG**i, term
-        self['divergence'].freeze(lift=(1,))
-
-        # Stokes laplacian term
-        D1 = fn.matmat(Q, P) - fn.matmat(P, Q)
-        D2 = fn.matmat(P, Q, Q, P)
-        if piola:
-            terms = [0] * (dterms + 2)
-            for i in range(nterms):
-                for j in range(nterms):
-                    gradu = fn.matmat(vbasis, Bplus(i, theta, Q).transpose()).grad(geom)
-                    gradw = fn.matmat(vbasis, Bplus(j, theta, Q).transpose()).grad(geom)
-                    terms[i+j] += fn.outer(gradu, gradw).sum([-1, -2])
-                    terms[i+j+1] += fn.outer(gradu, fn.matmat(gradw, D1.transpose())).sum([-1, -2])
-                    terms[i+j+2] -= fn.outer(gradu, fn.matmat(gradw, D2.transpose())).sum([-1, -2])
-        else:
-            terms = [
-                fn.outer(vgrad).sum([-1, -2]),
-                fn.outer(vgrad, fn.matmat(vgrad, D1.transpose())).sum([-1, -2]),
-                -fn.outer(vgrad, fn.matmat(vgrad, D2.transpose())).sum([-1, -2]),
-            ]
-
-        for i, term in enumerate(terms):
-            self['laplacian'] += ANG**i * NU, term
-
-        # Navier-Stokes convective term
-        if piola:
-            terms = [
-                NutilsDelayedIntegrand(None, 'ijk', 'wuv', x=geom, w=vbasis, u=vbasis, v=vbasis)
-                for __ in range(dterms)
-            ]
-            for i in range(nterms):
-                for j in range(nterms):
-                    Bname, Cname = f'B{i}B{j}', f'C{i}C{j}'
-                    terms[i+j].add(
-                        f'(?ww_ia u_jb ?vv_ka,b)(ww_ij = w_ia {Bname}_ja, vv_ij = v_ia {Cname}_ja)',
-                        **{Bname: Bplus(j,theta,Q), Cname: Bplus(i,theta,Q)},
-                    )
-            fallback = NutilsDelayedIntegrand(
-                '(?ww_ia u_jb ?vv_ka,b)(ww_ij = w_ia J_ja, vv_ij = v_ia J_ja)', 'ijk', 'wuv',
-                x=geom, w=vbasis, u=vbasis, v=vbasis, J=('jacobian', (2,2)),
-            )
-        else:
-            terms = []
-            for i in range(nterms):
-                terms.append(NutilsDelayedIntegrand(
-                    '(w_ia ?uu_jb v_ka,b)(uu_ij = u_ia B_aj)', 'ijk', 'wuv',
-                    x=geom, w=vbasis, u=vbasis, v=vbasis, B=Bminus(i,theta,Q),
-                ))
-            fallback = NutilsDelayedIntegrand(
-                '(w_ia ?uu_jb v_ka,b)(uu_ij = u_ia J_ja)', 'ijk', 'wuv',
-                x=geom, w=vbasis, u=vbasis, v=vbasis, J=('jacobian_inverse', (2,2)),
-            )
-
-        for i, term in enumerate(terms):
-            self['convection'] += ANG**i, term
-        fallback.prop(domain=domain, geometry=geom, ischeme='gauss9')
-        self['convection'].fallback = fallback
-
-        # Mass matrices
-        self['v-l2'] += 1, fn.outer(vbasis).sum([-1])
-        if piola:
-            M2 = fn.matmat(Q, P, P, Q)
-            self['v-l2'] -= ANG, fn.outer(vbasis, fn.matmat(vbasis, D1.transpose())).sum(-1)
-            self['v-l2'] -= ANG**2, fn.outer(vbasis, fn.matmat(vbasis, M2.transpose())).sum(-1)
-        self['v-h1s'] = self['laplacian'] / NU
-        self['p-l2'] += 1, fn.outer(pbasis)
-
-        # Force on airfoil
-        if piola:
-            terms = [0 for __ in range(3*nterms - 2)]
-            for i in range(nterms):
-                for j in range(nterms):
-                    for k in range(nterms):
-                        terms[i+j+k] += fn.matmat(
-                            fn.matmat(vbasis, Bplus(i,theta,Q).transpose()).grad(geom),
-                            Bminus(j,theta,Q).transpose(), Rmat(k,theta), geom.normal()
-                        )
-        else:
-            terms = [0 for __ in range(dterms)]
-            for i in range(nterms):
-                for j in range(nterms):
-                    terms[i+j] += fn.matmat(
-                        vgrad, Bminus(i,theta,Q).transpose(), Rmat(j,theta), geom.normal()
-                    )
-
-        for i in range(nterms):
-            self['force'] += ANG**i, pbasis[:,_] * fn.matmat(Rmat(i,theta), geom.normal())[_,:]
-        for i, term in enumerate(terms):
-            self['force'] -= ANG**i * NU, term
-        self['force'].prop(domain=domain.boundary['left'])
-        self['force'].freeze(proj=(1,), lift=(1,))
+        x, __ = geom
+        self.constrain('v', 'left')
+        self.constrain('v', domain.boundary['right'].select(-x))

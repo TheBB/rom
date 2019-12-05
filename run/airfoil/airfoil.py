@@ -14,7 +14,7 @@ def main():
 def get_case(fast: bool = False, piola: bool = False):
     case = cases.airfoil(amax=35, piola=piola)
     case.restrict(viscosity=6.0)
-    case.precompute(force=fast)
+    # case.precompute(force=fast)
     return case
 
 
@@ -86,7 +86,7 @@ def disp(fast, piola):
 @util.common_args
 def solve(angle, velocity, fast, piola, index):
     case = get_case(fast, piola)
-    angle = -angle / 180 * np.pi
+    angle *= np.pi / 180
     mu = case.parameter(angle=angle, velocity=velocity)
     with util.time():
         lhs = solvers.navierstokes(case, mu, solver='mkl')
@@ -112,7 +112,6 @@ def rsolve(angle, velocity, piola, sups, nred, index):
         except AssertionError:
             log.user('solving non-block')
             lhs = solvers.navierstokes(case, mu)
-
     visualization.velocity(case, mu, lhs, name='red', axes=False, colorbar=True)
     visualization.pressure(case, mu, lhs, name='red', axes=False, colorbar=True)
 
@@ -244,6 +243,17 @@ def _results(fast: bool = False, piola: bool = False, sups: bool = False, block:
 @util.common_args
 def results(fast, piola, sups, block, nred):
     return _results(fast=fast, piola=piola, sups=sups, block=block, nred=nred)
+
+
+@main.command()
+@click.option('--angle', default=0.0)
+@click.option('--velocity', default=1.0)
+@util.common_args
+def test(angle, velocity):
+    angle = -angle / 180 * np.pi
+    case = get_case(False, False)
+    mu = case.parameter(angle=angle, velocity=velocity)
+    visualization.geometry(case, mu, figsize=(10,10))
 
 
 if __name__ == '__main__':

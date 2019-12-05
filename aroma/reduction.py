@@ -72,16 +72,21 @@ class Reducer:
 
         # Project all the integrals
         for name in case:
+            if name in ('geometry', 'lift') or name.endswith('-trf'):
+                rcase[name] = case.integrals[name]
+                continue
+
             with log.context(name):
+                log.user(name)
                 if name not in self.overrides or self.overrides[name].soft:
-                    rcase[name] = case[name].project(total_proj)
+                    rcase[name] = case.integrals[name].project(case, total_proj)
 
                 if name in self.overrides:
                     for comb in self.overrides[name].combinations:
                         proj = tuple(projections[b] for b in comb)
                         new_name = f'{name}-{comb}'
                         log.user(new_name)
-                        rcase[new_name] = case[name].project(proj)
+                        rcase[new_name] = case.integrals[name].project(case, proj)
 
         rcase.meta.update(self.meta)
         return rcase

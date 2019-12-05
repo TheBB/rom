@@ -37,13 +37,13 @@
 # written agreement between you and SINTEF Digital.
 
 
-from aroma.cases.abdman import abdman
+# from aroma.cases.abdman import abdman
 from aroma.cases.airfoil import airfoil
-from aroma.cases.alecyl import alecyl
-from aroma.cases.backstep import backstep
-from aroma.cases.beam import beam
-from aroma.cases.cavity import cavity
-from aroma.cases.channel import channel
-from aroma.cases.exact import exact
-from aroma.cases.halfbeam import halfbeam
-from aroma.cases.tshape import tshape
+# from aroma.cases.alecyl import alecyl
+# from aroma.cases.backstep import backstep
+# from aroma.cases.beam import beam
+# from aroma.cases.cavity import cavity
+# from aroma.cases.channel import channel
+# from aroma.cases.exact import exact
+# from aroma.cases.halfbeam import halfbeam
+# from aroma.cases.tshape import tshape

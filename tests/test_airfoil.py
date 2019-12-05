@@ -115,7 +115,6 @@ def test_mass_matrix(mu, case):
 
 
 def test_convection(mu, case):
-    print(case['convection'].optimized)
     p_vbasis, p_pbasis = piola_bases(mu, case)
     trfgeom = case.geometry(mu)
 
