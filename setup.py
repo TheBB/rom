@@ -13,6 +13,7 @@ setup(
     },
     install_requires=[
         'click',
+        'dill',
         'h5py',
         'nutils>=4.0a0',
         'numpy',

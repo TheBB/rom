@@ -45,7 +45,7 @@ from multiprocessing import current_process, cpu_count
 import numpy as np
 import h5py
 from os.path import exists
-import pickle
+import dill
 import random
 import scipy.sparse as sp
 import scipy.sparse._sparsetools as sptools
@@ -64,7 +64,7 @@ _SCALARS = (
 
 def to_dataset(obj, group, name):
     if isinstance(obj, (fn.Array, topology.Topology, dict, type(None))):
-        group[name] = np.string_(pickle.dumps(obj))
+        group[name] = np.string_(dill.dumps(obj))
         group[name].attrs['type'] = 'PickledObject'
         return group[name]
 
@@ -101,7 +101,7 @@ def to_dataset(obj, group, name):
 def from_dataset(group):
     type_ = group.attrs['type']
     if type_ == 'PickledObject':
-        return pickle.loads(group[()])
+        return dill.loads(group[()])
     if type_ == 'Array':
         return group[:]
     if type_ == 'String':
