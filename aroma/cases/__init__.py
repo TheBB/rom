@@ -47,3 +47,4 @@ from aroma.cases.channel import channel
 from aroma.cases.exact import exact
 from aroma.cases.halfbeam import halfbeam
 from aroma.cases.tshape import tshape
+from aroma.cases.turek import turek
