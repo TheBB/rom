@@ -402,3 +402,14 @@ def contract(obj, contraction):
         obj = obj * cont
         axes.append(i)
     return obj.sum(tuple(axes))
+
+
+def contract_sparse(obj, contraction):
+    a, b = contraction
+    if a is None and b is None:
+        return obj
+    if a is None and b is not None:
+        return obj.dot(b)
+    if a is not None and b is None:
+        return obj.T.dot(a)
+    return a.dot(obj.dot(b))
