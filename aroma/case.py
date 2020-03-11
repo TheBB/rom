@@ -411,6 +411,9 @@ class HifiCase(Case):
         for key, value in self.meta.items():
             meta[key] = value
 
+    def basis(self, name, mu=None):
+        return self.bases[name].obj
+
 
 class NutilsCase(HifiCase):
 
@@ -467,7 +470,7 @@ class NutilsCase(HifiCase):
         return self.domain.sample(*element.parse_legacy_ischeme(self.meta['vscheme'])).eval(func)
 
     def basis(self, name, mu=None):
-        func = self.bases[name].obj
+        func = super().basis(name, mu=mu)
         if f'{name}-trf' in self and mu is not None:
             J = self[f'{name}-trf'](mu)
             func = fn.matmat(func, J.transpose())
