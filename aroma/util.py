@@ -53,6 +53,8 @@ import scipy.sparse._sparsetools as sptools
 import sharedmem
 import string
 import warnings
+import lrspline as lr
+from io import BytesIO
 
 from nutils import log, function as fn, topology, config
 
@@ -91,6 +93,14 @@ def to_dataset(obj, group, name):
         group[name].attrs['type'] = 'String'
         return group[name]
 
+    if isinstance(obj, lr.LRSplineSurface):
+        with BytesIO() as b:
+            obj.write(b)
+            b.seek(0)
+            group[name] = b.read()
+        group[name].attrs['type'] = 'LRSplineSurface'
+        return group[name]
+
     if isinstance(obj, (fn.Array, topology.Topology, dict, type(None), tuple, bool)) or callable(obj):
         group[name] = np.string_(dill.dumps(obj))
         group[name].attrs['type'] = 'PickledObject'
@@ -103,6 +113,8 @@ def from_dataset(group):
     type_ = group.attrs['type']
     if type_ == 'PickledObject':
         return dill.loads(group[()])
+    if type_ == 'LRSplineSurface':
+        return lr.LRSplineSurface(group[()])
     if type_ == 'Array':
         return group[:]
     if type_ == 'String':
