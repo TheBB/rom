@@ -37,15 +37,42 @@
 # written agreement between you and SINTEF Digital.
 
 
-# from aroma.cases.abdman import abdman
-from aroma.cases.airfoil import airfoil
-# from aroma.cases.alecyl import alecyl
-# from aroma.cases.backstep import backstep
-# from aroma.cases.beam import beam
-# from aroma.cases.cavity import cavity
-# from aroma.cases.channel import channel
-# from aroma.cases.exact import exact
-# from aroma.cases.halfbeam import halfbeam
-# from aroma.cases.tshape import tshape
+import numpy as np
+from functools import partial
+from itertools import chain
 
-from aroma.cases.lr.poisson import lrpoisson
+from aroma.case import LRCase
+from aroma.affine import MuConstant
+import aroma.affine.integrands.lr as lri
+
+
+def source(XC, YC, mu, x, y):
+    xc = XC(mu)
+    yc = YC(mu)
+    return np.exp(-100 * ((x-xc)**2 + (y-yc)**2))
+
+
+class lrpoisson(LRCase):
+
+    def __init__(self, mesh):
+        super().__init__('Poisson LR')
+
+        XC = self.parameters.add('xcenter', 0.25, 0.75, default=0.5)
+        YC = self.parameters.add('ycenter', 0.25, 0.75, default=0.5)
+
+        self['geometry'] = MuConstant(mesh)
+        self['lift'] = MuConstant(np.zeros((len(mesh),)))
+        self.bases.add('u', mesh, length=len(mesh))
+
+        self['laplacian'] = lri.LRLaplacian(len(mesh))
+        self['forcing'] = lri.LRSource(len(mesh), partial(source, XC, YC), 'xcenter', 'ycenter')
+        self['u-l2'] = lri.LRMass(len(mesh))
+        self['u-h1s'] = lri.LRLaplacian(len(mesh))
+
+        cons = np.full(len(mesh), np.nan)
+        edge = [bf.id for bf in chain(
+            mesh.basis.edge('east'), mesh.basis.edge('west'),
+            mesh.basis.edge('north'), mesh.basis.edge('south'),
+        )]
+        cons[edge] = 0.0
+        self.constrain(cons)
