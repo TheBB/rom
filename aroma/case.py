@@ -518,6 +518,16 @@ class NutilsCase(HifiCase):
         return fn.inverse(self.geometry(mu).grad(self.refgeom))
 
 
+class LRCase(HifiCase):
+
+    _ident_ = 'LRCase'
+
+    def __init__(self, name):
+        super().__init__(name)
+
+
+
+
 class LofiCase(Case):
 
     _ident_ = 'LofiCase'
