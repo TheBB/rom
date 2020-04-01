@@ -59,7 +59,7 @@ class Reducer:
     def override(self, integrand, *combs, soft=False):
         self.overrides[integrand] = Override(combs, soft)
 
-    def __call__(self):
+    def __call__(self, **kwargs):
         case = self.case
         projections = self.get_projections()
         total_proj = np.vstack(list(projections.values()))
@@ -79,7 +79,7 @@ class Reducer:
             with log.context(name):
                 log.user(name)
                 if name not in self.overrides or self.overrides[name].soft:
-                    rcase[name] = case.integrals[name].project(case, total_proj)
+                    rcase[name] = case.integrals[name].project(case, total_proj, **kwargs)
 
                 if name in self.overrides:
                     for comb in self.overrides[name].combinations:

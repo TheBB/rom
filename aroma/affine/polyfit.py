@@ -3,6 +3,7 @@ import numpy as np
 from scipy.special import legendre
 from itertools import repeat, count, product, chain
 from functools import lru_cache
+from nutils import log
 
 
 def prod(values):
@@ -124,7 +125,7 @@ class Interpolator:
         if bfun in self.coeffs:
             return self.coeffs[bfun]**2
         self.coeffs[bfun] = 0.0
-        for index in self.active_diffrules:
+        for index in log.iter('rule', self.active_diffrules):
             delta = self._rule_to_bfun(bfun, multi_diffrule(index))
             self.coeffs[bfun] += delta
             self.active_diffrules[index] += normof(delta)
@@ -134,7 +135,7 @@ class Interpolator:
         if bfun is None:
             cands = self.coeffs.keys() - self.active_bfuns
             if not cands:
-                return None
+                return 0.0
             bfun = max(cands, key=lambda c: normof(self.coeffs[c]))
         if bfun not in self.coeffs:
             self.trial_bfun(bfun)
@@ -171,7 +172,7 @@ class Interpolator:
 
     def _rule_to_bfun(self, bfun, rule):
         change = 0.0
-        for points, wt in rule.items():
+        for points, wt in log.iter('quadpt', rule.items()):
             bf = self._eval_bfun(bfun, points)
             change += wt * self._eval_bfun(bfun, points) * self.func(points)
         return change

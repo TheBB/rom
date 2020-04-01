@@ -47,7 +47,7 @@ def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: in
         reducer.override('divergence', 'sp', soft=True)
 
     reducer.plot_spectra(util.make_filename(get_reduced, 'airfoil-spectrum-{piola}', piola=piola))
-    return reducer()
+    return reducer(tol=1e-6, nrules=4)
 
 
 def force_err(hicase, locase, hifi, lofi, scheme):

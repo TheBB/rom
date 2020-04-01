@@ -237,7 +237,7 @@ class MuCallable(MuFunc):
             retval = retval + retval.T
         return retval
 
-    def _self_project(self, case, proj, cont, tol=1e-8):
+    def _self_project(self, case, proj, cont, tol=1e-4, nrules=4, **kwargs):
         totdeps = set(self.deps)
         if any(islift(c) for c in cont):
             totdeps |= set(case.integrals['lift'].deps)
@@ -266,7 +266,7 @@ class MuCallable(MuFunc):
 
         ranges = case.ranges(keep=totdeps)
         interp = Interpolator(ranges, wrapper)
-        interp.activate_rule((4,) * len(ranges))
+        interp.activate_rule((nrules,) * len(ranges))
 
         while True:
             interp.expand_candidates()
