@@ -224,9 +224,10 @@ class Integrals(OrderedDict):
         for value in self.values():
             value.verify()
 
-    def write(self, group):
+    def write(self, group, only=()):
         for name, integral in self.items():
-            integral.write(group.require_group(name))
+            if not only or name in only:
+                integral.write(group.require_group(name))
 
     @staticmethod
     def read(group):
@@ -336,6 +337,8 @@ class Case:
 
         if not sparse:
             self.integrals.write(group.require_group('integrals'))
+        else:
+            self.integrals.write(group.require_group('integrals'), only=('geometry', 'lift'))
 
     @staticmethod
     def read(group, sparse=False):
@@ -356,11 +359,7 @@ class Case:
             self.extra_dofs = group['extra_dofs'][()]
 
         self.bases = Bases.read(group['bases'])
-
-        if not sparse:
-            self.integrals = Integrals.read(group['integrals'])
-        else:
-            self.integrals = Integrals()
+        self.integrals = Integrals.read(group['integrals'])
 
     def precompute(self, force=False, **kwargs):
         new = []
@@ -519,8 +518,6 @@ class LRCase(HifiCase):
 
     def __init__(self, name):
         super().__init__(name)
-
-
 
 
 class LofiCase(Case):
