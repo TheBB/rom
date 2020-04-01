@@ -296,12 +296,18 @@ class MuCallable(MuFunc):
             num_lifts = (1,)
         else:
             num_lifts = (self.ndim - 2, self.ndim - 1)
+
+        if hasattr(self, 'liftable'):
+            liftable = list(self.liftable)
+        else:
+            liftable = list(range(1, self.ndim))
+
         for r in num_lifts:
-            for lift in map(frozenset, combinations(range(1, self.ndim), r)):
-                log.user(str(tuple(sorted(lift))))
-                cont = tuple(('lift' if i in lift else None) for i in range(self.ndim))
-                lproj = tuple(p for i, p in enumerate(proj) if i not in lift)
-                projected.lifts[lift] = self._self_project(case, lproj, cont)
+            for lift in map(frozenset, combinations(liftable, r)):
+                with log.context(f'lift {tuple(sorted(lift))}'):
+                    cont = tuple(('lift' if i in lift else None) for i in range(self.ndim))
+                    lproj = tuple(p for i, p in enumerate(proj) if i not in lift)
+                    projected.lifts[lift] = self._self_project(case, lproj, cont, **kwargs)
 
         return projected
 

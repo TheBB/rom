@@ -35,6 +35,8 @@ def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: in
     case = get_case(fast, piola)
     ensemble = get_ensemble(fast, piola, num)
 
+    case.integrals['divergence'].liftable = (0, 1)
+
     reducer = reduction.EigenReducer(case, ensemble)
     reducer.add_basis('v', parent='v', ensemble='solutions', ndofs=nred, norm='h1s')
     if sups:
