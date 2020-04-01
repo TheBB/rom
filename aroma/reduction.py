@@ -40,6 +40,7 @@
 from collections import OrderedDict, namedtuple
 import numpy as np
 from scipy.linalg import eigh
+import matplotlib.figure        # force module to load
 from nutils import log, export, _, function as fn
 
 from aroma.case import LofiCase
@@ -138,12 +139,14 @@ class EigenReducer(Reducer):
                 corr = ensemble.dot(mass.dot(ensemble.T))
 
                 eigvals, eigvecs = eigh(corr, turbo=False, eigvals=(len(corr)-basis.ndofs, len(corr)-1))
+                alleigs = eigh(corr, turbo=False, eigvals_only=True)[::-1]
                 del corr
 
                 eigvals = eigvals[::-1]
                 eigvecs = eigvecs[:,::-1]
-                self.meta[f'err-{name}'] = np.sqrt(1.0 - np.sum(eigvals[:basis.ndofs]) / np.sum(eigvals))
-                self._spectra[name] = eigvals
+                self.meta[f'err-{name}'] = np.sqrt(1.0 - np.sum(eigvals[:basis.ndofs]) / np.sum(alleigs))
+                self._spectra[name] = alleigs
+                del alleigs
 
                 reduced = ensemble.T.dot(eigvecs[:,:basis.ndofs]) / np.sqrt(eigvals[:basis.ndofs])
                 del eigvecs
