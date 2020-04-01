@@ -1,6 +1,6 @@
 import click
 import numpy as np
-from nutils import log, config
+from nutils import log, config, function as fn
 from aroma import cases, solvers, util, quadrature, reduction, ensemble as ens, visualization
 import multiprocessing
 
