@@ -19,5 +19,9 @@ setup(
         'numpy',
         'scipy',
         'sharedmem',
+        'beautifultable',
+        'lrsplines',
+        'matplotlib',
+        'tqdm',
     ],
 )
