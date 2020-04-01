@@ -76,8 +76,6 @@ def _stokes_matrix(case, mu, div=True, **kwargs):
 
 
 def _stokes_rhs(case, mu, **kwargs):
-    # lift = case['lift'](mu)
-    # rhs = - case['divergence'](mu, lift=0) - case['laplacian'](mu, lift=1)
     rhs = - case['divergence'](mu, cont=('lift', None)) - case['laplacian'](mu, cont=(None, 'lift'))
     if 'forcing' in case:
         rhs += case['forcing'](mu)
@@ -249,19 +247,21 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
 
     # Assumption: divergence of lift is zero
     stokes_rhs = np.zeros((case.ndofs,))
-    stokes_rhs[V] -= case['laplacian-vv'](mu, lift=1)
-    stokes_rhs[S] -= case['laplacian-sv'](mu, lift=1)
+    stokes_rhs[V] -= case['laplacian-vv'](mu, cont=(None, 'lift'))
+    stokes_rhs[S] -= case['laplacian-sv'](mu, cont=(None, 'lift'))
 
     mvv = case['laplacian-vv'](mu)
     msv = case['laplacian-sv'](mu)
     msp = case['divergence-sp'](mu)
     lhs = blocksolve_velocity(mvv, stokes_rhs, V)
 
-    mvv += case['convection-vvv'](mu, lift=1) + case['convection-vvv'](mu, lift=2)
-    msv += case['convection-svv'](mu, lift=1) + case['convection-svv'](mu, lift=2)
+    mvv += (case['convection-vvv'](mu, cont=(None, 'lift', None)) +
+            case['convection-vvv'](mu, cont=(None, None, 'lift')))
+    msv += (case['convection-svv'](mu, cont=(None, 'lift', None)) +
+            case['convection-svv'](mu, cont=(None, None, 'lift')))
 
-    stokes_rhs[V] -= case['convection-vvv'](mu, lift=(1,2))
-    stokes_rhs[S] -= case['convection-svv'](mu, lift=(1,2))
+    stokes_rhs[V] -= case['convection-vvv'](mu, cont=(None, 'lift', 'lift'))
+    stokes_rhs[S] -= case['convection-svv'](mu, cont=(None, 'lift', 'lift'))
 
     vmass = case['v-h1s'](mu)
 
@@ -271,7 +271,7 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
 
         rhs = stokes_rhs.copy()
         rhs[V] -= mvv @ lhs[V]
-        rhs[V] -= case['convection-vvv'](mu, cont=(None,lhs[V],lhs[V]))
+        rhs[V] -= case['convection-vvv'](mu, cont=(None, lhs[V], lhs[V]))
 
         update = blocksolve_velocity(nvv, rhs, V)
         lhs += update
@@ -287,7 +287,7 @@ def navierstokes_block(case, mu, newton_tol=1e-10, maxit=10):
     rhs = stokes_rhs.copy()
     rhs[S] -= msv @ lhs[V]
     rhs[S] -= msp @ lhs[P]
-    rhs[S] -= case['convection-svv'](mu, cont=(None,lhs[V],lhs[V]))
+    rhs[S] -= case['convection-svv'](mu, cont=(None, lhs[V], lhs[V]))
     update = blocksolve_pressure(msp, rhs, S, P)
     lhs += update
 
