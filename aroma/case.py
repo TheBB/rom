@@ -220,11 +220,6 @@ class Integrals(OrderedDict):
 
         return str(table)
 
-    def __getitem__(self, key):
-        if key not in self:
-            self[key] = AffineIntegral()
-        return super().__getitem__(key)
-
     def verify(self):
         for value in self.values():
             value.verify()
