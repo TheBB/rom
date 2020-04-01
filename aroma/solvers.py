@@ -335,7 +335,14 @@ def elasticity(case, mu):
     return lhs
 
 
-# Assumes nutils
+def poisson(case, mu):
+    matrix = case['laplacian'](mu)
+    rhs = case['forcing'](mu) - case['laplacian'](mu, cont=(None, 'lift'))
+    conses = case.constraints
+    return solve(matrix, rhs, conses)
+
+
+# TODO: Assumes nutils
 def error(case, mu, field, lhs, norm='l2'):
     exact = case.exact(mu, field)
     numeric = case.basis(field, mu).dot(lhs)
