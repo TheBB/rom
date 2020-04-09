@@ -78,7 +78,7 @@ def mk_mesh(nelems, radius, fname='NACA0015', cylrot=0.0):
 def mk_bases(case, piola):
     if piola:
         mu = case.parameter()
-        J = case['geometry'](mu).grad(case.refgeom)
+        J = case.geometry(mu).grad(case.refgeom)
         detJ = fn.determinant(J)
         bases = [
             case.domain.basis('spline', degree=(3,2))[:,_] * J[:,0] / detJ,
@@ -153,8 +153,7 @@ class airfoil(NutilsCase):
             domain, refgeom, geom = mk_mesh(nelems, rmax, fname=fname, cylrot=cylrot)
         else:
             domain, refgeom, geom = mesh
-        NutilsCase.__init__(self, 'Flow around airfoil', domain, geom)
-        self.refgeom = refgeom
+        NutilsCase.__init__(self, 'Flow around airfoil', domain, geom, refgeom)
 
         ANG = self.parameters.add('angle', -np.pi*amax/180, np.pi*amax/180, default=0.0)
         V = self.parameters.add('velocity', 1.0, 20.0, default=1.0)
@@ -175,7 +174,8 @@ class airfoil(NutilsCase):
         self['p-l2'] = ntl.Mass(nfuncs, 'p', 'angle')
 
         if piola:
-            self['v-trf'] = ntl.PiolaTransform(2, 'angle')
+            self['v-trf'] = ntl.PiolaVectorTransform(2, 'angle')
+            self['p-trf'] = ntl.PiolaScalarTransform('angle')
 
         liftvec = mk_lift(self)
         self['lift'] = MuConstant(liftvec, scale=V)

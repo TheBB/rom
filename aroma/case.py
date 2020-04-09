@@ -366,9 +366,7 @@ class Case:
         for name, value in self.integrals.items():
             with log.context(name):
                 value = value.cache_main(force=force, **kwargs)
-                for scale, lift in self.lift:
-                    value.contract_lift(scale, lift)
-                value.cache_lifts(force=force, **kwargs)
+                value.cache_lift(self.integrals['lift'], force=force, **kwargs)
                 new.append((name, value))
         for name, value in new:
             self.integrals[name] = value
@@ -376,6 +374,14 @@ class Case:
     def ensure_shareable(self):
         for value in self.integrals.values():
             value.ensure_shareable()
+
+    def lift(self, mu):
+        return self['lift'](mu)
+
+    def geometry(self, mu=None):
+        if mu is None:
+            mu = self.parameter()
+        return self['geometry'](mu)
 
 
 class HifiCase(Case):
@@ -413,11 +419,12 @@ class NutilsCase(HifiCase):
 
     _ident_ = 'NutilsCase'
 
-    def __init__(self, name, domain, geometry, ischeme='gauss9', vscheme='bezier3'):
+    def __init__(self, name, domain, geometry, refgeom, ischeme='gauss9', vscheme='bezier3'):
         super().__init__(name)
         self.meta['ischeme'] = ischeme
         self.meta['vscheme'] = vscheme
         self.domain = domain
+        self.refgeom = refgeom
 
         # For two-dimensional geometries we pre-compute triangulation and meshlines
         if geometry.shape == (2,):
@@ -431,12 +438,14 @@ class NutilsCase(HifiCase):
     def write(self, group, sparse=False):
         super().write(group, sparse)
         util.to_dataset(self.domain, group, 'domain')
+        util.to_dataset(self.refgeom, group, 'refgeom')
         if hasattr(self, '_exact_solutions'):
             util.to_dataset(self._exact_solutions, group, 'exact_solutions')
 
     def _read(self, group, sparse):
         super()._read(group, sparse)
         self.domain = util.from_dataset(group['domain'])
+        self.refgeom = util.from_dataset(group['refgeom'])
         if 'exact_solutions' in group.keys():
             self._exact_solutions = util.from_dataset(group['exact_solutions'])
 
@@ -467,7 +476,10 @@ class NutilsCase(HifiCase):
         func = super().basis(name, mu=mu)
         if f'{name}-trf' in self and mu is not None:
             J = self[f'{name}-trf'](mu)
-            func = fn.matmat(func, J.transpose())
+            if J.ndim == 0:
+                func = func * J
+            else:
+                func = fn.matmat(func, J.transpose())
         return func
 
     def constrain(self, basisname, *boundaries, component=None):
