@@ -137,7 +137,7 @@ class NSConvection(MuCallable):
             return unwrap(case.domain.integrate(itg * fn.J(geom), ischeme='gauss9'))
 
 
-class PiolaTransform(MuCallable):
+class PiolaVectorTransform(MuCallable):
 
     _ident_ = 'PiolaTransform'
 
@@ -146,9 +146,25 @@ class PiolaTransform(MuCallable):
 
     def evaluate(self, case, mu, cont):
         assert all(c is None for c in cont)
-        refgeom = case['geometry'](case.parameter())
-        trfgeom = case['geometry'](mu)
-        return trfgeom.grad(refgeom)
+        refgeom = case.geometry()
+        trfgeom = case.geometry(mu)
+        J = trfgeom.grad(refgeom)
+        return trfgeom.grad(refgeom) / fn.determinant(J)
+
+
+class PiolaScalarTransform(MuCallable):
+
+    _ident_ = 'PiolaScalarTransform'
+
+    def __init__(self, n, *deps):
+        super().__init__((n, n), deps)
+
+    def evaluate(self, case, mu, cont):
+        assert all(c is None for c in cont)
+        refgeom = case.geometry()
+        trfgeom = case.geometry(mu)
+        J = trfgeom.grad(refgeom)
+        return 1 / fn.determinant(J)
 
 
 class MaybeScipyBackend(matrix.Scipy):

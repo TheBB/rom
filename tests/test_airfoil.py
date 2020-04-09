@@ -15,7 +15,7 @@ def mk_case(override):
         (1 + 10 * r) * fn.cos(ang),
         (1 + 10 * r) * fn.sin(ang),
     ))
-    case = cases.airfoil(mesh=(domain, refgeom, geom), lift=False, amax=10, rmax=10)
+    case = cases.airfoil(mesh=(domain, refgeom, geom), lift=False, amax=10, rmax=10, piola=True)
     case.precompute(force=override)
     return case
 
@@ -36,7 +36,7 @@ def mu():
 
 def piola_bases(mu, case):
     trfgeom = case.geometry(mu)
-    refgeom = case._refgeom
+    refgeom = case.refgeom
 
     J = trfgeom.grad(refgeom)
     detJ = fn.determinant(J)
@@ -53,22 +53,22 @@ def piola_bases(mu, case):
 def test_bases(mu, case):
     domain, vbasis, pbasis = case.domain, case.basis('v'), case.basis('p')
     trfgeom = case.geometry(mu)
-    refgeom = case._refgeom
+    refgeom = case.refgeom
 
     a_vbasis, a_pbasis = piola_bases(mu, case)
 
-    J = trfgeom.grad(case.refgeom)
+    J = trfgeom.grad(case.geometry())
     detJ = fn.determinant(J)
     b_vbasis = fn.matmat(vbasis, J.transpose()) / detJ
     b_pbasis = pbasis / detJ
 
-    Z = case.geometry(mu).grad(case.refgeom)
+    Z = case.geometry(mu).grad(case.geometry())
     detZ = fn.determinant(Z)
     zdiff = np.sqrt(domain.integrate((Z - J)**2 * fn.J(refgeom), ischeme='gauss9').export('dense'))
     np.testing.assert_almost_equal(zdiff, 0.0)
 
     c_vbasis = fn.matmat(vbasis, Z.transpose()) / detZ
-    c_pbasis = pbasis / detZ
+    c_pbasis = pbasis
 
     pdiff = np.sqrt(domain.integrate((a_pbasis - b_pbasis)**2 * fn.J(refgeom), ischeme='gauss9'))
     np.testing.assert_almost_equal(pdiff, 0.0)
@@ -126,5 +126,5 @@ def test_convection(mu, case):
     itg = (w[:,_] * u[_,:] * v[:,:]).sum([-1, -2])
     phys_conv = case.domain.integrate(itg * fn.J(trfgeom), ischeme='gauss9')
 
-    test_conv, = affine.integrate(case['convection'](mu, cont=(a,b,c), case=case))
+    test_conv, = affine.integrate(case['convection'](mu, cont=(a,b,c)))
     np.testing.assert_almost_equal(phys_conv, test_conv)

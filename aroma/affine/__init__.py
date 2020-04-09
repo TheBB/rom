@@ -173,6 +173,12 @@ class MuFunc:
     def ensure_shareable(self):
         pass
 
+    def cache_main(self, **kwargs):
+        return self
+
+    def cache_lift(self, lift, **kwargs):
+        pass
+
 
 class MuCallable(MuFunc):
 
