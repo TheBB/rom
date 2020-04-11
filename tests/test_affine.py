@@ -3,6 +3,7 @@ from nutils import mesh, function as fn, _
 import pytest
 
 from aroma.affine import mu, COOTensorIntegrand, Affine, AffineIntegral
+import aroma.affine.integrands.nutils
 
 
 def test_add_ar():
