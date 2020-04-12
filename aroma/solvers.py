@@ -57,6 +57,10 @@ def solve(mx, rhs, cons, solver='spsolve', **kwargs):
         mx = matrix.MKLMatrix(mx.data, np.array([mx.row, mx.col]), mx.shape)
         return mx.solve(rhs, constrain=cons, **kwargs)
 
+    elif isinstance(mx, np.matrix):
+        mx = matrix.NumpyMatrix(np.array(mx))
+        return mx.solve(rhs, constrain=cons, **kwargs)
+
     elif isinstance(mx, np.ndarray):
         mx = matrix.NumpyMatrix(mx)
         return mx.solve(rhs, constrain=cons, **kwargs)

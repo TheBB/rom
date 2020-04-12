@@ -42,6 +42,7 @@ from nutils import mesh, function as fn, _
 
 from aroma.util import collocate, multiple_to_single
 from aroma.case import NutilsCase
+from aroma.affine import AffineIntegral, Affine
 
 
 class cavity(NutilsCase):
@@ -53,7 +54,7 @@ class cavity(NutilsCase):
         pts = np.linspace(0, 1, nel + 1)
         domain, geom = mesh.rectilinear([pts, pts])
 
-        NutilsCase.__init__(self, 'Cavity flow', domain, geom)
+        NutilsCase.__init__(self, 'Cavity flow', domain, geom, geom)
 
         bases = [
             domain.basis('spline', degree=(degree, degree-1)),  # vx
@@ -72,7 +73,8 @@ class cavity(NutilsCase):
 
         self.constrain('v', 'left', 'top', 'bottom', 'right')
 
-        self.lift += 1, np.zeros(vbasis.shape[0])
+        self.integrals['lift'] = Affine(1, np.zeros(vbasis.shape[0]))
+        self.integrals['geometry'] = Affine(1, geom)
 
         x, y = geom
         f = 4 * (x - x**2)**2
@@ -87,22 +89,19 @@ class cavity(NutilsCase):
 
         self._exact_solutions = {'v': velocity, 'p': pressure}
 
-        self['forcing'] += 1, (vbasis * force[_,:]).sum(-1)
-        self['divergence'] -= 1, fn.outer(vbasis.div(geom), pbasis)
-        self['laplacian'] += 1, fn.outer(vbasis.grad(geom)).sum((-1, -2))
-        self['v-h1s'] += 1, fn.outer(vbasis.grad(geom)).sum([-1, -2])
-        self['p-l2'] += 1, fn.outer(pbasis)
-        self['divergence'].freeze(lift=(1,))
+        self.integrals['forcing'] = AffineIntegral(1, (vbasis * force[_,:]).sum(-1))
+        self.integrals['divergence'] = AffineIntegral(-1, fn.outer(vbasis.div(geom), pbasis))
+        self.integrals['laplacian'] = AffineIntegral(1, fn.outer(vbasis.grad(geom)).sum((-1, -2)))
+        self.integrals['v-h1s'] = AffineIntegral(1, fn.outer(vbasis.grad(geom)).sum([-1, -2]))
+        self.integrals['p-l2'] = AffineIntegral(1, fn.outer(pbasis))
 
         root = self.ndofs - self.extra_dofs
 
         points = [(0, (0, 0)), (nel-1, (0, 1)), (nel*(nel-1), (1, 0)), (nel**2-1, (1, 1))]
         eqn = (pbasis.grad(geom) - vbasis.laplace(geom))[:,0,_]
         colloc = collocate(domain, eqn, points, root+1, self.ndofs)
-        self['stab-lhs'] += 1, colloc
-        self['stab-lhs'] += 1, fn.outer(lbasis, pbasis)
-
-        self['stab-rhs'] += 1, collocate(domain, force[0,_], points, root+1, self.ndofs)
+        self.integrals['stab-lhs'] = AffineIntegral(1, colloc, 1, fn.outer(lbasis, pbasis))
+        self.integrals['stab-rhs'] = AffineIntegral(1, collocate(domain, force[0,_], points, root+1, self.ndofs))
 
     @multiple_to_single('field')
     def exact(self, mu, field):
