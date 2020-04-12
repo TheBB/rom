@@ -42,7 +42,8 @@ from nutils import mesh, function as fn, _
 
 from aroma.util import collocate, multiple_to_single
 from aroma.case import NutilsCase
-from aroma.affine import NutilsDelayedIntegrand
+from aroma.affine import Affine, AffineIntegral
+from aroma.affine.integrands.nutils import NutilsDelayedIntegrand
 
 
 class channel(NutilsCase):
@@ -55,7 +56,7 @@ class channel(NutilsCase):
         ypts = np.linspace(0, 1, nel + 1)
         domain, geom = mesh.rectilinear([xpts, ypts])
 
-        NutilsCase.__init__(self, 'Channel flow', domain, geom)
+        NutilsCase.__init__(self, 'Channel flow', domain, geom, geom)
         bases = [
             domain.basis('spline', degree=(degree, degree-1)),  # vx
             domain.basis('spline', degree=(degree-1, degree)),  # vy
@@ -74,23 +75,25 @@ class channel(NutilsCase):
 
         x, y = geom
         profile = (y * (1 - y))[_] * (1, 0)
-        self.lift += 1, self.project_lift(profile, 'v')
+        self.integrals['lift'] = Affine(1, self.project_lift(profile, 'v'))
+        self.integrals['geometry'] = Affine(1, geom)
 
         self._exact_solutions = {'v': profile, 'p': 4 - 2*x}
 
-        self['divergence'] -= 1, fn.outer(vbasis.div(geom), pbasis)
-        self['laplacian'] += 1, fn.outer(vbasis.grad(geom)).sum((-1, -2))
-        self['v-h1s'] += 1, fn.outer(vbasis.grad(geom)).sum([-1, -2])
-        self['p-l2'] += 1, fn.outer(pbasis)
-        self['convection'] += 1, NutilsDelayedIntegrand(
+        self.integrals['divergence'] = AffineIntegral(-1, fn.outer(vbasis.div(geom), pbasis))
+        self.integrals['laplacian'] = AffineIntegral(1, fn.outer(vbasis.grad(geom)).sum((-1, -2)))
+        self.integrals['v-h1s'] = AffineIntegral(1, fn.outer(vbasis.grad(geom)).sum([-1, -2]))
+        self.integrals['p-l2'] = AffineIntegral(1, fn.outer(pbasis))
+        self.integrals['convection'] = AffineIntegral(1, NutilsDelayedIntegrand(
             'w_ia u_jb v_ka,b', 'ijk', 'wuv',
             x=geom, w=vbasis, u=vbasis, v=vbasis
-        )
-        self['divergence'].freeze(lift=(1,))
+        ))
 
         points = [(0, (0,0)), (nel-1, (0,1))]
         eqn = (vbasis.laplace(geom) - pbasis.grad(geom))[:,0,_]
-        self['stab-lhs'] += 1, collocate(domain, eqn, points, self.ndofs - self.extra_dofs, self.ndofs)
+        self.integrals['stab-lhs'] = AffineIntegral(
+            1, collocate(domain, eqn, points, self.ndofs - self.extra_dofs, self.ndofs)
+        )
 
     @multiple_to_single('field')
     def exact(self, mu, field):

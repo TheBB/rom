@@ -80,7 +80,8 @@ class Reducer:
             with log.context(name):
                 log.user(name)
                 if name not in self.overrides or self.overrides[name].soft:
-                    rcase[name] = case.integrals[name].project(case, total_proj, **kwargs)
+                    proj = tuple(total_proj for _ in range(case.integrals[name].ndim))
+                    rcase[name] = case.integrals[name].project(case, proj, **kwargs)
 
                 if name in self.overrides:
                     for comb in self.overrides[name].combinations:

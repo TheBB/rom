@@ -71,6 +71,16 @@ class mu:
     def op2(self):
         return self.operands[1]
 
+    @property
+    def deps(self):
+        subdeps = set()
+        for op in self.operands:
+            subdeps |= op.deps
+        if self.oper in {'+', '-', '*', '/', '**'} or self.oper in _mufuncs or not isinstance(self.oper, str):
+            return subdeps
+        subdeps.add(self.oper)
+        return subdeps
+
     def __str__(self):
         opers = ', '.join(str(op) for op in self.operands)
         return f"mu({repr(self.oper)}, {opers})"
@@ -367,9 +377,49 @@ class MuConstant(MuObject):
         return self.obj
 
 
-class Affine(list, MuFunc):
+def _broadcast(args):
+    shapes = [arg.shape for arg in args]
+    max_ndim = max(len(shape) for shape in shapes)
+    shapes = np.array([(1,) * (max_ndim - len(shape)) + shape for shape in shapes])
+
+    result = []
+    for col in shapes.T:
+        lengths = set(c for c in col if c != 1)
+        assert len(lengths) <= 1
+        if not lengths:
+            result.append(1)
+        else:
+            result.append(next(iter(lengths)))
+
+    return tuple(result)
+
+
+class Affine(list, MuCallable):
 
     _ident_ = 'Affine'
+
+    def __init__(self, *args, scale=1):
+        if len(args) == 1:
+            terms = args[0]
+        else:
+            terms = []
+            while args:
+                a, b, *args = args
+                a, b = self.convert(a, b)
+                terms.append((a, b))
+        list.__init__(self)
+        self.extend(terms)
+
+        shape = _broadcast(self.values)
+        deps = set()
+        for (s, _) in self:
+            deps |= s.deps
+        MuCallable.__init__(self, shape, tuple(sorted(deps)), scale=scale)
+
+    def convert(self, scale, value):
+        if not isinstance(scale, mu):
+            scale = mu(scale)
+        return scale, value
 
     @property
     def scales(self):
@@ -389,26 +439,31 @@ class Affine(list, MuFunc):
     def values(self, new_values):
         self[:] = [(s, v) for v, (s, _) in zip(new_values, self)]
 
-    def __str__(self):
-        scales = [str(s) for s in self.scales]
-        return f'{self.__class__.__name__}(nterms={len(self.scales)}, scales={scales})'
+    # def __str__(self):
+    #     scales = [str(s) for s in self.scales]
+    #     return f'{self.__class__.__name__}(nterms={len(self.scales)}, scales={scales})'
 
-    def __call__(self, pval):
+    def evaluate(self, case, pval, cont):
+        assert all(c is None for c in cont)
         return sum(scale(pval) * value for scale, value in self)
 
-    def __iadd__(self, other):
-        scale, value = other
-        if not isinstance(scale, mu):
-            scale = mu(scale)
-        self.append((scale, value))
-        return self
+    # def __iadd__(self, other):
+    #     scale, value = other
+    #     if not isinstance(scale, mu):
+    #         scale = mu(scale)
+    #     if not isinstance(value, Integrand):
+    #         value = Integrand.make(value)
+    #     self.append((scale, value))
+    #     return self
 
-    def __isub__(self, other):
-        scale, value = other
-        if not isinstance(scale, mu):
-            scale = mu(scale)
-        self.append((-scale, value))
-        return self
+    # def __isub__(self, other):
+    #     scale, value = other
+    #     if not isinstance(scale, mu):
+    #         scale = mu(scale)
+    #     if not isinstance(value, Integrand):
+    #         value = Integrand.make(value)
+    #     self.append((-scale, value))
+    #     return self
 
     def __mul__(self, other):
         if not isinstance(other, mu):
@@ -420,132 +475,102 @@ class Affine(list, MuFunc):
             return NotImplemented
         return self.__class__((scale / other, value) for scale, value in self)
 
-    def assert_isinstance(self, *types):
-        assert all(isinstance(value, types) for value in self.values)
+    # def assert_isinstance(self, *types):
+    #     assert all(isinstance(value, types) for value in self.values)
 
-    def write(self, group):
-        super().write(group)
-        for i, (scale, value) in enumerate(self):
-            dataset = util.to_dataset(value, group, str(i))
-            dataset.attrs['scale'] = str(scale)
+    # def write(self, group):
+    #     super().write(group)
+    #     for i, (scale, value) in enumerate(self):
+    #         dataset = util.to_dataset(value, group, str(i))
+    #         dataset.attrs['scale'] = str(scale)
 
-    def _read(self, group):
-        super()._read(group)
+    # def _read(self, group):
+    #     super()._read(group)
 
-        nterms = 0
-        for i in count():
-            if str(i) in group:
-                nterms += 1
-            else:
-                break
+    #     nterms = 0
+    #     for i in count():
+    #         if str(i) in group:
+    #             nterms += 1
+    #         else:
+    #             break
 
-        groups = [group[str(i)] for i in range(nterms)]
-        scales = [eval(grp.attrs['scale'], {}, {'mu': mu}) for grp in groups]
-        values = [util.from_dataset(grp) for grp in groups]
-        self[:] = zip(scales, values)
-
-
-def _broadcast(args):
-    shapes = [arg.shape for arg in args]
-    max_ndim = max(len(shape) for shape in shapes)
-    shapes = np.array([(1,) * (max_ndim - len(shape)) + shape for shape in shapes])
-
-    result = []
-    for col in shapes.T:
-        lengths = set(c for c in col if c != 1)
-        assert len(lengths) <= 1
-        if not lengths:
-            result.append(1)
-        else:
-            result.append(next(iter(lengths)))
-
-    return tuple(result)
+        # groups = [group[str(i)] for i in range(nterms)]
+        # scales = [eval(grp.attrs['scale'], {}, {'mu': mu}) for grp in groups]
+        # values = [util.from_dataset(grp) for grp in groups]
+        # self[:] = zip(scales, values)
 
 
 class AffineIntegral(Affine):
 
+    _ident_ = 'AffineIntegral'
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._properties = {}
-        self._freeze_proj = set()
-        self._freeze_lift = {0}
-        self._lift = {}
         self.fallback = None
+
+    def convert(self, scale, value):
+        scale, value = super().convert(scale, value)
+        if not isinstance(value, Integrand):
+            value = Integrand.make(value)
+        return scale, value
 
     @property
     def optimized(self):
         return all(itg.optimized for itg in self.values)
 
-    @property
-    def ndim(self):
-        return len(self.shape)
-
-    @property
-    def shape(self):
-        return _broadcast(self.values)
-
-    def __iadd__(self, other):
-        scale, value = other
-        value = Integrand.make(value)
-        return super().__iadd__((scale, value))
-
-    def __isub__(self, other):
-        scale, value = other
-        value = Integrand.make(value)
-        return super().__isub__((scale, value))
-
-    def __call__(self, pval, lift=None, cont=None, sym=False, case=None):
-        if isinstance(lift, int):
-            lift = (lift,)
-        if lift is not None:
-            return self._lift[frozenset(lift)](pval)
-        if cont is None:
-            cont = (None,) * self.ndim
-        if self.fallback:
-            return self.fallback.get(cont, mu=pval, case=case)
+    def evaluate(self, case, pval, cont):
+        # if self.fallback:
+        #     return self.fallback.get(cont, mu=pval, case=case)
         retval = sum(scale(pval) * value.get(cont) for scale, value in self)
-        if sym:
-            retval = retval + retval.T
+        retval, = integrands.integrate(retval)
         return retval
+
+    # def __call__(self, pval, lift=None, cont=None, sym=False, case=None):
+    #     if isinstance(lift, int):
+    #         lift = (lift,)
+    #     if lift is not None:
+    #         return self._lift[frozenset(lift)](pval)
+    #     if cont is None:
+    #         cont = (None,) * self.ndim
+    #     if self.fallback:
+    #         return self.fallback.get(cont, mu=pval, case=case)
+    #     retval = sum(scale(pval) * value.get(cont) for scale, value in self)
+    #     if sym:
+    #         retval = retval + retval.T
+    #     return retval
 
     def write(self, group, lifts=True):
         super().write(group)
-        # if self.fallback:
-        #     self.fallback.write(group.require_group('fallback'))
-        # terms = group.require_group('terms')
-        # for i, (scale, value) in enumerate(self):
-        #     dataset = value.write(terms, str(i))
-        #     dataset.attrs['scale'] = str(scale)
-        if not lifts:
-            return
-        lifts = group.require_group('lifts')
-        for axes, sub_rep in self._lift.items():
-            name = ','.join(str(s) for s in sorted(axes))
-            target = lifts.require_group(name)
-            sub_rep.write(target, lifts=False)
-
-    # @staticmethod
-    # def _read(group):
-    #     groups = [group[str(i)] for i in range(len(group))]
-    #     scales = [eval(grp.attrs['scale'], {}, {'mu': mu}) for grp in groups]
-    #     values = [Integrand.read(grp) for grp in groups]
-    #     return AffineIntegral(zip(scales, values))
+        if self.fallback:
+            self.fallback.write(group.require_group('fallback'))
+        terms = group.require_group('terms')
+        for i, (scale, value) in enumerate(self):
+            dataset = value.write(terms, str(i))
+            dataset.attrs['scale'] = str(scale)
+        # if not lifts:
+        #     return
+        # lifts = group.require_group('lifts')
+        # for axes, sub_rep in self._lift.items():
+        #     name = ','.join(str(s) for s in sorted(axes))
+        #     target = lifts.require_group(name)
+        #     sub_rep.write(target, lifts=False)
 
     def _read(self, group):
         super()._read(group)
-        lifts = {}
-        for axes, grp in group['lifts'].items():
-            axes = frozenset(int(i) for i in axes.split(','))
-            sub = AffineIntegral._read(grp['terms'])
-            lifts[axes] = sub
-        retval._lift = lifts
+        termgrp = group['terms']
+        groups = [termgrp[str(i)] for i in range(len(termgrp))]
+        scales = [eval(grp.attrs['scale'], {}, {'mu': mu}) for grp in groups]
+        values = [Integrand.read(grp) for grp in groups]
+        self[:] = zip(scales, values)
+
+        if 'fallback' in group:
+            self.fallback = Integrand.read(group['fallback'])
+        else:
+            self.fallback = None
 
     def verify(self):
         _broadcast(self.values)
-
-    def freeze(self, proj=(), lift=()):
-        self._freeze_proj = set(proj)
-        self._freeze_lift = set(lift)
 
     def prop(self, **kwargs):
         for key, val in kwargs.items():
@@ -561,64 +586,59 @@ class AffineIntegral(Affine):
             self.fallback = None
         return self
 
-    def cache_lifts(self, **kwargs):
-        self._lift = {
-            key: sub.cache_main(**kwargs)
-            for key, sub in log.iter('axes', list(self._lift.items()))
-        }
+    # def cache_lifts(self, **kwargs):
+    #     self._lift = {
+    #         key: sub.cache_main(**kwargs)
+    #         for key, sub in log.iter('axes', list(self._lift.items()))
+    #     }
 
     def ensure_shareable(self):
         for value in self.values:
             value.ensure_shareable()
 
-    def contract_lift(self, scale, lift):
-        if self.ndim == 1:
-            return
+    # def contract_lift(self, scale, lift):
+    #     if self.ndim == 1:
+    #         return
 
-        free_axes = [i for i in range(self.ndim) if i not in self._freeze_lift]
-        axes_combs = list(map(frozenset, chain.from_iterable(
-            combinations(free_axes, naxes+1)
-            for naxes in range(len(free_axes))
-        )))
+    #     free_axes = [i for i in range(self.ndim) if i not in self._freeze_lift]
+    #     axes_combs = list(map(frozenset, chain.from_iterable(
+    #         combinations(free_axes, naxes+1)
+    #         for naxes in range(len(free_axes))
+    #     )))
 
-        if not self._lift:
-            for axes in axes_combs:
-                sub_rep = AffineIntegral()
-                sub_rep.prop(**self._properties)
-                remaining_axes = [ax for ax in range(self.ndim) if ax not in axes]
-                frozen_axes = [i for i, ax in enumerate(remaining_axes) if ax in self._freeze_proj]
-                sub_rep.freeze(proj=frozen_axes)
-                self._lift[axes] = sub_rep
+    #     if not self._lift:
+    #         for axes in axes_combs:
+    #             sub_rep = AffineIntegral()
+    #             sub_rep.prop(**self._properties)
+    #             remaining_axes = [ax for ax in range(self.ndim) if ax not in axes]
+    #             frozen_axes = [i for i, ax in enumerate(remaining_axes) if ax in self._freeze_proj]
+    #             sub_rep.freeze(proj=frozen_axes)
+    #             self._lift[axes] = sub_rep
 
-        for axes in log.iter('axes', axes_combs):
-            contraction = [None] * self.ndim
-            for ax in axes:
-                contraction[ax] = lift
-            sub_rep = self._lift[axes]
-            new_scales = [scl * scale**len(axes) for scl in self.scales]
-            new_values = [itg.contract(contraction) for itg in self.values]
-            sub_rep.extend(zip(new_scales, new_values))
+    #     for axes in log.iter('axes', axes_combs):
+    #         contraction = [None] * self.ndim
+    #         for ax in axes:
+    #             contraction[ax] = lift
+    #         sub_rep = self._lift[axes]
+    #         new_scales = [scl * scale**len(axes) for scl in self.scales]
+    #         new_values = [itg.contract(contraction) for itg in self.values]
+    #         sub_rep.extend(zip(new_scales, new_values))
 
-    @staticmethod
-    def _expand(items, frozen, ndim):
-        ret = list(items)
-        for i in sorted(frozen):
-            ret.insert(i, None)
-        assert len(ret) == ndim
-        return tuple(ret)
+    # @staticmethod
+    # def _expand(items, frozen, ndim):
+    #     ret = list(items)
+    #     for i in sorted(frozen):
+    #         ret.insert(i, None)
+    #     assert len(ret) == ndim
+    #     return tuple(ret)
 
-    def project(self, proj):
-        if not isinstance(proj, (tuple, list)):
-            proj = (proj,) * (self.ndim - len(self._freeze_proj))
-        assert len(proj) == self.ndim - len(self._freeze_proj)
-        proj = AffineIntegral._expand(proj, self._freeze_proj, self.ndim)
-
+    def project(self, case, proj):
         new_values = [itg.project(proj) for itg in log.iter('term', list(self.values))]
         new = AffineIntegral(zip(self.scales, new_values))
 
-        for axes, rep in log.iter('axes', list(self._lift.items())):
+        for axes, rep in log.iter('axes', list(self.lifts.items())):
             remaining_axes = [i for i in range(self.ndim) if i not in axes]
             _proj = [proj[i] for i in remaining_axes if proj[i] is not None]
-            new._lift[axes] = rep.project(_proj)
+            new.lifts[axes] = rep.project(_proj)
 
         return new

@@ -30,11 +30,11 @@ def test_divergence_matrix(case, mu):
     domain, vbasis, pbasis = case.domain, case.bases['v'].obj, case.bases['p'].obj
     geom = case.geometry(mu)
 
-    itg = - fn.outer(vbasis.div(geom), pbasis)
-    phys_mx = domain.integrate(itg * fn.J(geom), ischeme='gauss9')
+    itg = -fn.outer(vbasis.div(geom), pbasis)
+    phys_mx = domain.integrate(itg * fn.J(geom), ischeme='gauss9').export('dense')
+    test_mx = case['divergence'](mu).toarray()
 
-    test_mx = case['divergence'](mu)
-    np.testing.assert_almost_equal(phys_mx.export('dense'), test_mx.toarray())
+    np.testing.assert_almost_equal(phys_mx, test_mx)
 
 
 def test_laplacian_matrix(case, mu):
@@ -42,10 +42,10 @@ def test_laplacian_matrix(case, mu):
     geom = case.geometry(mu)
 
     itg = fn.outer(vbasis.grad(geom)).sum([-1, -2]) / mu['viscosity']
-    phys_mx = domain.integrate(itg * fn.J(geom), ischeme='gauss9')
+    phys_mx = domain.integrate(itg * fn.J(geom), ischeme='gauss9').export('dense')
+    test_mx = case['laplacian'](mu).toarray()
 
-    test_mx = case['laplacian'](mu)
-    np.testing.assert_almost_equal(phys_mx.export('dense'), test_mx.toarray())
+    np.testing.assert_almost_equal(phys_mx, test_mx)
 
 
 def test_masses(case, mu):
@@ -88,9 +88,9 @@ def test_convection(case, mu):
     vfunc = case.bases['v'].obj.dot(lhs)
 
     cmx, = affine.integrate(case['convection'](mu))
-    cmx1 = case['convection'](mu, lift=1).toarray()
-    cmx2 = case['convection'](mu, lift=2).toarray()
-    cmx12 = case['convection'](mu, lift=(1,2))
+    cmx1 = case['convection'](mu, cont=(None, 'lift', None)).toarray()
+    cmx2 = case['convection'](mu, cont=(None, None, 'lift')).toarray()
+    cmx12 = case['convection'](mu, cont=(None, 'lift', 'lift'))
 
     # c(up, up, v)
     convfunc = (vfunc[_,:] * vfunc.grad(geom)).sum(-1)
@@ -150,18 +150,18 @@ def test_lift(case, mu):
     lift = case.lift(mu)
 
     dmx = case['divergence'](mu)
-    np.testing.assert_almost_equal(dmx.T.dot(lift), case['divergence'](mu, lift=0))
+    np.testing.assert_almost_equal(dmx.T.dot(lift), case['divergence'](mu, cont=('lift', None)))
 
     lmx = case['laplacian'](mu)
-    np.testing.assert_almost_equal(lmx.dot(lift), case['laplacian'](mu, lift=1))
+    np.testing.assert_almost_equal(lmx.dot(lift), case['laplacian'](mu, cont=(None, 'lift')))
 
     cmx, = affine.integrate(case['convection'](mu))
     comp = (cmx * lift[_,:,_]).sum(1)
-    np.testing.assert_almost_equal(comp, case['convection'](mu, lift=1).toarray())
+    np.testing.assert_almost_equal(comp, case['convection'](mu, cont=(None, 'lift', None)).toarray())
     comp = (cmx * lift[_,_,:]).sum(2)
-    np.testing.assert_almost_equal(comp, case['convection'](mu, lift=2).toarray())
+    np.testing.assert_almost_equal(comp, case['convection'](mu, cont=(None, None, 'lift')).toarray())
     comp = (cmx * lift[_,:,_] * lift[_,_,:]).sum((1, 2))
-    np.testing.assert_almost_equal(comp, case['convection'](mu, lift=(1,2)))
+    np.testing.assert_almost_equal(comp, case['convection'](mu, cont=(None, 'lift', 'lift')))
 
 
 def test_pickle(case, mu):
