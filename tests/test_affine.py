@@ -9,10 +9,10 @@ import aroma.affine.integrands.nutils
 def test_add_ar():
     I = np.array([[1, 0], [0, 1]])
     J = np.ones((3,2,2))
-    obj = Affine([(mu('b'), J), (mu('a'), I)])
-    np.testing.assert_almost_equal(obj({'a': 1.0, 'b': 0.0}), I + 0*J)
-    np.testing.assert_almost_equal(obj({'a': 0.0, 'b': 1.0}), J + 0*I)
-    np.testing.assert_almost_equal(obj({'a': -0.1, 'b': 3.2}), 3.2*J - 0.1*I)
+    obj = Affine(mu('b'), J, mu('a'), I)
+    np.testing.assert_almost_equal(obj(None, {'a': 1.0, 'b': 0.0}), I + 0*J)
+    np.testing.assert_almost_equal(obj(None, {'a': 0.0, 'b': 1.0}), J + 0*I)
+    np.testing.assert_almost_equal(obj(None, {'a': -0.1, 'b': 3.2}), 3.2*J - 0.1*I)
 
 
 def test_cootensor():
@@ -40,10 +40,9 @@ def test_nutils_tensor():
 
     itg = basis[:,_,_] * basis[_,:,_] * basis[_,_,:]
 
-    a = AffineIntegral()
-    a += 1, itg
+    a = AffineIntegral(1, itg)
     a.prop(domain=domain, geometry=geom, ischeme='gauss9')
-    a = a.cache_main(force=True)({})
+    a = a.cache_main(force=True)(None, {})
     b = domain.integrate(itg * fn.J(geom), ischeme='gauss9')
 
     np.testing.assert_almost_equal(a, b)
