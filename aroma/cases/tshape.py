@@ -41,7 +41,8 @@ from nutils import mesh, function as fn, _
 
 from aroma.case import NutilsCase
 from aroma.util import collocate, characteristic
-from aroma.affine import NutilsDelayedIntegrand
+from aroma.affine.integrands.nutils import NutilsDelayedIntegrand
+from aroma.affine import Affine, AffineIntegral
 
 
 class tshape(NutilsCase):
@@ -72,7 +73,7 @@ class tshape(NutilsCase):
             ]
         )
 
-        NutilsCase.__init__(self, 'T-shape channel', domain, geom)
+        NutilsCase.__init__(self, 'T-shape channel', domain, geom, geom)
 
         NU = 1 / self.parameters.add('viscosity', 20, 50)
         H = self.parameters.add('height', 1, 5)
@@ -95,7 +96,7 @@ class tshape(NutilsCase):
 
         x, y = geom
         hy = fn.piecewise(y, (1,2), y-1, 0, y-2)
-        self.geometry += H - 1, fn.asarray((0, hy))
+        self.integrals['geometry'] = Affine(1, geom, H - 1, fn.asarray((0, hy)))
 
         self.constrain(
             'v', 'patch0-bottom', 'patch0-left', 'patch0-right', 'patch1-left',
@@ -106,7 +107,7 @@ class tshape(NutilsCase):
 
         # Lifting function
         profile = fn.max(0, y/3 * (1-y/3) * (1-x))[_] * (1, 0)
-        self.lift += V, self.project_lift(profile, 'v')
+        self.integrals['lift'] = Affine(V, self.project_lift(profile, 'v'))
 
         # Characteristic functions
         cp0, cp1, cp2, cp3 = [characteristic(domain, (i,)) for i in range(4)]
@@ -114,28 +115,37 @@ class tshape(NutilsCase):
         cp13 = cp1 + cp3
 
         # Stokes divergence term
-        self['divergence'] -= H-1, fn.outer(vgrad[:,0,0], pbasis) * cp02
-        self['divergence'] -= 1, fn.outer(vbasis.div(geom), pbasis)
-        self['divergence'].freeze(lift=(1,))
+        self.integrals['divergence'] = AffineIntegral(
+            -(H-1), fn.outer(vgrad[:,0,0], pbasis) * cp02,
+            -1, fn.outer(vbasis.div(geom), pbasis),
+        )
 
         # Stokes laplacian term
-        self['laplacian'] += NU, fn.outer(vgrad).sum([-1,-2]) * cp13
-        self['laplacian'] += NU*H, fn.outer(vgrad[:,:,0]).sum(-1) * cp02
-        self['laplacian'] += NU/H, fn.outer(vgrad[:,:,1]).sum(-1) * cp02
+        self.integrals['laplacian'] = AffineIntegral(
+            NU, fn.outer(vgrad).sum([-1,-2]) * cp13,
+            NU*H, fn.outer(vgrad[:,:,0]).sum(-1) * cp02,
+            NU/H, fn.outer(vgrad[:,:,1]).sum(-1) * cp02,
+        )
 
         # Navier-Stokes convective term
         args = ('ijk', 'wuv')
         kwargs = {'x': geom, 'w': vbasis, 'u': vbasis, 'v': vbasis}
-        self['convection'] += H, NutilsDelayedIntegrand('c w_ia u_j0 v_ka,0', *args, **kwargs, c=cp02)
-        self['convection'] += 1, NutilsDelayedIntegrand('c w_ia u_j1 v_ka,1', *args, **kwargs, c=cp02)
-        self['convection'] += 1, NutilsDelayedIntegrand('c w_ia u_jb v_ka,b', *args, **kwargs, c=cp13)
+        self.integrals['convection'] = AffineIntegral(
+            H, NutilsDelayedIntegrand('c w_ia u_j0 v_ka,0', *args, **kwargs, c=cp02),
+            1, NutilsDelayedIntegrand('c w_ia u_j1 v_ka,1', *args, **kwargs, c=cp02),
+            1, NutilsDelayedIntegrand('c w_ia u_jb v_ka,b', *args, **kwargs, c=cp13),
+        )
 
         # Norms
-        self['v-h1s'] = self['laplacian'] / NU
-        self['v-l2'] += H, fn.outer(vbasis).sum(-1) * cp02
-        self['v-l2'] += 1, fn.outer(vbasis).sum(-1) * cp13
-        self['p-l2'] += H, fn.outer(pbasis) * cp02
-        self['p-l2'] += 1, fn.outer(pbasis) * cp13
+        self.integrals['v-h1s'] = self.integrals['laplacian'] / NU
+        self.integrals['v-l2'] = AffineIntegral(
+            H, fn.outer(vbasis).sum(-1) * cp02,
+            1, fn.outer(vbasis).sum(-1) * cp13,
+        )
+        self.integrals['p-l2'] = AffineIntegral(
+            H, fn.outer(pbasis) * cp02,
+            1, fn.outer(pbasis) * cp13,
+        )
 
         if not stabilize:
             self.verify()
@@ -149,13 +159,16 @@ class tshape(NutilsCase):
             (nel_up*nel_length + nel_up_mid*nel_length + nel_up - 1, (0, 1)),
             (nel_up*nel_length*2 + nel_up_mid*nel_length - 1, (1, 1))
         ]
+        terms = []
         eqn = vbasis[:,0].grad(geom).grad(geom)
         colloc = collocate(domain, eqn[:,0,0,_], points, root, self.ndofs)
-        self['stab-lhs'] += NU, (colloc + colloc.T)
+        terms.extend([NU, (colloc + colloc.T)])
         colloc = collocate(domain, eqn[:,1,1,_], points, root, self.ndofs)
-        self['stab-lhs'] += NU/H**2, (colloc + colloc.T)
+        terms.extend([NU/H**2, (colloc + colloc.T)])
         eqn = -pbasis.grad(geom)[:,0,_]
         colloc = collocate(domain, eqn, points, root, self.ndofs)
-        self['stab-lhs'] += 1, colloc + colloc.T
+        terms.extend([1, colloc + colloc.T])
+
+        self.integrals['stab-lhs'] = AffineIntegral(*terms)
 
         self.verify()

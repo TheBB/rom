@@ -46,6 +46,6 @@ from aroma.cases.cavity import cavity
 from aroma.cases.channel import channel
 from aroma.cases.exact import exact
 # from aroma.cases.halfbeam import halfbeam
-# from aroma.cases.tshape import tshape
+from aroma.cases.tshape import tshape
 
 from aroma.cases.lr.poisson import lrpoisson
