@@ -22,6 +22,7 @@ setup(
         'beautifultable',
         'matplotlib',
         'tqdm',
+        'quadpy',
     ],
     extras_require={
         'LRSplines': ['lrsplines'],
