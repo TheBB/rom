@@ -118,7 +118,7 @@ def from_dataset(group):
     type_ = group.attrs['type']
     if type_ == 'PickledObject':
         return dill.loads(group[()])
-    if type_ == 'LRSplineSurface':
+    if has_lrspline and type_ == 'LRSplineSurface':
         return lr.LRSplineSurface(group[()])
     if type_ == 'Array':
         return group[:]
