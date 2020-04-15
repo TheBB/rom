@@ -20,8 +20,10 @@ setup(
         'scipy',
         'sharedmem',
         'beautifultable',
-        'lrsplines',
         'matplotlib',
         'tqdm',
     ],
+    extras_require={
+        'LRSplines': ['lrsplines'],
+    }
 )

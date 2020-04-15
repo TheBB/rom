@@ -53,8 +53,13 @@ import scipy.sparse._sparsetools as sptools
 import sharedmem
 import string
 import warnings
-import lrspline as lr
 from io import BytesIO
+
+try:
+    import lrspline as lr
+    has_lrspline = True
+except ImportError:
+    has_lrspline = False
 
 from nutils import log, function as fn, topology, config
 
@@ -93,7 +98,7 @@ def to_dataset(obj, group, name):
         group[name].attrs['type'] = 'String'
         return group[name]
 
-    if isinstance(obj, lr.LRSplineSurface):
+    if has_lrspline and isinstance(obj, lr.LRSplineSurface):
         with BytesIO() as b:
             obj.write(b)
             b.seek(0)
