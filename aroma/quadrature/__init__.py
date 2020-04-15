@@ -111,7 +111,7 @@ def sparse(intervals, npts):
             continue
         wts = [weights[i][l] for i, l in enumerate(levels)]
         wts = reduce(np.multiply, np.ix_(*wts))  # multi-outer product
-        assign = [slice(None, dim) for dim in wts.shape]
+        assign = tuple(slice(None, dim) for dim in wts.shape)
         total_weights[assign] += wts
 
     total = list(
