@@ -156,8 +156,8 @@ class PiolaScalarTransform(MuCallable):
 
     _ident_ = 'PiolaScalarTransform'
 
-    def __init__(self, n, *deps):
-        super().__init__((n, n), deps)
+    def __init__(self, *deps):
+        super().__init__((), deps)
 
     def evaluate(self, case, mu, cont):
         assert all(c is None for c in cont)
