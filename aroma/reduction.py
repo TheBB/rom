@@ -60,7 +60,7 @@ class Reducer:
     def override(self, integrand, *combs, soft=False):
         self.overrides[integrand] = Override(combs, soft)
 
-    def __call__(self, **kwargs):
+    def __call__(self, overrides={}, **kwargs):
         case = self.case
         projections = self.get_projections()
         total_proj = np.vstack(list(projections.values()))
@@ -73,6 +73,8 @@ class Reducer:
 
         # Project all the integrals
         for name in case:
+            ekwargs = {**kwargs, **overrides.get(name, {})}
+
             if name in ('geometry', 'lift') or name.endswith('-trf'):
                 rcase[name] = case.integrals[name]
                 continue
@@ -81,14 +83,14 @@ class Reducer:
                 log.user(name)
                 if name not in self.overrides or self.overrides[name].soft:
                     proj = tuple(total_proj for _ in range(case.integrals[name].ndim))
-                    rcase[name] = case.integrals[name].project(case, proj, **kwargs)
+                    rcase[name] = case.integrals[name].project(case, proj, **ekwargs)
 
                 if name in self.overrides:
                     for comb in self.overrides[name].combinations:
                         proj = tuple(projections[b] for b in comb)
                         new_name = f'{name}-{comb}'
                         log.user(new_name)
-                        rcase[new_name] = case.integrals[name].project(case, proj)
+                        rcase[new_name] = case.integrals[name].project(case, proj, **ekwargs)
 
         rcase.meta.update(self.meta)
         return rcase
