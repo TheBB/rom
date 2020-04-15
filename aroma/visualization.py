@@ -76,7 +76,7 @@ def _colorbar(fig, im, clim=None, colorbar=False, **kwargs):
     if colorbar: fig.colorbar(im)
 
 
-def _streamplot(ax, tri, vvals, spacing=1.0):
+def _streamplot(ax, tri, vvals, spacing=1.0, density=None, **kwargs):
     xmin, xmax = min(tri.x), max(tri.x)
     ymin, ymax = min(tri.y), max(tri.y)
 
@@ -89,7 +89,9 @@ def _streamplot(ax, tri, vvals, spacing=1.0):
     u = LinearTriInterpolator(tri, vvals[:,0])(xgrid, ygrid)
     v = LinearTriInterpolator(tri, vvals[:,1])(xgrid, ygrid)
 
-    ax.streamplot(x, y, u, v, density=1/spacing, color='black')
+    if density is None:
+        density = 1 / spacing
+    ax.streamplot(x, y, u, v, density=density, color='black')
 
 
 def geometry(case, mu, **kwargs):
@@ -98,14 +100,13 @@ def geometry(case, mu, **kwargs):
     points = sample.eval(geom)
 
     triangles, edges = tri.triangulate([points[ix] for ix in sample.index], mergetol=1e-5)
-    # trng = Triangulation(points[:,0], points[:,1], triangles)
     mesh = points[edges]
 
     with _plot('geometry', mesh=mesh, **kwargs) as (fig, ax):
         pass
 
 
-def velocity(case, mu, lhs, density=1, lift=True, streams=True, **kwargs):
+def velocity(case, mu, lhs, lift=True, streams=True, **kwargs):
     tri, mesh = case.triangulation(mu, lines=True)
     vvals = case.solution(lhs, 'v', mu, lift=lift)
     vnorm = np.linalg.norm(vvals, axis=-1)
@@ -114,7 +115,7 @@ def velocity(case, mu, lhs, density=1, lift=True, streams=True, **kwargs):
         im = ax.tripcolor(tri, vnorm, shading='gouraud')
         _colorbar(fig, im, **kwargs)
         if streams:
-            _streamplot(ax, tri, vvals)
+            _streamplot(ax, tri, vvals, **kwargs)
 
 
 def pressure(case, mu, lhs, lift=True, **kwargs):

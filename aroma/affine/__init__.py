@@ -169,7 +169,7 @@ class MuFunc:
 
     @staticmethod
     def read(group):
-        cls = util.find_subclass(MuFunc, group['type'][()])
+        cls = util.find_subclass(MuFunc, group['type'][()], attr='_ident_')
         obj = cls.__new__(cls)
         obj._read(group)
         return obj

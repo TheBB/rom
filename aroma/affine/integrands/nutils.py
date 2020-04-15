@@ -139,7 +139,7 @@ class NSConvection(MuCallable):
 
 class PiolaVectorTransform(MuCallable):
 
-    _ident_ = 'PiolaTransform'
+    _ident_ = 'PiolaVectorTransform'
 
     def __init__(self, n, *deps):
         super().__init__((n, n), deps)
