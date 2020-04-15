@@ -114,8 +114,9 @@ def rsolve(angle, velocity, piola, sups, nred, index):
         except AssertionError:
             log.user('solving non-block')
             lhs = solvers.navierstokes(case, mu)
-    visualization.velocity(case, mu, lhs, name='red', axes=False, colorbar=True)
-    visualization.pressure(case, mu, lhs, name='red', axes=False, colorbar=True)
+    visualization.vtk(case, mu, lhs)
+    # visualization.velocity(case, mu, lhs, name='red', axes=False, colorbar=True)
+    # visualization.pressure(case, mu, lhs, name='red', axes=False, colorbar=True)
 
 
 @main.command()

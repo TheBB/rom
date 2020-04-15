@@ -588,3 +588,6 @@ class LofiCase(Case):
     def solution_vector(self, lhs, case, *args, **kwargs):
         lhs = self.projection.T.dot(lhs)
         return case.solution_vector(lhs, *args, **kwargs)
+
+    def discretize(self, *args, **kwargs):
+        return self.case.discretize(*args, **kwargs)

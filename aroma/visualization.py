@@ -39,12 +39,56 @@
 
 from contextlib import contextmanager
 import numpy as np
-from nutils import function as fn, export, element
+from nutils import function as fn, export, element, log
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.tri import LinearTriInterpolator, Triangulation
+import vtk as vtklib
+import vtk.util.numpy_support as vtknp
 
 from aroma import tri
+
+
+def vtk(case, mu, lhs, name='solution', index=None, ndigits=4):
+    mesh = case.triangulation(mu, lines=False)
+    points = vtklib.vtkPoints()
+    points.SetData(vtknp.numpy_to_vtk(
+        np.vstack([mesh.x, mesh.y, np.zeros(mesh.x.shape)]).T, deep=True
+    ))
+
+    celldata = np.hstack([3 * np.ones((mesh.triangles.shape[0], 1), dtype=int), mesh.triangles])
+    cells = vtklib.vtkCellArray()
+    cells.SetCells(
+        mesh.triangles.shape[0],
+        vtknp.numpy_to_vtkIdTypeArray(celldata.ravel(), deep=True)
+    )
+
+    grid = vtklib.vtkUnstructuredGrid()
+    grid.SetPoints(points)
+    grid.SetCells(vtklib.VTK_TRIANGLE, cells)
+
+    fields = {}
+    for field in case.bases:
+        try:
+            sol = case.solution(lhs, field, mu, lift=True)
+        except KeyError:
+            continue
+
+        data = vtknp.numpy_to_vtk(sol, deep=True)
+        data.SetName(field)
+        grid.GetPointData().AddArray(data)
+
+    filename = name
+    if index:
+        filename += f'-{index:0{ndigits}}'
+    filename += '.vtu'
+
+    writer = vtklib.vtkXMLUnstructuredGridWriter()
+    writer.SetFileName(filename)
+    writer.SetInputData(grid)
+    writer.Write()
+
+    log.user(filename)
 
 
 @contextmanager

@@ -23,6 +23,7 @@ setup(
         'matplotlib',
         'tqdm',
         'quadpy',
+        'vtk',
     ],
     extras_require={
         'LRSplines': ['lrsplines'],
