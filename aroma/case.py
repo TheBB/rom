@@ -44,7 +44,7 @@ import math
 from matplotlib.tri import Triangulation
 
 from aroma import util, tri
-from aroma.affine import mu, Affine, AffineIntegral, MuFunc
+from aroma.affine import mu, MuFunc
 
 
 def pp_table(headers):
@@ -231,7 +231,7 @@ class Integrals(OrderedDict):
 
     @staticmethod
     def read(group):
-        return Integrals({key: AffineIntegral.read(subgrp) for key, subgrp in group.items()})
+        return Integrals({key: MuFunc.read(subgrp) for key, subgrp in group.items()})
 
 
 class Case:
@@ -467,14 +467,22 @@ class NutilsCase(HifiCase):
         return tri
 
     @util.multiple_to_single('field')
-    def solution(self, lhs, field, mu=None, lift=True):
+    def solution(self, lhs, field, mu=None, lift=True, J=None):
         lhs = self.solution_vector(lhs, mu, lift)
-        func = self.basis(field, mu).dot(lhs)
+        if J is None:
+            func = self.basis(field, mu).dot(lhs)
+        else:
+            func = self.basis(field, mu, transform=False)
+            if J.ndim == 0:
+                func = func * J
+            else:
+                func = fn.matmat(func, J.transpose())
+            func = func.dot(lhs)
         return self.domain.sample(*element.parse_legacy_ischeme(self.meta['vscheme'])).eval(func)
 
-    def basis(self, name, mu=None):
+    def basis(self, name, mu=None, transform=True):
         func = super().basis(name, mu=mu)
-        if f'{name}-trf' in self and mu is not None:
+        if transform and f'{name}-trf' in self and mu is not None:
             J = self[f'{name}-trf'](mu)
             if J.ndim == 0:
                 func = func * J
@@ -568,9 +576,14 @@ class LofiCase(Case):
         self.projection = group['projection'][:]
         self.case = Case.read(group['hifi'], sparse=True)
 
-    def solution(self, lhs, *args, **kwargs):
+    @util.multiple_to_single('field')
+    def solution(self, lhs, field, mu=None, *args, **kwargs):
+        if f'{field}-trf' in self:
+            J = self[f'{field}-trf'](mu)
+        else:
+            J = None
         lhs = self.projection.T.dot(lhs)
-        return self.case.solution(lhs, *args, **kwargs)
+        return self.case.solution(lhs, field, mu, *args, J=J, **kwargs)
 
     def solution_vector(self, lhs, case, *args, **kwargs):
         lhs = self.projection.T.dot(lhs)
