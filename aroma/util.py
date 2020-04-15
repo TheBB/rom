@@ -70,7 +70,79 @@ _SCALARS = (
 )
 
 
+class FileBackedProperty:
+
+    def __init__(self, attrname):
+        self.attrname = attrname
+
+    def __get__(self, obj, owner=None):
+        if obj is None:
+            return self
+        if self.attrname in obj._file_data:
+            return obj._file_data[self.attrname]
+        if obj._group is None or self.attrname not in obj._group:
+            raise AttributeError("Attribute {} not set".format(self.attrname))
+        val = from_dataset(obj._group[self.attrname])
+        obj._file_data[self.attrname] = val
+        return val
+
+    def __set__(self, obj, val):
+        obj._file_data[self.attrname] = val
+
+    def __delete__(self, obj):
+        del obj._file_data[self.attrname]
+
+
+class FileBackedMeta(type):
+
+    def __new__(cls, name, bases, attrs):
+        file_attribs = set(attrs.get('_file_attribs_', []))
+        for base in bases:
+            file_attribs |= set(getattr(base, '_file_attribs_', []))
+        file_attribs = sorted(file_attribs)
+        attrs['_file_attribs_'] = file_attribs
+        for attr in file_attribs:
+            attrs[attr] = FileBackedProperty(attr)
+        return super().__new__(cls, name, bases, attrs)
+
+
+class FileBacked(metaclass=FileBackedMeta):
+
+    def __init__(self, group=None):
+        self._file_data = {}
+        self._group = group
+
+    def write(self, group):
+        group.attrs['module'] = self.__class__.__module__
+        group.attrs['class'] = self.__class__.__name__
+        for attr in self._file_attribs_:
+            try:
+                value = getattr(self, attr)
+            except AttributeError:
+                continue
+            to_dataset(value, group, attr)
+
+    @classmethod
+    def read(cls, group):
+        modulename = group.attrs['module']
+        classname = group.attrs['class']
+        for cls in subclasses(FileBacked, root=True):
+            if cls.__module__ == modulename and cls.__name__ == classname:
+                break
+        else:
+            raise TypeError(f"Unable to find appropriate class to load: {modulename}.{classname}")
+        obj = cls.__new__(cls)
+        FileBacked.__init__(obj, group)
+        return obj
+
+
 def to_dataset(obj, group, name):
+    if isinstance(obj, FileBacked):
+        subgroup = group.require_group(name)
+        subgroup.attrs['type'] = 'FileBacked'
+        obj.write(subgroup)
+        return subgroup
+
     if isinstance(obj, (sp.csr_matrix, sp.csc_matrix)):
         subgroup = group.require_group(name)
         subgroup['data'] = obj.data
@@ -106,16 +178,16 @@ def to_dataset(obj, group, name):
         group[name].attrs['type'] = 'LRSplineSurface'
         return group[name]
 
-    if isinstance(obj, (fn.Array, topology.Topology, dict, type(None), tuple, bool)) or callable(obj):
+    else:
         group[name] = np.string_(dill.dumps(obj))
         group[name].attrs['type'] = 'PickledObject'
         return group[name]
 
-    raise NotImplementedError(f'{type(obj)} to dataset')
-
 
 def from_dataset(group):
     type_ = group.attrs['type']
+    if type_ == 'FileBacked':
+        return FileBacked.read(group)
     if type_ == 'PickledObject':
         return dill.loads(group[()])
     if has_lrspline and type_ == 'LRSplineSurface':
