@@ -15,7 +15,7 @@ setup(
         'click',
         'dill',
         'h5py',
-        'nutils>=4.0a0',
+        'nutils>=4,<5',
         'numpy',
         'scipy',
         'sharedmem',
