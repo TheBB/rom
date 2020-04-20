@@ -15,6 +15,7 @@ setup(
         'click',
         'dill',
         'h5py',
+        'pyfive',
         'nutils>=4,<5',
         'numpy',
         'scipy',

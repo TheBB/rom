@@ -45,6 +45,7 @@ from multiprocessing import current_process, cpu_count
 import numpy as np
 from numpy import newaxis as _
 import h5py
+import pyfive
 from os.path import exists
 import dill
 import random
@@ -139,7 +140,7 @@ class FileBacked(metaclass=FileBackedMeta):
 def to_dataset(obj, group, name):
     if isinstance(obj, FileBacked):
         subgroup = group.require_group(name)
-        subgroup.attrs['type'] = 'FileBacked'
+        subgroup.attrs['type'] = np.string_('FileBacked')
         obj.write(subgroup)
         return subgroup
 
@@ -149,7 +150,7 @@ def to_dataset(obj, group, name):
         subgroup['indices'] = obj.indices
         subgroup['indptr'] = obj.indptr
         subgroup.attrs['shape'] = obj.shape
-        subgroup.attrs['type'] = 'CSRMatrix' if isinstance(obj, sp.csr_matrix) else 'CSCMatrix'
+        subgroup.attrs['type'] = np.string_('CSRMatrix' if isinstance(obj, sp.csr_matrix) else 'CSCMatrix')
         return subgroup
 
     if isinstance(obj, sp.coo_matrix):
@@ -158,16 +159,16 @@ def to_dataset(obj, group, name):
         subgroup['row'] = obj.row
         subgroup['col'] = obj.col
         subgroup.attrs['shape'] = obj.shape
-        subgroup.attrs['type'] = 'COOMatrix'
+        subgroup.attrs['type'] = np.string_('COOMatrix')
 
     if isinstance(obj, np.ndarray):
         group[name] = obj
-        group[name].attrs['type'] = 'Array'
+        group[name].attrs['type'] = np.string_('Array')
         return group[name]
 
     if isinstance(obj, str):
-        group[name] = obj
-        group[name].attrs['type'] = 'String'
+        group[name] = np.string_(obj)
+        group[name].attrs['type'] = np.string_('String')
         return group[name]
 
     if has_lrspline and isinstance(obj, lr.LRSplineSurface):
@@ -175,17 +176,17 @@ def to_dataset(obj, group, name):
             obj.write(b)
             b.seek(0)
             group[name] = b.read()
-        group[name].attrs['type'] = 'LRSplineSurface'
+        group[name].attrs['type'] = np.string_('LRSplineSurface')
         return group[name]
 
     else:
         group[name] = np.string_(dill.dumps(obj))
-        group[name].attrs['type'] = 'PickledObject'
+        group[name].attrs['type'] = np.string_('PickledObject')
         return group[name]
 
 
 def from_dataset(group):
-    type_ = group.attrs['type']
+    type_ = group.attrs['type'].decode()
     if type_ == 'FileBacked':
         return FileBacked.read(group)
     if type_ == 'PickledObject':
@@ -195,7 +196,7 @@ def from_dataset(group):
     if type_ == 'Array':
         return group[:]
     if type_ == 'String':
-        return group[()]
+        return group[()].decode()
     if type_ in {'CSRMatrix', 'CSCMatrix'}:
         cls = sp.csr_matrix if type_ == 'CSRMatrix' else sp.csc_matrix
         return cls((group['data'][:], group['indices'][:], group['indptr'][:]), shape=group.attrs['shape'])
@@ -214,6 +215,7 @@ def subclasses(cls, root=False):
 
 
 def find_subclass(cls, name, root=False, attr='__name__'):
+    name = name.decode('utf-8')
     for sub in subclasses(cls, root=root):
         if hasattr(sub, attr) and getattr(sub, attr) == name:
             return sub
@@ -257,7 +259,8 @@ def filecache(fmt):
                 if exists(filename):
                     log.user(f'reading from {filename}')
                     reader = Case if filename.endswith('case') else Ensemble
-                    with h5py.File(filename, 'r') as f:
+                    # with h5py.File(filename, 'r') as f:
+                    with pyfive.File(filename) as f:
                         return reader.read(f)
                 log.user(f'{filename} not found')
 

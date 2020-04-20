@@ -326,8 +326,8 @@ class Case:
             self.parameters[name].fixed = value
 
     def write(self, group, sparse=False):
-        group['type'] = self._ident_
-        group['name'] = self.name
+        group['type'] = np.string_(self._ident_)
+        group['name'] = np.string_(self.name)
         group['constraints'] = self.constraints
 
         if hasattr(self, 'extra_dofs'):
@@ -352,7 +352,7 @@ class Case:
         return obj
 
     def _read(self, group, sparse):
-        self.name = group['name'][()]
+        self.name = group['name'][()].decode()
         self._cons = group['constraints'][:]
 
         if 'extra_dofs' in group:
@@ -397,8 +397,8 @@ class HifiCase(Case):
         self.parameters = Parameters.read(group['parameters'])
 
         self.meta = {}
-        for key, value in group['meta'].items():
-            self.meta[key] = value[()]
+        for key, subgrp in group['meta'].items():
+            self.meta[key] = util.from_dataset(subgrp)
 
     def solution_vector(self, lhs, mu, lift=True):
         return (lhs + self['lift'](mu)) if lift else lhs
@@ -409,7 +409,8 @@ class HifiCase(Case):
 
         meta = group.require_group('meta')
         for key, value in self.meta.items():
-            meta[key] = value
+            util.to_dataset(value, meta, key)
+            # meta[key] = value
 
     def basis(self, name, mu=None):
         return self.bases[name].obj

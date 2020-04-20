@@ -165,7 +165,7 @@ class mu:
 class MuFunc:
 
     def write(self, group):
-        group['type'] = self._ident_
+        group['type'] = np.string_(self._ident_)
 
     @staticmethod
     def read(group):
