@@ -10,6 +10,7 @@ from aroma.case import NutilsCase
 from aroma.affine import MuLambda, MuConstant
 import aroma.affine.integrands.nutils as ntl
 from aroma import solvers, util, visualization, ensemble as ens, quadrature, reduction
+from aroma.filebacked import filecache
 
 
 def decorate_params(func):
@@ -47,7 +48,7 @@ def geometry(mu, L, H, refgeom):
     )
 
 
-@util.filecache('backstep-{refine}-{degree}.case')
+@filecache('backstep-{refine}-{degree}.case')
 def get_case(refine: int, degree: int):
     nel_up = int(10 * refine)
     nel_length = int(100 * refine)
@@ -111,7 +112,7 @@ def get_case(refine: int, degree: int):
     return case
 
 
-@util.filecache('backstep-{refine}-{degree}-{num}.ens')
+@filecache('backstep-{refine}-{degree}-{num}.ens')
 def get_ensemble(refine: int, degree: int, num: int):
     case = get_case(refine, degree)
     scheme = quadrature.sparse(case.ranges(), num)
@@ -121,7 +122,7 @@ def get_ensemble(refine: int, degree: int, num: int):
     return ensemble
 
 
-@util.filecache('backstep-{refine}-{degree}-{nred}.rcase')
+@filecache('backstep-{refine}-{degree}-{nred}.rcase')
 def get_reduced(refine: int, degree: int, nred: int, num=None):
     case = get_case(refine, degree)
     ensemble = get_ensemble(refine, degree, num)

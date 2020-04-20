@@ -39,12 +39,15 @@
 
 from functools import partial
 from itertools import combinations, chain, count
+from typing import Tuple, Any
+
 import numpy as np
 from nutils import function as fn, matrix, _, log
 
 from aroma import util
 from aroma.affine.integrands import *
 from aroma.affine.polyfit import Interpolator
+from aroma.filebacked import FileBacked, FileBackedAttribute, FileBackedDict
 
 def islift(c):
     return isinstance(c, str) and c == 'lift'
@@ -162,20 +165,7 @@ class mu:
         return mu('__cos', self)
 
 
-class MuFunc:
-
-    def write(self, group):
-        group['type'] = np.string_(self._ident_)
-
-    @staticmethod
-    def read(group):
-        cls = util.find_subclass(MuFunc, group['type'][()], attr='_ident_')
-        obj = cls.__new__(cls)
-        obj._read(group)
-        return obj
-
-    def _read(self, group):
-        pass
+class MuFunc(FileBacked):
 
     def verify(self):
         pass
@@ -190,11 +180,21 @@ class MuFunc:
         pass
 
 
+class Lifts(FileBackedDict):
+
+    keytype = Tuple[int, ...]
+    valuetype = MuFunc
+
+
 class MuCallable(MuFunc):
 
-    _ident_ = 'MuCallable'
+    shape = FileBackedAttribute(Any)
+    deps = FileBackedAttribute(Any)
+    scale = FileBackedAttribute(Any)
+    lifts = FileBackedAttribute(Lifts)
 
     def __init__(self, shape, deps, scale=1):
+        super().__init__()
         self.shape = shape
         self.deps = deps
         if not isinstance(scale, mu):
@@ -209,29 +209,29 @@ class MuCallable(MuFunc):
     def __str__(self):
         return f'MuCallable(shape={self.shape})'
 
-    def write(self, group):
-        super().write(group)
-        util.to_dataset(np.array(self.shape), group, 'shape')
-        util.to_dataset(self.deps, group, 'deps')
-        util.to_dataset(self.scale, group, 'scale')
+    # def write(self, group):
+    #     super().write(group)
+    #     util.to_dataset(np.array(self.shape), group, 'shape')
+    #     util.to_dataset(self.deps, group, 'deps')
+    #     util.to_dataset(self.scale, group, 'scale')
 
-        liftgrp = group.require_group('lifts')
-        for axes, lift in self.lifts.items():
-            name = ','.join(str(s) for s in sorted(axes))
-            targetgrp = liftgrp.require_group(name)
-            lift.write(targetgrp)
+    #     liftgrp = group.require_group('lifts')
+    #     for axes, lift in self.lifts.items():
+    #         name = ','.join(str(s) for s in sorted(axes))
+    #         targetgrp = liftgrp.require_group(name)
+    #         lift.write(targetgrp)
 
-    def _read(self, group):
-        super()._read(group)
-        self.shape = tuple(util.from_dataset(group['shape']))
-        self.deps = util.from_dataset(group['deps'])
-        self.scale = util.from_dataset(group['scale'])
+    # def _read(self, group):
+    #     super()._read(group)
+    #     self.shape = tuple(util.from_dataset(group['shape']))
+    #     self.deps = util.from_dataset(group['deps'])
+    #     self.scale = util.from_dataset(group['scale'])
 
-        self.lifts = {}
-        if 'lifts' in group:
-            for axes, grp in group['lifts'].items():
-                axes = frozenset(map(int, axes.split(',')))
-                self.lifts[axes] = MuFunc.read(grp)
+    #     self.lifts = {}
+    #     if 'lifts' in group:
+    #         for axes, grp in group['lifts'].items():
+    #             axes = frozenset(map(int, axes.split(',')))
+    #             self.lifts[axes] = MuFunc.read(grp)
 
     def evaluate(self, *args):
         raise NotImplementedError
@@ -330,17 +330,19 @@ class MuCallable(MuFunc):
 
 class MuObject(MuCallable):
 
+    # obj =
+
     def __init__(self, obj, shape, deps, scale=1):
         super().__init__(shape, deps, scale=scale)
         self.obj = obj
 
-    def write(self, group):
-        super().write(group)
-        util.to_dataset(self.obj, group, 'obj')
+    # def write(self, group):
+    #     super().write(group)
+    #     util.to_dataset(self.obj, group, 'obj')
 
-    def _read(self, group):
-        super()._read(group)
-        self.obj = util.from_dataset(group['obj'])
+    # def _read(self, group):
+    #     super()._read(group)
+    #     self.obj = util.from_dataset(group['obj'])
 
 
 class MuPoly(MuObject):

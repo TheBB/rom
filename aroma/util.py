@@ -55,6 +55,8 @@ import sharedmem
 import string
 import warnings
 from io import BytesIO
+import typing
+import typing_inspect as typi
 
 try:
     import lrspline as lr
@@ -71,169 +73,196 @@ _SCALARS = (
 )
 
 
-class FileBackedProperty:
+# class FileBackedDescriptor:
 
-    def __init__(self, attrname):
-        self.attrname = attrname
+#     def __init__(self, attrname, type):
+#         self.attrname = attrname
+#         self.type = type
 
-    def __get__(self, obj, owner=None):
-        if obj is None:
-            return self
-        if self.attrname in obj._file_data:
-            return obj._file_data[self.attrname]
-        if obj._group is None or self.attrname not in obj._group:
-            raise AttributeError("Attribute {} not set".format(self.attrname))
-        val = from_dataset(obj._group[self.attrname])
-        obj._file_data[self.attrname] = val
-        return val
+#     def __get__(self, obj, owner=None):
+#         if obj is None:
+#             return self
+#         if self.attrname in obj._file_data:
+#             return obj._file_data[self.attrname]
+#         if obj._group is None or self.attrname not in obj._group:
+#             raise AttributeError("Attribute {} not set".format(self.attrname))
+#         val = self.read(obj, obj._group[self.attrname])
+#         obj._file_data[self.attrname] = val
+#         return val
 
-    def __set__(self, obj, val):
-        obj._file_data[self.attrname] = val
+#     def __set__(self, obj, val):
+#         obj._file_data[self.attrname] = val
 
-    def __delete__(self, obj):
-        del obj._file_data[self.attrname]
+#     def __delete__(self, obj):
+#         del obj._file_data[self.attrname]
 
+#     def write(self, obj, group):
+#         try:
+#             value = self.__get__(obj)
+#         except AttributeError:
+#             return
 
-class FileBackedMeta(type):
+#         if self.type == typing.Any:
+#             group[self.attrname] = np.string_(dill.dumps(value))
+#         elif self.type == str:
+#             group[self.attrname] = np.string_(value.encode('utf-8'))
+#         elif inspect.isclass(self.type) and issubclass(self.type, FileBacked):
+#             subgroup = group.require_group(name)
+#             value.write(subgroup)
+#         else:
+#             assert False
 
-    def __new__(cls, name, bases, attrs):
-        file_attribs = set(attrs.get('_file_attribs_', []))
-        for base in bases:
-            file_attribs |= set(getattr(base, '_file_attribs_', []))
-        file_attribs = sorted(file_attribs)
-        attrs['_file_attribs_'] = file_attribs
-        for attr in file_attribs:
-            attrs[attr] = FileBackedProperty(attr)
-        return super().__new__(cls, name, bases, attrs)
-
-
-class FileBacked(metaclass=FileBackedMeta):
-
-    def __init__(self, group=None):
-        self._file_data = {}
-        self._group = group
-
-    def write(self, group):
-        group.attrs['module'] = self.__class__.__module__
-        group.attrs['class'] = self.__class__.__name__
-        for attr in self._file_attribs_:
-            try:
-                value = getattr(self, attr)
-            except AttributeError:
-                continue
-            to_dataset(value, group, attr)
-
-    @classmethod
-    def read(cls, group):
-        modulename = group.attrs['module']
-        classname = group.attrs['class']
-        for cls in subclasses(FileBacked, root=True):
-            if cls.__module__ == modulename and cls.__name__ == classname:
-                break
-        else:
-            raise TypeError(f"Unable to find appropriate class to load: {modulename}.{classname}")
-        obj = cls.__new__(cls)
-        FileBacked.__init__(obj, group)
-        return obj
+#     def read(self, obj, group):
+#         if self.type == typing.Any:
+#             return dill.loads(group[()])
+#         if self.type == str:
+#             return group[()].decode('utf-8')
 
 
-def to_dataset(obj, group, name):
-    if isinstance(obj, FileBacked):
-        subgroup = group.require_group(name)
-        subgroup.attrs['type'] = np.string_('FileBacked')
-        obj.write(subgroup)
-        return subgroup
+# class FileBackedAttribute:
 
-    if isinstance(obj, (sp.csr_matrix, sp.csc_matrix)):
-        subgroup = group.require_group(name)
-        subgroup['data'] = obj.data
-        subgroup['indices'] = obj.indices
-        subgroup['indptr'] = obj.indptr
-        subgroup.attrs['shape'] = obj.shape
-        subgroup.attrs['type'] = np.string_('CSRMatrix' if isinstance(obj, sp.csr_matrix) else 'CSCMatrix')
-        return subgroup
+#     def __init__(self, type=typing.Any):
+#         self.type = type
 
-    if isinstance(obj, sp.coo_matrix):
-        subgroup = group.require_group(name)
-        subgroup['data'] = obj.data
-        subgroup['row'] = obj.row
-        subgroup['col'] = obj.col
-        subgroup.attrs['shape'] = obj.shape
-        subgroup.attrs['type'] = np.string_('COOMatrix')
-
-    if isinstance(obj, np.ndarray):
-        group[name] = obj
-        group[name].attrs['type'] = np.string_('Array')
-        return group[name]
-
-    if isinstance(obj, str):
-        group[name] = np.string_(obj)
-        group[name].attrs['type'] = np.string_('String')
-        return group[name]
-
-    if has_lrspline and isinstance(obj, lr.LRSplineSurface):
-        with BytesIO() as b:
-            obj.write(b)
-            b.seek(0)
-            group[name] = b.read()
-        group[name].attrs['type'] = np.string_('LRSplineSurface')
-        return group[name]
-
-    else:
-        group[name] = np.string_(dill.dumps(obj))
-        group[name].attrs['type'] = np.string_('PickledObject')
-        return group[name]
+#     def descriptor(self, name):
+#         return FileBackedDescriptor(name, self.type)
 
 
-def from_dataset(group):
-    type_ = group.attrs['type'].decode()
-    if type_ == 'FileBacked':
-        return FileBacked.read(group)
-    if type_ == 'PickledObject':
-        return dill.loads(group[()])
-    if has_lrspline and type_ == 'LRSplineSurface':
-        return lr.LRSplineSurface(group[()])
-    if type_ == 'Array':
-        return group[:]
-    if type_ == 'String':
-        return group[()].decode()
-    if type_ in {'CSRMatrix', 'CSCMatrix'}:
-        cls = sp.csr_matrix if type_ == 'CSRMatrix' else sp.csc_matrix
-        return cls((group['data'][:], group['indices'][:], group['indptr'][:]), shape=group.attrs['shape'])
-    if type_ == 'COOMatrix':
-        return sp.coo_matrix((group['data'][:], (group['row'][:], group['col'][:])), shape=group.attrs['shape'])
+# class FileBackedMeta(type):
 
-    raise NotImplementedError(f'Unknown type: {type_}')
+#     def __new__(cls, name, bases, attrs):
+#         file_attribs = {attr for attr, obj in attrs.items() if isinstance(obj, FileBackedAttribute)}
+#         for attr in file_attribs:
+#             attrs[attr] = attrs[attr].descriptor(attr)
+#         for base in bases:
+#             file_attribs |= set(getattr(base, '_file_attribs_', []))
+#         attrs['_file_attribs_'] = sorted(file_attribs)
+#         return super().__new__(cls, name, bases, attrs)
 
 
-def subclasses(cls, root=False):
-    if root:
-        yield cls
-    for sub in cls.__subclasses__():
-        yield sub
-        yield from subclasses(sub, root=False)
+# class FileBacked(metaclass=FileBackedMeta):
+
+#     def __init__(self, group=None):
+#         self._file_data = {}
+#         self._group = group
+
+#     def write(self, group):
+#         group.attrs['module'] = self.__class__.__module__
+#         group.attrs['class'] = self.__class__.__name__
+#         for attr in self._file_attribs_:
+#             getattr(self.__class__, attr).write(self, group)
+
+#     @classmethod
+#     def read(cls, group):
+#         modulename = group.attrs['module']
+#         classname = group.attrs['class']
+#         for cls in subclasses(FileBacked, root=True):
+#             if cls.__module__ == modulename and cls.__name__ == classname:
+#                 break
+#         else:
+#             raise TypeError(f"Unable to find appropriate class to load: {modulename}.{classname}")
+#         obj = cls.__new__(cls)
+#         FileBacked.__init__(obj, group)
+#         return obj
 
 
-def find_subclass(cls, name, root=False, attr='__name__'):
-    name = name.decode('utf-8')
-    for sub in subclasses(cls, root=root):
-        if hasattr(sub, attr) and getattr(sub, attr) == name:
-            return sub
-    assert False
+# def to_dataset(obj, group, name):
+#     if isinstance(obj, FileBacked):
+#         subgroup = group.require_group(name)
+#         subgroup.attrs['type'] = np.string_('FileBacked')
+#         obj.write(subgroup)
+#         return subgroup
+
+#     if isinstance(obj, (sp.csr_matrix, sp.csc_matrix)):
+#         subgroup = group.require_group(name)
+#         subgroup['data'] = obj.data
+#         subgroup['indices'] = obj.indices
+#         subgroup['indptr'] = obj.indptr
+#         subgroup.attrs['shape'] = obj.shape
+#         subgroup.attrs['type'] = np.string_('CSRMatrix' if isinstance(obj, sp.csr_matrix) else 'CSCMatrix')
+#         return subgroup
+
+#     if isinstance(obj, sp.coo_matrix):
+#         subgroup = group.require_group(name)
+#         subgroup['data'] = obj.data
+#         subgroup['row'] = obj.row
+#         subgroup['col'] = obj.col
+#         subgroup.attrs['shape'] = obj.shape
+#         subgroup.attrs['type'] = np.string_('COOMatrix')
+
+#     if isinstance(obj, np.ndarray):
+#         group[name] = obj
+#         group[name].attrs['type'] = np.string_('Array')
+#         return group[name]
+
+#     if isinstance(obj, str):
+#         group[name] = np.string_(obj)
+#         group[name].attrs['type'] = np.string_('String')
+#         return group[name]
+
+#     if has_lrspline and isinstance(obj, lr.LRSplineSurface):
+#         with BytesIO() as b:
+#             obj.write(b)
+#             b.seek(0)
+#             group[name] = b.read()
+#         group[name].attrs['type'] = np.string_('LRSplineSurface')
+#         return group[name]
+
+#     else:
+#         group[name] = np.string_(dill.dumps(obj))
+#         group[name].attrs['type'] = np.string_('PickledObject')
+#         return group[name]
 
 
-def make_filename(func, fmt, *args, **kwargs):
-    signature = inspect.signature(func)
-    arguments = [arg for __, arg, __, __ in string.Formatter().parse(fmt) if arg is not None]
-    binding = signature.bind(*args, **kwargs)
-    format_dict = {}
-    for argname in arguments:
-        if signature.parameters[argname].annotation is bool:
-            prefix = '' if binding.arguments[argname] else 'no-'
-            format_dict[argname] = f'{prefix}{argname}'
-        else:
-            format_dict[argname] = binding.arguments[argname]
-    return fmt.format(**format_dict)
+# def from_dataset(group):
+#     type_ = group.attrs['type'].decode()
+#     if type_ == 'FileBacked':
+#         return FileBacked.read(group)
+#     if type_ == 'PickledObject':
+#         return dill.loads(group[()])
+#     if has_lrspline and type_ == 'LRSplineSurface':
+#         return lr.LRSplineSurface(group[()])
+#     if type_ == 'Array':
+#         return group[:]
+#     if type_ == 'String':
+#         return group[()].decode()
+#     if type_ in {'CSRMatrix', 'CSCMatrix'}:
+#         cls = sp.csr_matrix if type_ == 'CSRMatrix' else sp.csc_matrix
+#         return cls((group['data'][:], group['indices'][:], group['indptr'][:]), shape=group.attrs['shape'])
+#     if type_ == 'COOMatrix':
+#         return sp.coo_matrix((group['data'][:], (group['row'][:], group['col'][:])), shape=group.attrs['shape'])
+
+#     raise NotImplementedError(f'Unknown type: {type_}')
+
+
+# def subclasses(cls, root=False):
+#     if root:
+#         yield cls
+#     for sub in cls.__subclasses__():
+#         yield sub
+#         yield from subclasses(sub, root=False)
+
+
+# def find_subclass(cls, name, root=False, attr='__name__'):
+#     name = name.decode('utf-8')
+#     for sub in subclasses(cls, root=root):
+#         if hasattr(sub, attr) and getattr(sub, attr) == name:
+#             return sub
+#     assert False
+
+
+# def make_filename(func, fmt, *args, **kwargs):
+#     signature = inspect.signature(func)
+#     arguments = [arg for __, arg, __, __ in string.Formatter().parse(fmt) if arg is not None]
+#     binding = signature.bind(*args, **kwargs)
+#     format_dict = {}
+#     for argname in arguments:
+#         if signature.parameters[argname].annotation is bool:
+#             prefix = '' if binding.arguments[argname] else 'no-'
+#             format_dict[argname] = f'{prefix}{argname}'
+#         else:
+#             format_dict[argname] = binding.arguments[argname]
+#     return fmt.format(**format_dict)
 
 
 def common_args(func):
@@ -246,34 +275,34 @@ def common_args(func):
     return retval
 
 
-def filecache(fmt):
-    def decorator(func):
-        @functools.wraps(func)
-        def inner(*args, **kwargs):
-            from aroma.case import Case
-            from aroma.ensemble import Ensemble
-            filename = make_filename(func, fmt, *args, **kwargs)
+# def filecache(fmt):
+#     def decorator(func):
+#         @functools.wraps(func)
+#         def inner(*args, **kwargs):
+#             from aroma.case import Case
+#             from aroma.ensemble import Ensemble
+#             filename = make_filename(func, fmt, *args, **kwargs)
 
-            # If file exists, load from it
-            with log.context(func.__name__):
-                if exists(filename):
-                    log.user(f'reading from {filename}')
-                    reader = Case if filename.endswith('case') else Ensemble
-                    # with h5py.File(filename, 'r') as f:
-                    with pyfive.File(filename) as f:
-                        return reader.read(f)
-                log.user(f'{filename} not found')
+#             # If file exists, load from it
+#             with log.context(func.__name__):
+#                 if exists(filename):
+#                     log.user(f'reading from {filename}')
+#                     reader = Case if filename.endswith('case') else Ensemble
+#                     # with h5py.File(filename, 'r') as f:
+#                     with pyfive.File(filename) as f:
+#                         return reader.read(f)
+#                 log.user(f'{filename} not found')
 
-            # If it doesn't exist, call the wrapped function, and save
-            obj = func(*args, **kwargs)
-            with log.context(func.__name__):
-                log.user(f'writing to {filename}')
-                with h5py.File(filename, 'w') as f:
-                    obj.write(f)
-            return obj
+#             # If it doesn't exist, call the wrapped function, and save
+#             obj = func(*args, **kwargs)
+#             with log.context(func.__name__):
+#                 log.user(f'writing to {filename}')
+#                 with h5py.File(filename, 'w') as f:
+#                     obj.write(f)
+#             return obj
 
-        return inner
-    return decorator
+#         return inner
+#     return decorator
 
 
 def multiple_to_single(argname):

@@ -36,8 +36,10 @@
 # This file may be used in accordance with the terms contained in a
 # written agreement between you and SINTEF Digital.
 
-from beautifultable import BeautifulTable
 from collections import defaultdict, OrderedDict, namedtuple
+from typing import Optional, Any
+
+from beautifultable import BeautifulTable
 from nutils import function as fn, log, plot, matrix, element
 import numpy as np
 import math
@@ -45,6 +47,7 @@ from matplotlib.tri import Triangulation
 
 from aroma import util, tri
 from aroma.affine import mu, MuFunc
+from aroma.filebacked import FileBacked, FileBackedDict, FileBackedAttribute
 
 
 def pp_table(headers):
@@ -62,9 +65,16 @@ def pp_table(headers):
     return table
 
 
-class Parameter:
+class Parameter(FileBacked):
+
+    name = FileBackedAttribute(str)
+    minimum = FileBackedAttribute(float)
+    maximum = FileBackedAttribute(float)
+    default = FileBackedAttribute(Optional[float])
+    fixed = FileBackedAttribute(Optional[float])
 
     def __init__(self, name, minimum, maximum, default=None, fixed=None):
+        super().__init__()
         if default is None:
             default = (minimum + maximum) / 2
         self.name = name
@@ -73,23 +83,11 @@ class Parameter:
         self.default = default
         self.fixed = fixed
 
-    def write(self, group, name):
-        fixed = np.nan if self.fixed is None else self.fixed
-        group[name] = [self.minimum, self.maximum, self.default, fixed]
-        group[name].attrs['name'] = self.name
 
-    @staticmethod
-    def read(dataset):
-        param = Parameter.__new__(Parameter)
-        param.name = dataset.attrs['name']
-        param.minimum, param.maximum, param.default, fixed = dataset[:]
-        if math.isnan(fixed):
-            fixed = None
-        param.fixed = fixed
-        return param
+class Parameters(FileBackedDict):
 
-
-class Parameters(OrderedDict):
+    keytype = str
+    valuetype = Parameter
 
     def __str__(self):
         table = pp_table(['Parameter', 'min', 'def', 'max'])
@@ -100,15 +98,6 @@ class Parameters(OrderedDict):
     def add(self, name, minimum, maximum, default=None):
         self[name] = Parameter(name, minimum, maximum, default)
         return mu(name)
-
-    def write(self, group):
-        for index, param in enumerate(self.values()):
-            param.write(group, str(index))
-
-    @staticmethod
-    def read(group):
-        params = [Parameter.read(group[str(i)]) for i in range(len(group))]
-        return Parameters([(param.name, param) for param in params])
 
     def parameter(self, *args, **kwargs):
         retval, index = {}, 0
@@ -154,9 +143,15 @@ class Parameters(OrderedDict):
         return tuple(p.name for p in self.values() if p.name in seq)
 
 
-class Basis:
+class Basis(FileBacked):
+
+    name = FileBackedAttribute(str)
+    start = FileBackedAttribute(int)
+    end = FileBackedAttribute(int)
+    obj = FileBackedAttribute(Any)
 
     def __init__(self, name, start, end, obj):
+        super().__init__()
         self.name = name
         self.start = start
         self.end = end
@@ -166,42 +161,28 @@ class Basis:
     def indices(self):
         return np.arange(self.start, self.end)
 
-    def write(self, group, name):
-        dataset = util.to_dataset(self.obj, group, name)
-        dataset.attrs['name'] = self.name
-        dataset.attrs['dofs'] = [self.start, self.end]
 
-    @staticmethod
-    def read(dataset):
-        basis = Basis.__new__(Basis)
-        basis.obj = util.from_dataset(dataset)
-        basis.name = dataset.attrs['name']
-        basis.start, basis.end = dataset.attrs['dofs']
-        return basis
+class Bases(FileBackedDict):
 
-
-class Bases(OrderedDict):
+    keytype = str
+    valuetype = Basis
 
     def add(self, name, obj, start=None, end=None, length=None):
         if start is None and end is None:
             assert length is not None
-            start = next(reversed(self.values())).end if self else 0
+            start = 0
+            for v in self.values():
+                start = v.end
             end = start + length
         if length is None:
             assert start is not None and end is not None
         self[name] = Basis(name, start, end, obj)
 
-    def write(self, group):
-        for index, basis in enumerate(self.values()):
-            basis.write(group, str(index))
 
-    @staticmethod
-    def read(group):
-        bases = [Basis.read(group[str(i)]) for i in range(len(group))]
-        return Bases([(basis.name, basis) for basis in bases])
+class Integrals(FileBackedDict):
 
-
-class Integrals(OrderedDict):
+    keytype = str
+    valuetype = MuFunc
 
     def __str__(self):
         table = pp_table(['Integral', 'lift', 'terms', 'opt', 'shape', 'types'])
@@ -224,24 +205,29 @@ class Integrals(OrderedDict):
         for value in self.values():
             value.verify()
 
-    def write(self, group, only=()):
-        for name, integral in self.items():
-            if not only or name in only:
-                integral.write(group.require_group(name))
+    # def write(self, group, only=()):
+    #     for name, integral in self.items():
+    #         if not only or name in only:
+    #             integral.write(group.require_group(name))
 
-    @staticmethod
-    def read(group):
-        return Integrals({key: MuFunc.read(subgrp) for key, subgrp in group.items()})
+    # @staticmethod
+    # def read(group):
+    #     return Integrals({key: MuFunc.read(subgrp) for key, subgrp in group.items()})
 
 
-class Case:
+class Case(FileBacked):
 
-    _ident_ = 'Case'
+    name = FileBackedAttribute(str)
+    _cons = FileBackedAttribute(np.ndarray)
+    integrals = FileBackedAttribute(Integrals)
+    extra_dofs = FileBackedAttribute(int)
 
     def __init__(self, name):
+        super().__init__()
         self.name = name
-        self.integrals = Integrals()
         self._cons = None
+        self.integrals = Integrals()
+        self.extra_dofs = 0
 
     def __getitem__(self, key):
         if key not in self.integrals:
@@ -325,41 +311,15 @@ class Case:
         for name, value in kwargs.items():
             self.parameters[name].fixed = value
 
-    def write(self, group, sparse=False):
-        group['type'] = np.string_(self._ident_)
-        group['name'] = np.string_(self.name)
-        group['constraints'] = self.constraints
-
-        if hasattr(self, 'extra_dofs'):
-            group['extra_dofs'] = self.extra_dofs
-
-        self.bases.write(group.require_group('bases'))
-
-        if not sparse:
-            self.integrals.write(group.require_group('integrals'))
-        else:
-            self.integrals.write(group.require_group('integrals'), only=('geometry', 'lift'))
-
-    @staticmethod
-    def read(group, sparse=False):
-        cls = util.find_subclass(Case, group['type'][()])
-        obj = cls.__new__(cls)
-
-        # Lifts behave differently between high- and low-fidelity cases
-        obj._read(group, sparse=sparse)
-
-        obj.verify()
-        return obj
-
-    def _read(self, group, sparse):
-        self.name = group['name'][()].decode()
-        self._cons = group['constraints'][:]
-
-        if 'extra_dofs' in group:
-            self.extra_dofs = group['extra_dofs'][()]
-
-        self.bases = Bases.read(group['bases'])
-        self.integrals = Integrals.read(group['integrals'])
+    # def write(self, group, sparse=False):
+    #     group['constraints'] = self.constraints
+    #     if hasattr(self, 'extra_dofs'):
+    #         group['extra_dofs'] = self.extra_dofs
+    #     self.bases.write(group.require_group('bases'))
+    #     if not sparse:
+    #         self.integrals.write(group.require_group('integrals'))
+    #     else:
+    #         self.integrals.write(group.require_group('integrals'), only=('geometry', 'lift'))
 
     def precompute(self, force=False, **kwargs):
         new = []
@@ -386,31 +346,33 @@ class Case:
 
 class HifiCase(Case):
 
+    bases = FileBackedAttribute(Bases)
+    parameters = FileBackedAttribute(Parameters)
+
     def __init__(self, *args, **kwargs):
-        self.meta = {}
-        self.parameters = Parameters()
-        self.bases = Bases()
         super().__init__(*args, **kwargs)
-
-    def _read(self, group, sparse):
-        super()._read(group, sparse)
-        self.parameters = Parameters.read(group['parameters'])
-
         self.meta = {}
-        for key, subgrp in group['meta'].items():
-            self.meta[key] = util.from_dataset(subgrp)
+        self.bases = Bases()
+        self.parameters = Parameters()
+
+    # def _read(self, group, sparse):
+    #     super()._read(group, sparse)
+    #     self.parameters = Parameters.read(group['parameters'])
+    #     self.meta = {}
+    #     for key, subgrp in group['meta'].items():
+    #         self.meta[key] = util.from_dataset(subgrp)
 
     def solution_vector(self, lhs, mu, lift=True):
         return (lhs + self['lift'](mu)) if lift else lhs
 
-    def write(self, group, sparse=False):
-        super().write(group, sparse)
-        self.parameters.write(group.require_group('parameters'))
+    # def write(self, group, sparse=False):
+    #     super().write(group, sparse)
+    #     self.parameters.write(group.require_group('parameters'))
 
-        meta = group.require_group('meta')
-        for key, value in self.meta.items():
-            util.to_dataset(value, meta, key)
-            # meta[key] = value
+    #     meta = group.require_group('meta')
+    #     for key, value in self.meta.items():
+    #         util.to_dataset(value, meta, key)
+    #         # meta[key] = value
 
     def basis(self, name, mu=None):
         return self.bases[name].obj
@@ -436,19 +398,19 @@ class NutilsCase(HifiCase):
             self.meta['triangulation'] = triangles
             self.meta['edges'] = edges
 
-    def write(self, group, sparse=False):
-        super().write(group, sparse)
-        util.to_dataset(self.domain, group, 'domain')
-        util.to_dataset(self.refgeom, group, 'refgeom')
-        if hasattr(self, '_exact_solutions'):
-            util.to_dataset(self._exact_solutions, group, 'exact_solutions')
+    # def write(self, group, sparse=False):
+    #     super().write(group, sparse)
+    #     util.to_dataset(self.domain, group, 'domain')
+    #     util.to_dataset(self.refgeom, group, 'refgeom')
+    #     if hasattr(self, '_exact_solutions'):
+    #         util.to_dataset(self._exact_solutions, group, 'exact_solutions')
 
-    def _read(self, group, sparse):
-        super()._read(group, sparse)
-        self.domain = util.from_dataset(group['domain'])
-        self.refgeom = util.from_dataset(group['refgeom'])
-        if 'exact_solutions' in group.keys():
-            self._exact_solutions = util.from_dataset(group['exact_solutions'])
+    # def _read(self, group, sparse):
+    #     super()._read(group, sparse)
+    #     self.domain = util.from_dataset(group['domain'])
+    #     self.refgeom = util.from_dataset(group['refgeom'])
+    #     if 'exact_solutions' in group.keys():
+    #         self._exact_solutions = util.from_dataset(group['exact_solutions'])
 
     def shape(self, field):
         return self.bases[field].obj.shape[1:]
