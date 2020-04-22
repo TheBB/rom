@@ -1,0 +1,36 @@
+<?xml version='1.0' encoding='utf-8' standalone='no'?>
+
+<!-- Symmetric cantilever bridge with two columns. !-->
+
+<simulation>
+
+  <geometry>
+    <patchfile>bridge.g2</patchfile>
+    <include>bridge-topology.xinp</include>
+    <include>bridge-topologysets.xinp</include>
+  </geometry>
+
+  <boundaryconditions>
+    <dirichlet set="fundament" comp="123"/>
+    <dirichlet set="support" comp="23"/>
+  </boundaryconditions>
+
+  <elasticity>
+    <gravity z="-9.81"/>
+    <isotropic E="3.0e10" nu="0.2" rho="2500.0"/>
+  </elasticity>
+
+  <postprocessing>
+    <projection type="cgl2" />
+  </postprocessing>
+
+  <adaptive>
+    <scheme>isotropic_function</scheme>
+    <beta>5</beta>
+    <errtol>0.01</errtol>
+    <maxstep>5</maxstep>
+    <use_norm>1</use_norm>
+    <use_sub_norm>2</use_sub_norm>
+  </adaptive>
+
+</simulation>
