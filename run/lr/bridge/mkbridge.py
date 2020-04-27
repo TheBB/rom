@@ -96,7 +96,11 @@ class BridgeSpec:
     span_length = 110.0
     alpha = 2.0
 
-    resolution = 2.0
+    resolution = 0.5
+    flange_nel = 3
+    colt_nel = 1
+    colw_nel = 3
+    colh_nel = 11
 
     order = 4
 
@@ -213,8 +217,10 @@ class Bridge:
             for yl, yh in zip(ypts, ypts[1:])
         ] for xl, xh in zip(xpts, xpts[1:])])
 
+        for patch in _iter_patches(temp):
+            patch.refine(self.spec.colt_nel - 1, direction='u')
         for patchlist in temp:
-            patchlist[3].refine(2, direction='v')
+            patchlist[3].refine(self.spec.colw_nel - 1, direction='v')
         return temp
 
     @lru_prop
@@ -235,7 +241,6 @@ class Bridge:
             self.spec.column_height,
         ])
 
-
         temp = _map_patches(partial(_raise_order, self.spec.order), [
             [vf.extrude(patch + (0, 0, zl), (0, 0, zh - zl)) for zl, zh in zip(zpts, zpts[1:])]
             for patch in self.col_base_surface[1][1:-1]
@@ -243,9 +248,9 @@ class Bridge:
         for z in [temp[0], temp[-1]]:
             del z[-3:]
         for z in temp[1:-1]:
-            z[-3].refine(2, direction='w')
+            z[-3].refine(self.spec.flange_nel - 1, direction='w')
         for z in temp:
-            z[0].refine(10, direction='w')
+            z[0].refine(self.spec.colh_nel, direction='w')
         return temp
 
     @lru_prop
@@ -275,7 +280,7 @@ class Bridge:
         ] for xl, xh in zip(xpts, xpts[1:])]
 
         for patchlist in temp:
-            patchlist[1].refine(2, direction='v')
+            patchlist[1].refine(self.spec.flange_nel - 1, direction='v')
         return temp
 
     @lru_prop
@@ -296,7 +301,7 @@ class Bridge:
         ] for xl, xh in zip(xpts, xpts[1:])]
 
         for patchlist in chain(*temp):
-            patchlist[0].refine(2, direction='w')
+            patchlist[0].refine(self.spec.flange_nel - 1, direction='w')
 
         return temp
 
@@ -339,10 +344,20 @@ class Bridge:
         zmin = self.spec.column_height - self.spec.road_thickness
         zmax = self.spec.column_height
 
-        return [
-            vf.extrude(sf.extrude(cf.line((xmin, ymin, zmin), (xmax, ymin, zmin)), (0, ymax - ymin, 0)), (0, 0, zmax - zmin))
+        temp = [
+            vf.extrude(
+                sf.extrude(
+                    cf.line((xmin, ymin, zmin), (xmax, ymin, zmin)),
+                    (0, ymax - ymin, 0)
+                ),
+                (0, 0, zmax - zmin)
+            )
             for ymin, ymax in ypts
         ]
+
+        for patch in temp:
+            patch.refine(self.spec.colt_nel - 1, direction='u')
+        return temp
 
     @lru_prop
     def support_btm(self):
@@ -439,16 +454,19 @@ class Bridge:
         )
 
     def patches(self):
-        yield from _iter_patches(self.full)
+        yield from _iter_patches(_map_patches(_translate((-self.spec.span_length/2, 0, 0)), self.full))
 
 
 def main():
-    spec = BridgeSpec(order=4)
+    spec = BridgeSpec(order=2, resolution=2.0)
     bridge = Bridge(spec)
     patches = list(bridge.patches())
 
     for p in patches:
         assert p.order() == (spec.order,) * 3
+
+    with io.G2('bridge.g2') as g2:
+        g2.write(patches)
 
     model = SplineModel()
     model.add(patches)
