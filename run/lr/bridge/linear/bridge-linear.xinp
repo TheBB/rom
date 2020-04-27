@@ -1,0 +1,69 @@
+<?xml version='1.0' encoding='utf-8' standalone='no'?>
+
+<!-- Symmetric cantilever bridge with two columns. !-->
+
+<simulation>
+
+  <geometry>
+    <patchfile>{{ geometry }}</patchfile>
+    <include>bridge-topology.xinp</include>
+    <include>bridge-topologysets.xinp</include>
+  </geometry>
+
+  <boundaryconditions>
+    <dirichlet set="fundament" comp="123"/>
+    <dirichlet set="support" comp="23"/>
+    <neumann set="road" direction="0" type="expression">
+      X = {{ center }};
+
+      -3.7e6 *
+      if(or(and(below(y,1.35),above(y,0.15)),
+            and(above(y,-1.35),below(y,-0.15))),
+
+         if(and(above(x,X-12.825),below(x,X-12.675)), 1.0, 0.0) +
+         if(and(above(x,X-11.325),below(x,X-11.175)), 1.0, 0.0) +
+         if(and(above(x,X- 9.825),below(x,X- 9.675)), 1.0, 0.0) +
+         if(and(above(x,X- 8.325),below(x,X- 8.175)), 1.0, 0.0) +
+         if(and(above(x,X- 6.825),below(x,X- 6.675)), 1.0, 0.0) +
+         if(and(above(x,X- 5.325),below(x,X- 5.175)), 1.0, 0.0) +
+         if(and(above(x,X- 3.825),below(x,X- 3.675)), 1.0, 0.0) +
+         if(and(above(x,X- 2.325),below(x,X- 2.175)), 1.0, 0.0) +
+         if(and(above(x,X- 0.825),below(x,X- 0.675)), 1.0, 0.0) +
+         if(and(above(x,X+ 0.675),below(x,X+ 0.825)), 1.0, 0.0) +
+         if(and(above(x,X+ 2.175),below(x,X+ 2.325)), 1.0, 0.0) +
+         if(and(above(x,X+ 3.675),below(x,X+ 3.825)), 1.0, 0.0) +
+         if(and(above(x,X+ 5.175),below(x,X+ 5.325)), 1.0, 0.0) +
+         if(and(above(x,X+ 6.675),below(x,X+ 6.825)), 1.0, 0.0) +
+         if(and(above(x,X+ 8.175),below(x,X+ 8.325)), 1.0, 0.0) +
+         if(and(above(x,X+ 9.675),below(x,X+ 9.825)), 1.0, 0.0) +
+         if(and(above(x,X+10.175),below(x,X+10.325)), 1.0, 0.0) +
+         if(and(above(x,X+12.675),below(x,X+12.825)), 1.0, 0.0)
+
+      ,0.0)
+    </neumann>
+  </boundaryconditions>
+
+  <discretization>
+    <nGauss>10 3</nGauss>
+  </discretization>
+
+  <elasticity>
+    <gravity z="-9.81"/>
+    <isotropic E="3.0e10" nu="0.2" rho="2500.0"/>
+  </elasticity>
+
+  <adaptive>
+    <scheme>isotropic_function</scheme>
+    <beta>1</beta>
+    <errtol>0.01</errtol>
+    <maxstep>6</maxstep>
+  </adaptive>
+
+  <linearsolver>
+    <type>preonly</type>
+    <pc>lu</pc>
+    <package>mumps</package>
+    <maxits>5000</maxits>
+  </linearsolver>
+
+</simulation>
