@@ -16,11 +16,11 @@ def ifem_solve(root, mu, i, order):
     with open(f'{order}/bridge-{order}.xinp', 'r') as f:
         template = Template(f.read())
     with open(root / f'bridge-{order}.xinp', 'w') as f:
-        f.write(template.render(geometry='bridge-{order}.g2', **mu))
+        f.write(template.render(geometry=f'bridge-{order}.g2', **mu))
 
     shutil.copy(f'{order}/bridge-topology.xinp', root / 'bridge-topology.xinp')
     shutil.copy(f'{order}/bridge-topologysets.xinp', root / 'bridge-topologysets.xinp')
-    shutil.copy(f'{order}/bridge-{order}.g2', root / 'bridge-{order}.g2')
+    shutil.copy(f'{order}/bridge-{order}.g2', root / f'bridge-{order}.g2')
 
     result = run([IFEM, f'bridge-{order}.xinp', '-adap1', '-cgl2', '-hdf5'],
                  cwd=root, stdout=PIPE, stderr=PIPE)
