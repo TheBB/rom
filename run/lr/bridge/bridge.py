@@ -11,6 +11,7 @@ from xml.etree import ElementTree
 import numpy as np
 
 from aroma import util, quadrature, case, ensemble as ens, cases, solvers, reduction
+from aroma.affine.integrands.lr import integrate2, loc_laplacian
 
 
 IFEM = '/home/eivind/repos/IFEM/Apps/Elasticity/Linear/build/bin/LinEl'
@@ -72,26 +73,6 @@ def move_meshlines(source, target):
     target.generate_ids()
 
 
-def test_ensemble():
-    with open('a.lr', 'rb') as f:
-        a = lr.LRSplineVolume(f)
-    with open('b.lr', 'rb') as f:
-        b = lr.LRSplineVolume(f)
-    z = a.clone()
-    move_meshlines(a, z)
-    move_meshlines(b, z)
-    print(len(a), len(b), len(z))
-    move_meshlines(z, a)
-    move_meshlines(z, b)
-    print(len(a), len(b), len(z))
-    move_meshlines(a, z)
-    move_meshlines(b, z)
-    print(len(a), len(b), len(z))
-    move_meshlines(z, a)
-    move_meshlines(z, b)
-    print(len(a), len(b), len(z))
-
-
 def merge_ensemble(order: int):
     allsols = load_ensemble(order)
     rootpatches = [g.clone() for g, _ in allsols[0]]
@@ -109,19 +90,6 @@ def merge_ensemble(order: int):
     for i, sol in enumerate(tqdm(allsols, 'Writing')):
         glengths = list(map(len, (g for g, _ in sol)))
         slengths = list(map(len, (s for _, s in sol)))
-
-        # print(i, [j for j, (g, r) in enumerate(zip(glengths, lengths)) if g != r])
-
-        # try:
-        #     print(i, min(r for g, r in zip(glengths, lengths) if g != r))
-        # except:
-        #     pass
-
-        # try:
-        #     firstwrong = next(i for (i, g), r in zip(enumerate(glengths), lengths) if g != r)
-        #     print('First wrong:', i, firstwrong)
-        # except:
-        #     pass
 
         # assert glengths == lengths
         # assert slengths == lengths
@@ -177,32 +145,41 @@ def stitch_ensemble(order: int):
             f.write(','.join([temp_to_final[i] for i in ids]) + '\n')
 
 
-def get_ensemble(num: int, order: int):
-    scheme = quadrature.full([(LOWER, UPPER)], num)
+def integrate(order: int):
     order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
-    with open(f'{order}/stitched/nodeids.txt') as f:
-        nodeids = f.readlines()
-    nodeids = [list(map(int, line.split(','))) for line in nodeids]
-    N = max(max(patch) for patch in nodeids)
-
     with open(f'{order}/stitched/00-geom.lr', 'rb') as f:
         geometry = lr.LRSplineObject.read_many(f)
 
-    for i in range(num):
-        ux, uy = np.zeros((N,)), np.zeros((N,))
-        with open(f'{order}/stitched/{i:02}-sol.lr', 'rb') as f:
-            patches = lr.LRSplineObject.read_many(f)
-        for j, (patch, ids) in enumerate(zip(patches, nodeids)):
-            print(j, len(patch), len(ids))
-            ux[ids] = [bf.controlpoint[0] for bf in patch.basis]
-            uy[ids] = [bf.controlpoint[1] for bf in patch.basis]
-        solvec = np.vstack((ux, uy))
-        # print(solvec.shape)
+    for patch in tqdm(geometry):
+        integrate2(patch, loc_laplacian, npts=5)
+
+
+# def get_ensemble(num: int, order: int):
+#     scheme = quadrature.full([(LOWER, UPPER)], num)
+#     order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+#     with open(f'{order}/stitched/nodeids.txt') as f:
+#         nodeids = f.readlines()
+#     nodeids = [list(map(int, line.split(','))) for line in nodeids]
+#     N = max(max(patch) for patch in nodeids)
+
+#     with open(f'{order}/stitched/00-geom.lr', 'rb') as f:
+#         geometry = lr.LRSplineObject.read_many(f)
+
+#     for i in range(num):
+#         ux, uy = np.zeros((N,)), np.zeros((N,))
+#         with open(f'{order}/stitched/{i:02}-sol.lr', 'rb') as f:
+#             patches = lr.LRSplineObject.read_many(f)
+#         for j, (patch, ids) in enumerate(zip(patches, nodeids)):
+#             print(j, len(patch), len(ids))
+#             ux[ids] = [bf.controlpoint[0] for bf in patch.basis]
+#             uy[ids] = [bf.controlpoint[1] for bf in patch.basis]
+#         solvec = np.vstack((ux, uy))
+#         # print(solvec.shape)
 
 
 if __name__ == '__main__':
     # load_ensemble(order=3)
     # get_ensemble(num=50, order=3)
     # merge_ensemble(order=3)
-    stitch_ensemble(order=3)
-    # test_ensemble()
+    # stitch_ensemble(order=3)
+    integrate(order=3)

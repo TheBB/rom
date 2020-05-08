@@ -47,71 +47,86 @@ from aroma.affine import MuCallable
 from aroma import util
 
 
+def _local_quadrature(element, wts, refpts):
+    bounds = element.span()
+    locwts = wts * np.prod([(upper - lower) for lower, upper in bounds])
+    locpts = tuple(
+        ref * (upper - lower) + lower
+        for ref, (lower, upper) in zip(refpts, bounds)
+    )
+    return (locwts, *locpts)
+
+
+def _jacobian(mesh, element, *pt):
+    if len(pt) == 2:
+        return np.array([mesh.derivative(*pt, d=[(1,0), (0,1)])]).T
+    if len(pt) == 3:
+        return np.array(mesh.derivative(*pt, d=[(1,0,0), (0,1,0), (0,0,1)])).T
+
+
+def _gradient(jac, bf, *pt):
+    if len(pt) == 2:
+        refgrad = np.array(bf.derivative(*pt, d=[(1,0), (0,1)]))
+    elif len(pt) == 3:
+        refgrad = np.array(bf.derivative(*pt, d=[(1,0,0), (0,1,0), (0,0,1)]))
+    return jac.dot(refgrad)
+
+
 def simple_loc2(func):
-    def inner(elt, wts, upts, vpts, **kwargs):
+    def inner(mesh, elt, wts, refpts, **kwargs):
         bfuns = list(elt.support())
         ids = [bf.id for bf in bfuns]
         V = np.zeros((len(bfuns), len(bfuns)))
         I, J = np.meshgrid(ids, ids)
 
-        (umin, umax), (vmin, vmax) = elt.span()
-        locwts = wts * (umax - umin) * (vmax - vmin)
-        locupts = upts * (umax - umin) + umin
-        locvpts = vpts * (vmax - vmin) + vmin
-
-        func(bfuns, locwts, locupts, locvpts, V, **kwargs)
+        locwts, *locpts = _local_quadrature(elt, wts, refpts)
+        for (wt, *pt) in zip(locwts, *locpts):
+            jtinv = np.linalg.inv(_jacobian(mesh, elt, *pt).T)
+            func(bfuns, jtinv, V, wt, *pt, **kwargs)
 
         return I, J, V
     return inner
 
 
 def simple_loc1(func):
-    def inner(elt, wts, upts, vpts, **kwargs):
+    def inner(mesh, elt, wts, upts, vpts, **kwargs):
         bfuns = list(elt.support())
         ids = [bf.id for bf in bfuns]
         V = np.zeros((len(bfuns),))
 
-        (umin, umax), (vmin, vmax) = elt.span()
-        locwts = wts * (umax - umin) * (vmax - vmin)
-        locupts = upts * (umax - umin) + umin
-        locvpts = vpts * (vmax - vmin) + vmin
-
-        func(bfuns, locwts, locupts, locvpts, V, **kwargs)
+        locwts, *locpts = _local_quadrature(elt, wts, refpts)
+        for (wt, *pt) in zip(locwts, *locpts):
+            jtinv = np.linalg.inv(_jacobian(mesh, elt, *pt).T)
+            func(bfuns, jtinv, V, wt, *pt, **kwargs)
 
         return ids, V
     return inner
 
 
 @simple_loc2
-def loc_mass(bfuns, locwts, locupts, locvpts, V):
-    for wt, upt, vpt in zip(locwts, locupts, locvpts):
-        lft = np.array([bf(upt, vpt) for bf in bfuns])
-        V += np.outer(lft, lft) * wt
+def loc_mass(bfuns, J, V, wt, *pt):
+    lft = np.array([bf(*pt) for bf in bfuns])
+    V += np.outer(lft, lft) * wt
 
 
 @simple_loc2
-def loc_laplacian(bfuns, locwts, locupts, locvpts, V):
-    for wt, upt, vpt in zip(locwts, locupts, locvpts):
-        for deriv in ((1,0), (0,1)):
-            lft = np.array([bf.derivative(upt, vpt, d=deriv) for bf in bfuns])
-            rgt = np.array([bf.derivative(upt, vpt, d=deriv) for bf in bfuns])
-            V += np.outer(lft, rgt) * wt
+def loc_laplacian(bfuns, J, V, wt, *pt):
+    gradients = [_gradient(J, bf, *pt) for bf in bfuns]
+    V += np.einsum('ik,jk->ij', gradients, gradients) * wt
 
 
 @simple_loc1
-def loc_source(bfuns, locwts, locupts, locvpts, V, source):
-    for wt, upt, vpt in zip(locwts, locupts, locvpts):
-        lft = np.array([bf(upt, vpt) for bf in bfuns])
-        # TODO: multiply with source term
-        V += lft * wt * source(upt, vpt)
+def loc_source(bfuns, J, V, wt, *pt, source=None):
+    lft = np.array([bf(*pt) for bf in bfuns])
+    V += lft * wt * source(*pt)
 
 
 def integrate2(mesh, local, npts=5, **kwargs):
-    wts, upts, vpts = quadrature.full([[0.0, 1.0], [0.0, 1.0]], npts).T
+    (wts, *refpts) = quadrature.full([(0.0, 1.0)] * mesh.pardim, npts).T
     I, J, V = [], [], []
 
     for elt in log.iter('integrating', mesh.elements):
-        Il, Jl, Vl = local(elt, wts, upts, vpts, **kwargs)
+        Il, Jl, Vl = local(mesh, elt, wts, refpts, **kwargs)
         I.extend(Il.flat)
         J.extend(Jl.flat)
         V.extend(Vl.flat)
@@ -120,11 +135,11 @@ def integrate2(mesh, local, npts=5, **kwargs):
 
 
 def integrate1(mesh, local, npts=5, **kwargs):
-    wts, upts, vpts = quadrature.full([[0.0, 1.0], [0.0, 1.0]], npts).T
+    (wts, *refpts) = quadrature.full([(0.0, 1.0)] * mesh.pardim, npts).T
     V = np.zeros((len(mesh),))
 
     for elt in log.iter('integrating', mesh.elements):
-        Il, Vl = local(elt, wts, upts, vpts, **kwargs)
+        Il, Vl = local(mesh, elt, wts, refpts, **kwargs)
         V[Il] += Vl
 
     return V
