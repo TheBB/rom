@@ -36,6 +36,8 @@ def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: in
     ensemble = get_ensemble(fast, piola, num)
 
     case.integrals['divergence'].liftable = (0, 1)
+    case.integrals['xforce'].liftable = (0,)
+    case.integrals['yforce'].liftable = (0,)
 
     reducer = reduction.EigenReducer(case, ensemble)
     reducer.add_basis('v', parent='v', ensemble='solutions', ndofs=nred, norm='h1s')
@@ -50,25 +52,6 @@ def get_reduced(piola: bool = False, sups: bool = True, nred: int = 10, fast: in
 
     reducer.plot_spectra(util.make_filename(get_reduced, 'airfoil-spectrum-{piola}', piola=piola))
     return reducer(tol=1e-6, nrules=4)
-
-
-def force_err(hicase, locase, hifi, lofi, scheme):
-    abs_err, rel_err = np.zeros(2), np.zeros(2)
-    max_abs_err, max_rel_err = np.zeros(2), np.zeros(2)
-    for hilhs, lolhs, (mu, weight) in zip(hifi, lofi, scheme):
-        mu = locase.parameter(*mu)
-        hiforce = hicase['force'](mu, cont=(hilhs,None))
-        loforce = locase['force'](mu, cont=(lolhs,None))
-        aerr = np.abs(hiforce - loforce)
-        rerr = aerr / np.abs(hiforce)
-        max_abs_err = np.maximum(max_abs_err, aerr)
-        max_rel_err = np.maximum(max_rel_err, rerr)
-        abs_err += weight * aerr
-        rel_err += weight * rerr
-
-    abs_err /= sum(w for __, w in scheme)
-    rel_err /= sum(w for __, w in scheme)
-    return np.concatenate([abs_err, rel_err, max_abs_err, max_rel_err])
 
 
 @main.command()
@@ -92,8 +75,16 @@ def solve(angle, velocity, fast, piola, index):
     mu = case.parameter(angle=angle, velocity=velocity)
     with util.time():
         lhs = solvers.navierstokes(case, mu, solver='mkl')
-    visualization.velocity(case, mu, lhs, name='full', axes=False, colorbar=True)
-    visualization.pressure(case, mu, lhs, name='full', axes=False, colorbar=True)
+    force = solvers.force(case, mu, lhs, method='direct')
+    print(force)
+    # force = (
+    #     solvers.force(case, mu, lhs, method='recover', tsolver='be') +
+    #     solvers.force(case, mu, )
+    # )
+    # force = solvers.force(case, mu, lhs, method='recover', tsolver='be')
+    # lforce = solvers.force(case, mu, case['lift'](mu))
+    # visualization.velocity(case, mu, lhs, name='full', axes=False, colorbar=True)
+    # visualization.pressure(case, mu, lhs, name='full', axes=False, colorbar=True)
 
 
 @main.command()
@@ -106,6 +97,8 @@ def solve(angle, velocity, fast, piola, index):
 @util.common_args
 def rsolve(angle, velocity, piola, sups, nred, index):
     case = get_reduced(piola=piola, sups=sups, nred=nred)
+    print(case)
+    return
     angle = -angle / 180 * np.pi
     mu = case.parameter(angle=angle, velocity=velocity)
     with util.time():
@@ -115,8 +108,6 @@ def rsolve(angle, velocity, piola, sups, nred, index):
             log.user('solving non-block')
             lhs = solvers.navierstokes(case, mu)
     visualization.vtk(case, mu, lhs)
-    # visualization.velocity(case, mu, lhs, name='red', axes=False, colorbar=True)
-    # visualization.pressure(case, mu, lhs, name='red', axes=False, colorbar=True)
 
 
 @main.command()

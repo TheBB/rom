@@ -278,6 +278,9 @@ class MuCallable(MuFunc):
             if large.ndim == 1:
                 pa, = proj
                 return pa.dot(large)
+            if large.ndim == 0:
+                assert not proj
+                return large
             assert False
 
         ranges = case.ranges(keep=totdeps)
@@ -306,9 +309,9 @@ class MuCallable(MuFunc):
         projected = self._self_project(case, proj, (None,) * self.ndim, **kwargs)
 
         # TODO: Compute applicable lifts some other way
-        if self.ndim <= 1:
-            return projected
-        if self.ndim == 2:
+        if self.ndim == 1:
+            num_lifts = (1,)
+        elif self.ndim == 2:
             num_lifts = (1,)
         else:
             num_lifts = (self.ndim - 2, self.ndim - 1)

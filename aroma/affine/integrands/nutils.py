@@ -39,6 +39,7 @@
 
 from collections import OrderedDict
 from nutils import matrix, function as fn, _
+import numpy as np
 
 from aroma import util
 from aroma.affine import MuCallable
@@ -135,6 +136,39 @@ class NSConvection(MuCallable):
         backend = matrix.Scipy if itg.ndim < 3 else COOTensorBackend
         with backend():
             return unwrap(case.domain.integrate(itg * fn.J(geom), ischeme='gauss9'))
+
+
+class ForceRecovery(MuCallable):
+
+    _ident_ = 'ForceRecovery'
+
+    def __init__(self, direction, boundary, n, *deps, scale=1):
+        super().__init__((n,), deps, scale=scale)
+        self.direction = direction
+        self.boundary = boundary
+
+    def write(self, group):
+        super().write(group)
+        util.to_dataset(self.direction, group, 'direction')
+        util.to_dataset(self.boundary, group, 'boundary')
+
+    def _read(self, group):
+        super()._read(group)
+        self.direction = util.from_dataset(group['direction'])
+        self.boundary = util.from_dataset(group['boundary'])
+
+    def evaluate(self, case, mu, cont):
+        geom = case['geometry'](mu)
+        vbasis = case.basis('v', mu)
+        pbasis = case.basis('p', mu)
+
+        itg = pbasis[:,_] * geom.normal()
+        # itg -= fn.matmat(vbasis.grad(geom), geom.normal()) / mu['viscosity']
+        # HACK
+        itg -= fn.matmat(vbasis.grad(geom), geom.normal()) / 6.0
+        itg = util.contract(itg, cont + (None,))
+        retval = unwrap(case.domain.boundary[self.boundary].integrate(itg * fn.J(geom), ischeme='gauss9'))
+        return retval[..., self.direction]
 
 
 class PiolaVectorTransform(MuCallable):

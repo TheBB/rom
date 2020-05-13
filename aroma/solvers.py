@@ -361,9 +361,11 @@ def error(case, mu, field, lhs, norm='l2'):
 
 
 def force(case, mu, lhs, prev=None, dt=None, method='recover', tsolver='be'):
-    mu = case.parameter()
     if method == 'direct':
-        return case['force'](mu, cont=(lhs, None))
+        return np.array([
+            case['xforce'](mu, cont=(lhs,)) + case['xforce'](mu, cont=('lift',)),
+            case['yforce'](mu, cont=(lhs,)) + case['yforce'](mu, cont=('lift',)),
+        ])
     assert method == 'recover'
     wx, wy = case['xforce'](mu), case['yforce'](mu)
 
@@ -386,5 +388,4 @@ def force(case, mu, lhs, prev=None, dt=None, method='recover', tsolver='be'):
             return f
 
     fx, fy = getf(wx), getf(wy)
-
     return np.array([*fx, *fy])

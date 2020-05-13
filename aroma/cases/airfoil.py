@@ -183,3 +183,6 @@ class airfoil(NutilsCase):
         x, __ = geom
         self.constrain('v', 'left')
         self.constrain('v', domain.boundary['right'].select(-x))
+
+        self['xforce'] = ntl.ForceRecovery(0, 'left', nfuncs, 'angle')
+        self['yforce'] = ntl.ForceRecovery(1, 'left', nfuncs, 'angle')

@@ -1,4 +1,4 @@
-# Copyright (C) 2014 SINTEF ICT,
+
 # Applied Mathematics, Norway.
 #
 # Contact information:

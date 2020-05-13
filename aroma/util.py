@@ -259,7 +259,6 @@ def filecache(fmt):
                 if exists(filename):
                     log.user(f'reading from {filename}')
                     reader = Case if filename.endswith('case') else Ensemble
-                    # with h5py.File(filename, 'r') as f:
                     with pyfive.File(filename) as f:
                         return reader.read(f)
                 log.user(f'{filename} not found')
