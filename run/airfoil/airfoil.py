@@ -97,8 +97,6 @@ def solve(angle, velocity, fast, piola, index):
 @util.common_args
 def rsolve(angle, velocity, piola, sups, nred, index):
     case = get_reduced(piola=piola, sups=sups, nred=nred)
-    print(case)
-    return
     angle = -angle / 180 * np.pi
     mu = case.parameter(angle=angle, velocity=velocity)
     with util.time():
@@ -107,6 +105,8 @@ def rsolve(angle, velocity, piola, sups, nred, index):
         except AssertionError:
             log.user('solving non-block')
             lhs = solvers.navierstokes(case, mu)
+    force = solvers.force(case, mu, lhs, method='direct')
+    print(force)
     visualization.vtk(case, mu, lhs)
 
 
