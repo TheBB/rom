@@ -74,6 +74,9 @@ def vtk(case, mu, lhs, name='solution', index=None, ndigits=4):
         except KeyError:
             continue
 
+        if sol.shape[-1] == 2:
+            sol = np.hstack([sol, np.zeros([sol.shape[0], 1])])
+
         data = vtknp.numpy_to_vtk(sol, deep=True)
         data.SetName(field)
         grid.GetPointData().AddArray(data)
