@@ -1,3 +1,4 @@
+import click
 from tempfile import TemporaryDirectory
 import shutil
 from jinja2 import Template
@@ -9,14 +10,32 @@ import h5py
 import lrspline as lr
 from xml.etree import ElementTree
 import numpy as np
+import scipy.sparse as sparse
 
 from aroma import util, quadrature, case, ensemble as ens, cases, solvers, reduction
-from aroma.affine.integrands.lr import integrate2, loc_laplacian
+from aroma.affine.integrands.lr import LRElastic, integrate2, loc_diff
+from aroma.affine import MuConstant
 
 
 IFEM = '/home/eivind/repos/IFEM/Apps/Elasticity/Linear/build/bin/LinEl'
 LOWER = -97.175
 UPPER = 97.175
+
+
+class BridgeCase(case.LRCase):
+
+    def __init__(self, patches, nodeids):
+        super().__init__('Bridge LR')
+        loadpos = self.parameters.add('loadpos', LOWER, UPPER, default=0.0)
+        ndofs = max(max(idlist) for idlist in nodeids) + 1
+        self.nodeids = nodeids
+
+        self['geometry'] = MuConstant(patches, shape=(3,))
+        self.bases.add('ux', patches, length=ndofs)
+        self.bases.add('uy', patches, length=ndofs)
+        self.bases.add('uz', patches, length=ndofs)
+
+        self['stiffness'] = LRElastic(ndofs)
 
 
 def ifem_solve(root, mu, i, order):
@@ -91,9 +110,6 @@ def merge_ensemble(order: int):
         glengths = list(map(len, (g for g, _ in sol)))
         slengths = list(map(len, (s for _, s in sol)))
 
-        # assert glengths == lengths
-        # assert slengths == lengths
-
         with open(f'{order}/stitched/{i:02}-geom.lr', 'wb') as f:
             for g, _ in sol:
                 g.w.write(f)
@@ -145,13 +161,23 @@ def stitch_ensemble(order: int):
             f.write(','.join([temp_to_final[i] for i in ids]) + '\n')
 
 
-def integrate(order: int):
+def get_case(order: int):
     order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
-    with open(f'{order}/stitched/00-geom.lr', 'rb') as f:
-        geometry = lr.LRSplineObject.read_many(f)
+    with open(f'{order}/stitched/geometry.lr', 'rb') as f:
+        patches = lr.LRSplineObject.read_many(f)
+    with open(f'{order}/stitched/nodeids.txt') as f:
+        nodeids = f.readlines()
+    nodeids = [list(map(int, line.split(','))) for line in nodeids]
+    return BridgeCase(patches, nodeids)
 
-    for patch in tqdm(geometry):
-        integrate2(patch, loc_laplacian, npts=5)
+
+# def integrate(order: int):
+#     order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+#     with open(f'{order}/stitched/00-geom.lr', 'rb') as f:
+#         geometry = lr.LRSplineObject.read_many(f)
+
+#     for patch in tqdm(geometry):
+#         integrate2(patch, loc_laplacian, npts=5)
 
 
 # def get_ensemble(num: int, order: int):
@@ -177,9 +203,29 @@ def integrate(order: int):
 #         # print(solvec.shape)
 
 
+@click.group()
+def main():
+    pass
+
+
+@main.command()
+@click.argument('diff')
+@util.common_args
+def zing(diff):
+    case = get_case(3)
+    mu = case.parameter()
+    mesh = case['geometry'](mu)
+
+    diffids = tuple('xyz'.index(d) for d in diff)
+    mx = integrate2(mesh, case.nodeids, loc_diff, 3, diffids=diffids)
+    sparse.save_npz(f'{diff}.npz', mx)
+
+
 if __name__ == '__main__':
     # load_ensemble(order=3)
     # get_ensemble(num=50, order=3)
     # merge_ensemble(order=3)
     # stitch_ensemble(order=3)
-    integrate(order=3)
+    # integrate(order=3)
+
+    main()

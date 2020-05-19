@@ -121,17 +121,30 @@ def loc_source(bfuns, J, V, wt, *pt, source=None):
     V += lft * wt * source(*pt)
 
 
-def integrate2(mesh, local, npts=5, **kwargs):
-    (wts, *refpts) = quadrature.full([(0.0, 1.0)] * mesh.pardim, npts).T
+@simple_loc2
+def loc_diff(bfuns, J, V, wt, *pt, diffids=(0,0)):
+    gradients = [_gradient(J, bf, *pt) for bf in bfuns]
+    i, j = diffids
+    lft = np.array([grad[i] for grad in gradients])
+    rgt = np.array([grad[j] for grad in gradients])
+    V += np.outer(lft, rgt) * wt
+
+
+def integrate2(mesh, nodeids, local, npts=5, **kwargs):
+    (wts, *refpts) = quadrature.full([(0.0, 1.0)] * mesh[0].pardim, npts).T
     I, J, V = [], [], []
+    ndofs = max(max(idmap) for idmap in nodeids) + 1
 
-    for elt in log.iter('integrating', mesh.elements):
-        Il, Jl, Vl = local(mesh, elt, wts, refpts, **kwargs)
-        I.extend(Il.flat)
-        J.extend(Jl.flat)
-        V.extend(Vl.flat)
+    for idmap, patch in log.iter('patch', zip(nodeids, mesh)):
+        for elt in log.iter('element', patch.elements):
+            Il, Jl, Vl = local(patch, elt, wts, refpts, **kwargs)
+            Il = [idmap[i] for i in Il.flat]
+            Jl = [idmap[j] for j in Jl.flat]
+            I.extend(Il)
+            J.extend(Jl)
+            V.extend(Vl.flat)
 
-    return sparse.csr_matrix((V, (I, J)), shape=(len(mesh), len(mesh)))
+    return sparse.csr_matrix((V, (I, J)), shape=(ndofs, ndofs))
 
 
 def integrate1(mesh, local, npts=5, **kwargs):
@@ -171,6 +184,55 @@ class LRMass(MuCallable):
         # TODO: It is assumed that the geometry represents all bases
         mesh = case['geometry'](mu)
         mx = integrate2(mesh, loc_mass, 5)
+        mx = util.contract_sparse(mx, cont)
+        return mx
+
+
+class LRElastic(MuCallable):
+
+    _ident_ = 'LRElastic'
+
+    def __init__(self, n, *deps, scale=1):
+        super().__init__((3*n, 3*n), deps, scale=scale)
+
+    def evaluate(self, case, mu, cont):
+        mesh = case['geometry'](mu)
+        E = 3.0e10
+        nu = 0.2
+        pmu = E / (1 + nu)
+        plm = E * nu / (1 + nu) / (1 - 2*nu)
+
+        # Diagonal blocks
+        with log.context('xx'):
+            xx = integrate2(mesh, case.nodeids, loc_diff, 3, diffids=(0,0))
+        with log.context('yy'):
+            yy = integrate2(mesh, case.nodeids, loc_diff, 3, diffids=(1,1))
+        with log.context('zz'):
+            zz = integrate2(mesh, case.nodeids, loc_diff, 3, diffids=(2,2))
+        xxblock = (pmu + plm) * xx + pmu / 2 * (yy + zz)
+        yyblock = (pmu + plm) * yy + pmu / 2 * (xx + zz)
+        zzblock = (pmu + plm) * zz + pmu / 2 * (xx + yy)
+        del xx, yy, zz
+
+        # Off-diagonal blocks
+        with log.context('xy'):
+            xy = integrate2(mesh, case.nodeids, loc_diff, 3, diffids=(0,1))
+        with log.context('xz'):
+            xz = integrate2(mesh, case.nodeids, loc_diff, 3, diffids=(0,2))
+        with log.context('yz'):
+            yz = integrate2(mesh, case.nodeids, loc_diff, 3, diffids=(1,2))
+        xyblock = pmu / 2 * xy.T + plm * xy
+        xzblock = pmu / 2 * xz.T + plm * xz
+        yzblock = pmu / 2 * yz.T + plm * yz
+        del xy, xz, yz
+
+        mx = sparse.bmat([
+            [xxblock, xyblock, xzblock],
+            [xyblock.T, yyblock, yzblock],
+            [xzblock.T, yzblock.T, zzblock],
+        ])
+        del xxblock, xyblock, xzblock, yyblock, yzblock, zzblock
+
         mx = util.contract_sparse(mx, cont)
         return mx
 

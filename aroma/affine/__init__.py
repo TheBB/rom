@@ -369,8 +369,9 @@ class MuConstant(MuObject):
 
     _ident_ = 'MuConstant'
 
-    def __init__(self, obj, scale=1):
-        super().__init__(obj, obj.shape, (), scale=scale)
+    def __init__(self, obj, scale=1, shape=None):
+        shape = shape or obj.shape
+        super().__init__(obj, shape, (), scale=scale)
 
     def evaluate(self, case, pval, cont):
         assert all(c is None for c in cont)

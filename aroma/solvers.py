@@ -326,8 +326,9 @@ def infsup(case, mu):
 
 def elasticity(case, mu):
     matrix = case['stiffness'](mu)
-    matrix += case['penalty'](mu)
-    rhs = - case['stiffness'](mu, lift=1)
+    if 'penalty' in case:
+        matrix += case['penalty'](mu)
+    rhs = - case['stiffness'](mu, cont=(None, 'lift'))
     if 'forcing' in case:
         rhs += case['forcing'](mu)
 
