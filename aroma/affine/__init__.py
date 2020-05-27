@@ -41,6 +41,7 @@ from functools import partial
 from itertools import combinations, chain, count
 import numpy as np
 from nutils import function as fn, matrix, _, log
+from scipy import sparse
 
 from aroma import util
 from aroma.affine.integrands import *
@@ -374,8 +375,10 @@ class MuConstant(MuObject):
         super().__init__(obj, shape, (), scale=scale)
 
     def evaluate(self, case, pval, cont):
-        assert all(c is None for c in cont)
-        return self.obj
+        if isinstance(self.obj, sparse.spmatrix):
+            return util.contract_sparse(self.obj, cont)
+        else:
+            return util.contract(self.obj, cont)
 
 
 def _broadcast(args):

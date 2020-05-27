@@ -304,7 +304,7 @@ class LRZLoad(MuCallable):
         mesh = case['geometry'](mu)
         submesh = [mesh[i] for i in self.patchids]
         subnodeids = [case.nodeids[i] for i in self.patchids]
-        ndofs = max(max(idmap) for idmap in case.nodeids)
+        ndofs = max(max(idmap) for idmap in case.nodeids) + 1
         vec = integrate1_zhi(submesh, subnodeids, loc_source, 1, source=partial(self.sourcefunc, mu), edge='top')
         vec.resize((ndofs,))
         vec = np.hstack([np.zeros((ndofs,)), np.zeros((ndofs,)), vec])
