@@ -89,15 +89,16 @@ def simple_loc2(func):
 
 
 def simple_loc1(func):
-    def inner(mesh, elt, wts, upts, vpts, **kwargs):
+    def inner(mesh, elt, wts, refpts, **kwargs):
         bfuns = list(elt.support())
         ids = [bf.id for bf in bfuns]
         V = np.zeros((len(bfuns),))
 
         locwts, *locpts = _local_quadrature(elt, wts, refpts)
         for (wt, *pt) in zip(locwts, *locpts):
+            physpt = mesh(*pt)
             jtinv = np.linalg.inv(_jacobian(mesh, elt, *pt).T)
-            func(bfuns, jtinv, V, wt, *pt, **kwargs)
+            func(bfuns, jtinv, V, wt, *pt, **kwargs, physpt=physpt)
 
         return ids, V
     return inner
@@ -116,9 +117,9 @@ def loc_laplacian(bfuns, J, V, wt, *pt):
 
 
 @simple_loc1
-def loc_source(bfuns, J, V, wt, *pt, source=None):
+def loc_source(bfuns, J, V, wt, *pt, source=None, physpt=None):
     lft = np.array([bf(*pt) for bf in bfuns])
-    V += lft * wt * source(*pt)
+    V += lft * wt * source(*physpt)
 
 
 @simple_loc2
@@ -154,6 +155,24 @@ def integrate1(mesh, local, npts=5, **kwargs):
     for elt in log.iter('integrating', mesh.elements):
         Il, Vl = local(mesh, elt, wts, refpts, **kwargs)
         V[Il] += Vl
+
+    return V
+
+
+def integrate1_zhi(mesh, nodeids, local, npts=5, edge=None, **kwargs):
+    (wts, *refpts) = quadrature.full([(0.0, 1.0), (0.0, 1.0)], npts).T
+    refpts.append(np.ones(refpts[0].shape) - 1e-5)
+    ndofs = max(max(idmap) for idmap in nodeids) + 1
+    V = np.zeros((ndofs,))
+
+    for idmap, patch in log.iter('patch', zip(nodeids, mesh)):
+        elements = patch.elements
+        if edge is not None:
+            elements = elements.edge(edge)
+        for elt in log.iter('element', elements):
+            Il, Vl = local(patch, elt, wts, refpts, **kwargs)
+            Il = [idmap[i] for i in Il]
+            V[Il] += Vl
 
     return V
 
@@ -259,3 +278,34 @@ class LRSource(MuCallable):
         mx = integrate1(mesh, loc_source, 5, source=partial(self.sourcefunc, mu))
         mx = util.contract(mx, cont)
         return mx
+
+
+class LRZLoad(MuCallable):
+
+    _ident_ = 'LRZLoad'
+
+    def __init__(self, n, sourcefunc, patchids, *deps, scale=1):
+        super().__init__((n,), deps, scale=scale)
+        self.sourcefunc = sourcefunc
+        self.patchids = patchids
+
+    def write(self, group):
+        super().write(group)
+        util.to_dataset(self.sourcefunc, group, 'sourcefunc')
+        util.to_dataset(self.patchids, group, 'patchids')
+
+    def _read(self, group):
+        super()._read(group)
+        self.sourcefunc = util.from_dataset(group['sourcefunc'])
+        self.patchids = util.from_dataset(group['patchids'])
+
+    def evaluate(self, case, mu, cont):
+        # TODO: It is assumed that the geometry represents all bases
+        mesh = case['geometry'](mu)
+        submesh = [mesh[i] for i in self.patchids]
+        subnodeids = [case.nodeids[i] for i in self.patchids]
+        ndofs = max(max(idmap) for idmap in case.nodeids)
+        vec = integrate1_zhi(submesh, subnodeids, loc_source, 1, source=partial(self.sourcefunc, mu), edge='top')
+        vec.resize((ndofs,))
+        vec = np.hstack([np.zeros((ndofs,)), np.zeros((ndofs,)), vec])
+        return vec

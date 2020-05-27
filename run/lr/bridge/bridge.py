@@ -11,15 +11,87 @@ import lrspline as lr
 from xml.etree import ElementTree
 import numpy as np
 import scipy.sparse as sparse
+import sys
 
 from aroma import util, quadrature, case, ensemble as ens, cases, solvers, reduction
-from aroma.affine.integrands.lr import LRElastic, integrate2, loc_diff
+from aroma.affine.integrands.lr import integrate2, loc_diff, LRZLoad
 from aroma.affine import MuConstant
 
 
 IFEM = '/home/eivind/repos/IFEM/Apps/Elasticity/Linear/build/bin/LinEl'
 LOWER = -97.175
 UPPER = 97.175
+LOAD = 3.7e6
+E = 3.0e10
+NU = 0.2
+ROADIDS = [
+    6, 7, 8, 9, 10, 11, 21, 22, 23, 24, 52, 57, 62, 65, 66, 73, 74, 75, 76,
+    77, 78, 88, 89, 90, 91, 98, 99, 100, 101, 102, 103, 113, 114, 115, 116,
+    144, 149, 154, 157, 158, 165, 166, 167, 168, 169, 170, 180, 181, 182, 183,
+]
+
+
+def load(mu, x, y, z):
+    X = mu['loadpos']
+    if y < -1.35 or 1.35 < y:
+        return 0.0
+    if -0.15 < y < 0.15:
+        return 0.0
+    breaks = [12.75, 11.25, 9.75, 8.25, 6.75, 5.25, 3.75, 2.25, 0.75]
+    for brk in breaks:
+        if X - brk - 0.075 <= x <= X + brk + 0.075:
+            return -LOAD
+        if X + brk - 0.075 <= x <= X + brk + 0.075:
+            return -LOAD
+    return 0.0
+
+
+def make_stiffness(order):
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    xx = sparse.load_npz(f'{order}/matrices/xx.npz')
+    xy = sparse.load_npz(f'{order}/matrices/xy.npz')
+    xz = sparse.load_npz(f'{order}/matrices/xz.npz')
+    yy = sparse.load_npz(f'{order}/matrices/yy.npz')
+    yz = sparse.load_npz(f'{order}/matrices/yz.npz')
+    zz = sparse.load_npz(f'{order}/matrices/zz.npz')
+    pmu = E / (1 + NU)
+    plm = E * NU / (1 + NU) / (1 - 2*NU)
+
+    xxblock = (pmu + plm) * xx + pmu / 2 * (yy + zz)
+    yyblock = (pmu + plm) * yy + pmu / 2 * (xx + zz)
+    zzblock = (pmu + plm) * zz + pmu / 2 * (xx + yy)
+    del xx, yy, zz
+
+    xyblock = pmu / 2 * xy.T + plm * xy
+    xzblock = pmu / 2 * xz.T + plm * xz
+    yzblock = pmu / 2 * yz.T + plm * yz
+    del xy, xz, yz
+
+    mx = sparse.bmat([
+        [xxblock, xyblock, xzblock],
+        [xyblock.T, yyblock, yzblock],
+        [xzblock.T, yzblock.T, zzblock],
+    ])
+    del xxblock, xyblock, xzblock, yyblock, yzblock, zzblock
+
+    sparse.save_npz(f'{order}/matrices/stiffness.npz', mx)
+
+
+def make_h1s(order):
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    xx = sparse.load_npz(f'{order}/matrices/xx.npz')
+    yy = sparse.load_npz(f'{order}/matrices/yy.npz')
+    zz = sparse.load_npz(f'{order}/matrices/zz.npz')
+    dblock = xx + yy + zz
+    del xx, yy, zz
+
+    mx = sparse.bmat([
+        [dblock, None, None],
+        [None, dblock, None],
+        [None, None, dblock],
+    ])
+
+    sparse.save_npz(f'{order}/matrices/h1s.npz', mx)
 
 
 class BridgeCase(case.LRCase):
@@ -31,11 +103,17 @@ class BridgeCase(case.LRCase):
         self.nodeids = nodeids
 
         self['geometry'] = MuConstant(patches, shape=(3,))
-        self.bases.add('ux', patches, length=ndofs)
-        self.bases.add('uy', patches, length=ndofs)
-        self.bases.add('uz', patches, length=ndofs)
+        self.bases.add('u', patches, length=3*ndofs)
 
-        self['stiffness'] = LRElastic(ndofs)
+        self['forcing'] = LRZLoad(ndofs, load, ROADIDS, 'loadpos')
+
+        stiffness = sparse.load_npz('quadratic/matrices/stiffness.npz')
+        self['stiffness'] = MuConstant(stiffness)
+
+        h1s = sparse.load_npz('quadratic/matrices/h1s.npz')
+        self['u-h1s'] = MuConstant(stiffness)
+
+        self['lift'] = MuConstant(np.zeros((3*ndofs,)))
 
 
 def ifem_solve(root, mu, i, order):
@@ -161,6 +239,36 @@ def stitch_ensemble(order: int):
             f.write(','.join([temp_to_final[i] for i in ids]) + '\n')
 
 
+def make_coeffvector(order: int, num: int):
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    with open(f'{order}/stitched/nodeids.txt') as f:
+        nodeids = f.readlines()
+    nodeids = [list(map(int, line.split(','))) for line in nodeids]
+    ndofs = max(max(idmap) for idmap in nodeids) + 1
+    xcoeffs = np.zeros((ndofs,))
+    ycoeffs = np.zeros((ndofs,))
+    zcoeffs = np.zeros((ndofs,))
+
+    with open(f'{order}/stitched/geometry.lr', 'rb') as f:
+        bigpatches = lr.LRSplineObject.read_many(f)
+
+    with h5py.File(f'{order}/results/{num:02}.hdf5') as f:
+        group = f[str(len(f)-1)]['Elasticity-1']
+        fgroup = group['fields']['displacement']
+        bgroup = group['basis']
+        for patchid, bigpatch, idmap in zip(range(len(fgroup)), bigpatches, nodeids):
+            patch = lr.LRSplineVolume(bgroup[str(patchid+1)][:].tobytes())
+            patch.controlpoints = fgroup[str(patchid+1)][:].reshape((-1, 3))
+            move_meshlines(bigpatch, patch)
+            pcoeffs = patch.controlpoints
+            xcoeffs[idmap] = pcoeffs[:,0]
+            ycoeffs[idmap] = pcoeffs[:,1]
+            zcoeffs[idmap] = pcoeffs[:,2]
+
+    coeffs = np.hstack([xcoeffs, ycoeffs, zcoeffs])
+    np.save(f'{order}/stitched/{num:02}.npy', coeffs)
+
+
 def get_case(order: int):
     order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
     with open(f'{order}/stitched/geometry.lr', 'rb') as f:
@@ -171,54 +279,27 @@ def get_case(order: int):
     return BridgeCase(patches, nodeids)
 
 
-# def integrate(order: int):
-#     order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
-#     with open(f'{order}/stitched/00-geom.lr', 'rb') as f:
-#         geometry = lr.LRSplineObject.read_many(f)
-
-#     for patch in tqdm(geometry):
-#         integrate2(patch, loc_laplacian, npts=5)
-
-
-# def get_ensemble(num: int, order: int):
-#     scheme = quadrature.full([(LOWER, UPPER)], num)
-#     order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
-#     with open(f'{order}/stitched/nodeids.txt') as f:
-#         nodeids = f.readlines()
-#     nodeids = [list(map(int, line.split(','))) for line in nodeids]
-#     N = max(max(patch) for patch in nodeids)
-
-#     with open(f'{order}/stitched/00-geom.lr', 'rb') as f:
-#         geometry = lr.LRSplineObject.read_many(f)
-
-#     for i in range(num):
-#         ux, uy = np.zeros((N,)), np.zeros((N,))
-#         with open(f'{order}/stitched/{i:02}-sol.lr', 'rb') as f:
-#             patches = lr.LRSplineObject.read_many(f)
-#         for j, (patch, ids) in enumerate(zip(patches, nodeids)):
-#             print(j, len(patch), len(ids))
-#             ux[ids] = [bf.controlpoint[0] for bf in patch.basis]
-#             uy[ids] = [bf.controlpoint[1] for bf in patch.basis]
-#         solvec = np.vstack((ux, uy))
-#         # print(solvec.shape)
-
-
 @click.group()
 def main():
     pass
 
 
-@main.command()
-@click.argument('diff')
-@util.common_args
-def zing(diff):
-    case = get_case(3)
-    mu = case.parameter()
-    mesh = case['geometry'](mu)
+@util.filecache('bridge-{order}-{nred}.rcase')
+def get_reduced(nred: int = 10, order: int = 3):
+    assert order == 3
+    case = get_case(order)
 
-    diffids = tuple('xyz'.index(d) for d in diff)
-    mx = integrate2(mesh, case.nodeids, loc_diff, 3, diffids=diffids)
-    sparse.save_npz(f'{diff}.npz', mx)
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    scheme = quadrature.full([(LOWER, UPPER)], 50)
+    ensemble = ens.Ensemble(scheme)
+    ensemble['solutions'] = np.array([np.load(f'{order}/stitched/{i:02}.npy') for i in range(len(scheme))])
+
+    reducer = reduction.EigenReducer(case, ensemble)
+    reducer.add_basis('u', parent='u', ensemble='solutions', ndofs=nred, norm='h1s')
+    print('plotting')
+    reducer.plot_spectra('spectrum', nvals=50)
+    print('plotted')
+    return reducer()
 
 
 if __name__ == '__main__':
@@ -227,5 +308,9 @@ if __name__ == '__main__':
     # merge_ensemble(order=3)
     # stitch_ensemble(order=3)
     # integrate(order=3)
+    # make_stiffness(order=3)
+    # make_h1s(order=3)
 
-    main()
+    get_reduced(10, 3)
+
+    # main()

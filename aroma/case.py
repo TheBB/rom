@@ -337,8 +337,8 @@ class Case:
 
         if not sparse:
             self.integrals.write(group.require_group('integrals'))
-        else:
-            self.integrals.write(group.require_group('integrals'), only=('geometry', 'lift'))
+        # else:
+        #     self.integrals.write(group.require_group('integrals'), only=('geometry', 'lift'))
 
     @staticmethod
     def read(group, sparse=False):
