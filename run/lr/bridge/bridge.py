@@ -14,7 +14,7 @@ import scipy.sparse as sparse
 import sys
 
 from aroma import util, quadrature, case, ensemble as ens, cases, solvers, reduction
-from aroma.affine.integrands.lr import integrate2, loc_diff, LRZLoad
+from aroma.affine.integrands.lr import integrate1, loc_source
 from aroma.affine import MuConstant
 
 
@@ -29,6 +29,12 @@ ROADIDS = [
     77, 78, 88, 89, 90, 91, 98, 99, 100, 101, 102, 103, 113, 114, 115, 116,
     144, 149, 154, 157, 158, 165, 166, 167, 168, 169, 170, 180, 181, 182, 183,
 ]
+FUNDAMENT = [
+    25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43,
+    44, 45, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130,
+    131, 132, 133, 134, 135, 136, 137,
+]
+SUPPORT = [184, 185, 186, 194, 195, 196]
 
 
 def load(mu, x, y, z):
@@ -94,6 +100,18 @@ def make_h1s(order):
     sparse.save_npz(f'{order}/matrices/h1s.npz', mx)
 
 
+def make_gravity(order):
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    with open(f'{order}/stitched/geometry.lr', 'rb') as f:
+        patches = lr.LRSplineObject.read_many(f)
+    with open(f'{order}/stitched/nodeids.txt') as f:
+        nodeids = f.readlines()
+    nodeids = [list(map(int, line.split(','))) for line in nodeids]
+    vec = integrate1(patches, nodeids, loc_source, npts=3, source=(lambda *args: -9.81))
+    vec = np.hstack([np.zeros((ndofs,)), np.zeros((ndofs,)), vec])
+    np.save(f'{order}/matrices/gravity.npy', vec)
+
+
 class BridgeCase(case.LRCase):
 
     def __init__(self, patches, nodeids):
@@ -108,12 +126,14 @@ class BridgeCase(case.LRCase):
         self['forcing'] = LRZLoad(ndofs, load, ROADIDS, 'loadpos')
 
         stiffness = sparse.load_npz('quadratic/matrices/stiffness.npz')
-        self['stiffness'] = MuConstant(stiffness)
+        self['stiffness'] = MuConstant(stiffness.asformat('csr'))
 
         h1s = sparse.load_npz('quadratic/matrices/h1s.npz')
-        self['u-h1s'] = MuConstant(stiffness)
+        self['u-h1s'] = MuConstant(stiffness.asformat('csr'))
 
         self['lift'] = MuConstant(np.zeros((3*ndofs,)))
+
+        self.constrain(np.load('quadratic/stitched/constraints.npy'))
 
 
 def ifem_solve(root, mu, i, order):
@@ -269,6 +289,32 @@ def make_coeffvector(order: int, num: int):
     np.save(f'{order}/stitched/{num:02}.npy', coeffs)
 
 
+def make_cons(order: int):
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    with open(f'{order}/stitched/geometry.lr', 'rb') as f:
+        patches = lr.LRSplineObject.read_many(f)
+    with open(f'{order}/stitched/nodeids.txt') as f:
+        nodeids = f.readlines()
+    nodeids = [list(map(int, line.split(','))) for line in nodeids]
+    ndofs = max(max(idmap) for idmap in nodeids) + 1
+    consx = np.full((ndofs,), np.nan)
+    consy = np.full((ndofs,), np.nan)
+    consz = np.full((ndofs,), np.nan)
+    for i in FUNDAMENT:
+        for bf in patches[i].basis.edge('bottom'):
+            nodeid = nodeids[i][bf.id]
+            consx[nodeid] = 0.0
+            consy[nodeid] = 0.0
+            consz[nodeid] = 0.0
+    for i in SUPPORT:
+        for bf in patches[i].basis.edge('bottom'):
+            nodeid = nodeids[i][bf.id]
+            consy[nodeid] = 0.0
+            consz[nodeid] = 0.0
+    cons = np.hstack([consx, consy, consz])
+    np.save(f'{order}/stitched/constraints.npy', cons)
+
+
 def get_case(order: int):
     order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
     with open(f'{order}/stitched/geometry.lr', 'rb') as f:
@@ -277,11 +323,6 @@ def get_case(order: int):
         nodeids = f.readlines()
     nodeids = [list(map(int, line.split(','))) for line in nodeids]
     return BridgeCase(patches, nodeids)
-
-
-@click.group()
-def main():
-    pass
 
 
 @util.filecache('bridge-{order}-{nred}.rcase')
@@ -296,10 +337,32 @@ def get_reduced(nred: int = 10, order: int = 3):
 
     reducer = reduction.EigenReducer(case, ensemble)
     reducer.add_basis('u', parent='u', ensemble='solutions', ndofs=nred, norm='h1s')
-    print('plotting')
     reducer.plot_spectra('spectrum', nvals=50)
-    print('plotted')
     return reducer()
+
+
+def compare(nred: int = 10, order: int = 3):
+    tcase = get_case(order)
+    rcase = get_reduced(nred, order)
+
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    scheme = quadrature.full([(LOWER, UPPER)], 50)
+
+    for i, (wt, *pt) in enumerate(scheme):
+        mu = tcase.parameter(*pt)
+        tlhs = solvers.elasticity(tcase, mu)
+        print(tlhs.shape)
+        # rlhs = solvers.elasticity(rcase, mu)
+        # tlhs = rlhs.dot(rcase.projection)
+
+        # h1s = tcase['u-h1s'](mu)
+        ref = np.load(f'{order}/stitched/{i:02}.npy')
+        print(np.mean(np.abs(tlhs - ref)))
+        break
+        # err = tlhs - ref
+        # h1err = np.sqrt(err.dot(h1s.dot(err)))
+        # h1den = np.sqrt(ref.dot(h1s.dot(ref)))
+        # print(h1err / h1den)
 
 
 if __name__ == '__main__':
@@ -310,7 +373,8 @@ if __name__ == '__main__':
     # integrate(order=3)
     # make_stiffness(order=3)
     # make_h1s(order=3)
+    # make_cons(order=3)
+    make_gravity(order=3)
 
-    get_reduced(10, 3)
-
-    # main()
+    # get_reduced(10, 3)
+    # compare(10, 3)

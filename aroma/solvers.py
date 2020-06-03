@@ -333,7 +333,8 @@ def elasticity(case, mu):
         rhs += case['forcing'](mu)
 
     try:
-        lhs = solve(matrix, rhs, case.constraints, solver='spsolve', atol=1e-10, precon='SPLU')
+        # lhs = solve(matrix, rhs, case.constraints, solver='spsolve', atol=1e-10, precon='SPLU')
+        lhs = solve(matrix, rhs, case.constraints, solver='mkl')
     except TypeError:
         lhs = solve(matrix, rhs, case.constraints)
 

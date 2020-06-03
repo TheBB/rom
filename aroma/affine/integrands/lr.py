@@ -81,8 +81,9 @@ def simple_loc2(func):
 
         locwts, *locpts = _local_quadrature(elt, wts, refpts)
         for (wt, *pt) in zip(locwts, *locpts):
-            jtinv = np.linalg.inv(_jacobian(mesh, elt, *pt).T)
-            func(bfuns, jtinv, V, wt, *pt, **kwargs)
+            jac = _jacobian(mesh, elt, *pt)
+            jtinv = np.linalg.inv(jac.T)
+            func(bfuns, jtinv, V, wt * np.linalg.det(jac), *pt, **kwargs)
 
         return I, J, V
     return inner
@@ -97,8 +98,9 @@ def simple_loc1(func):
         locwts, *locpts = _local_quadrature(elt, wts, refpts)
         for (wt, *pt) in zip(locwts, *locpts):
             physpt = mesh(*pt)
-            jtinv = np.linalg.inv(_jacobian(mesh, elt, *pt).T)
-            func(bfuns, jtinv, V, wt, *pt, **kwargs, physpt=physpt)
+            jac = _jacobian(mesh, elt, *pt)
+            jtinv = np.linalg.inv(jac.T)
+            func(bfuns, jtinv, V, wt * np.linalg.det(jac), *pt, **kwargs, physpt=physpt)
 
         return ids, V
     return inner
@@ -148,13 +150,17 @@ def integrate2(mesh, nodeids, local, npts=5, **kwargs):
     return sparse.csr_matrix((V, (I, J)), shape=(ndofs, ndofs))
 
 
-def integrate1(mesh, local, npts=5, **kwargs):
-    (wts, *refpts) = quadrature.full([(0.0, 1.0)] * mesh.pardim, npts).T
-    V = np.zeros((len(mesh),))
+def integrate1(mesh, nodeids, local, npts=5, **kwargs):
+    (wts, *refpts) = quadrature.full([(0.0, 1.0)] * mesh[0].pardim, npts).T
+    ndofs = max(max(idmap) for idmap in nodeids) + 1
+    V = np.zeros((ndofs,))
 
-    for elt in log.iter('integrating', mesh.elements):
-        Il, Vl = local(mesh, elt, wts, refpts, **kwargs)
-        V[Il] += Vl
+    for idmap, patch in log.iter('patch', zip(nodeids, mesh)):
+        elements = patch.elements
+        for elt in log.iter('element', elements):
+            Il, Vl = local(patch, elt, wts, refpts, **kwargs)
+            Il = [idmap[i] for i in Il]
+            V[Il] += Vl
 
     return V
 

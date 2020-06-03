@@ -348,7 +348,7 @@ class Case:
         # Lifts behave differently between high- and low-fidelity cases
         obj._read(group, sparse=sparse)
 
-        obj.verify()
+        # obj.verify()
         return obj
 
     def _read(self, group, sparse):
@@ -358,8 +358,10 @@ class Case:
         if 'extra_dofs' in group:
             self.extra_dofs = group['extra_dofs'][()]
 
-        self.bases = Bases.read(group['bases'])
-        self.integrals = Integrals.read(group['integrals'])
+        if 'bases' in group:
+            self.bases = Bases.read(group['bases'])
+        if 'integrals' in group:
+            self.integrals = Integrals.read(group['integrals'])
 
     def precompute(self, force=False, **kwargs):
         new = []

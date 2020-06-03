@@ -375,7 +375,9 @@ class MuConstant(MuObject):
         super().__init__(obj, shape, (), scale=scale)
 
     def evaluate(self, case, pval, cont):
-        if isinstance(self.obj, sparse.spmatrix):
+        if all(c is None for c in cont):
+            return self.obj
+        elif isinstance(self.obj, sparse.spmatrix):
             return util.contract_sparse(self.obj, cont)
         else:
             return util.contract(self.obj, cont)
