@@ -14,7 +14,7 @@ import scipy.sparse as sparse
 import sys
 
 from aroma import util, quadrature, case, ensemble as ens, cases, solvers, reduction
-from aroma.affine.integrands.lr import integrate1, loc_source
+from aroma.affine.integrands.lr import integrate1, loc_source, integrate2, loc_diff, LRZLoad
 from aroma.affine import MuConstant
 
 
@@ -110,6 +110,19 @@ def make_gravity(order):
     vec = integrate1(patches, nodeids, loc_source, npts=3, source=(lambda *args: -9.81))
     vec = np.hstack([np.zeros((ndofs,)), np.zeros((ndofs,)), vec])
     np.save(f'{order}/matrices/gravity.npy', vec)
+
+
+def make_diffmatrix(order):
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    with open(f'{order}/stitched/geometry.lr', 'rb') as f:
+        patches = lr.LRSplineObject.read_many(f)
+    with open(f'{order}/stitched/nodeids.txt') as f:
+        nodeids = f.readlines()
+    nodeids = [list(map(int, line.split(','))) for line in nodeids]
+    diffids = sys.argv[1]
+    numids = tuple('xyz'.index(d) for d in diffids)
+    mx = integrate2(patches, nodeids, loc_diff, npts=3, diffids=numids)
+    sparse.save_npz(f'{order}/matrices/{diffids}.npz', mx)
 
 
 class BridgeCase(case.LRCase):
@@ -363,6 +376,7 @@ def compare(nred: int = 10, order: int = 3):
         # h1err = np.sqrt(err.dot(h1s.dot(err)))
         # h1den = np.sqrt(ref.dot(h1s.dot(ref)))
         # print(h1err / h1den)
+
 
 
 if __name__ == '__main__':
