@@ -8,6 +8,7 @@ from pathlib import Path
 import glob
 import h5py
 import lrspline as lr
+import lrspline.raw as lrraw
 from xml.etree import ElementTree
 import numpy as np
 import scipy.sparse as sparse
@@ -35,6 +36,7 @@ FUNDAMENT = [
     131, 132, 133, 134, 135, 136, 137,
 ]
 SUPPORT = [184, 185, 186, 194, 195, 196]
+SIDES = ['west', 'east', 'south', 'north', 'bottom', 'top']
 
 
 def load(mu, x, y, z):
@@ -83,6 +85,30 @@ def make_stiffness(order):
     sparse.save_npz(f'{order}/matrices/stiffness.npz', mx)
 
 
+def make_stiffness_ifem(order):
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    with open(f'{order}/stitched/nodeids.txt') as f:
+        nodeids = f.readlines()
+    nodeids = [list(map(int, line.split(','))) for line in nodeids]
+    ndofs = max(max(idmap) for idmap in nodeids) + 1
+    mx = sparse.dok_matrix((3*ndofs, 3*ndofs))
+    with open(f'{order}/stitched/stiffness.out') as f:
+        next(f)
+        for line in tqdm(f):
+            while line[-1] in ('\n', ';', ']'):
+                line = line[:-1]
+            i, j, v = line.split()
+            inode = (int(i) - 1) // 3
+            jnode = (int(j) - 1) // 3
+            idir = (int(i) - 1) % 3
+            jdir = (int(j) - 1) % 3
+            ix = idir * ndofs + inode
+            jx = jdir * ndofs + jnode
+            mx[ix, jx] = float(v)
+
+    sparse.save_npz(f'{order}/matrices/stiffness.npz', mx.asformat('csr'))
+
+
 def make_h1s(order):
     order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
     xx = sparse.load_npz(f'{order}/matrices/xx.npz')
@@ -107,6 +133,7 @@ def make_gravity(order):
     with open(f'{order}/stitched/nodeids.txt') as f:
         nodeids = f.readlines()
     nodeids = [list(map(int, line.split(','))) for line in nodeids]
+    ndofs = max(max(idmap) for idmap in nodeids) + 1
     vec = integrate1(patches, nodeids, loc_source, npts=3, source=(lambda *args: -9.81))
     vec = np.hstack([np.zeros((ndofs,)), np.zeros((ndofs,)), vec])
     np.save(f'{order}/matrices/gravity.npy', vec)
@@ -231,45 +258,19 @@ def merge_ensemble(order: int):
 
 def stitch_ensemble(order: int):
     order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
-    with open(f'{order}/stitched/00-geom.lr', 'rb') as f:
+    with open(f'{order}/stitched/geometry.lr', 'rb') as f:
         patches = lr.LRSplineObject.read_many(f)
 
-    indices = [np.arange(len(patches[0]), dtype=int)]
-    for patch in patches[1:]:
-        start = indices[-1][-1] + 1
-        indices.append(np.arange(start, start + len(patch), dtype=int))
-
-    with open('bridge-topology.xinp', 'r') as f:
-        xml = ElementTree.fromstring(f.read())
-
-    for element in tqdm(xml, 'Connection'):
-        master = int(element.attrib['master']) - 1
-        slave = int(element.attrib['slave']) - 1
-
-        masterpatch = patches[master]
-        slavepatch = patches[slave]
-
-        midx = int(element.attrib['midx']) - 1
-        sidx = int(element.attrib['sidx']) - 1
-        sides = ['west', 'east', 'south', 'north', 'bottom', 'top']
-
-        # Master control points and numbers
-        masterdata = [
-            (bf.controlpoint, bf.id) for bf in masterpatch.basis.edge(sides[midx])
+    with h5py.File(f'{order}/stitched/nodenums.hdf5', 'r') as f:
+        ifemindices = [
+            f[f'0/Elasticity-1/l2g-node/{i+1}'][:] - 1
+            for i in range(len(patches))
         ]
-        for bf in slavepatch.basis.edge(sides[sidx]):
-            match = next(i for cp, i in masterdata if np.allclose(bf.controlpoint, cp))
-            indices[slave][bf.id] = indices[master][match]
-
-    allids = set()
-    for ids in indices:
-        allids |= set(ids)
-    allids = sorted(allids)
-    temp_to_final = {temp: str(final) for final, temp in enumerate(allids)}
+    assert all(len(i) == len(p) for i, p in zip(ifemindices, patches))
 
     with open(f'{order}/stitched/nodeids.txt', 'w') as f:
-        for ids in indices:
-            f.write(','.join([temp_to_final[i] for i in ids]) + '\n')
+        for fi in ifemindices:
+            f.write(','.join(map(str, fi)) + '\n')
 
 
 def make_coeffvector(order: int, num: int):
@@ -388,7 +389,12 @@ if __name__ == '__main__':
     # make_stiffness(order=3)
     # make_h1s(order=3)
     # make_cons(order=3)
-    make_gravity(order=3)
+    # make_gravity(order=3)
+    make_stiffness_ifem(order=3)
+    # get_case(order=3)
 
     # get_reduced(10, 3)
     # compare(10, 3)
+
+    # for i in range(45, 50):
+    #     make_coeffvector(order=3, num=i)
