@@ -91,10 +91,13 @@ def make_stiffness_ifem(order):
         nodeids = f.readlines()
     nodeids = [list(map(int, line.split(','))) for line in nodeids]
     ndofs = max(max(idmap) for idmap in nodeids) + 1
-    mx = sparse.dok_matrix((3*ndofs, 3*ndofs))
+    N = 455106492
+    I = np.zeros((N,), dtype=np.int32)
+    J = np.zeros((N,), dtype=np.int32)
+    V = np.zeros((N,), dtype=np.float)
     with open(f'{order}/stitched/stiffness.out') as f:
         next(f)
-        for line in tqdm(f):
+        for n, line in tqdm(enumerate(f)):
             while line[-1] in ('\n', ';', ']'):
                 line = line[:-1]
             i, j, v = line.split()
@@ -102,11 +105,38 @@ def make_stiffness_ifem(order):
             jnode = (int(j) - 1) // 3
             idir = (int(i) - 1) % 3
             jdir = (int(j) - 1) % 3
-            ix = idir * ndofs + inode
-            jx = jdir * ndofs + jnode
-            mx[ix, jx] = float(v)
+            I[n] = idir * ndofs + inode
+            J[n] = jdir * ndofs + jnode
+            V[n] = float(v)
 
-    sparse.save_npz(f'{order}/matrices/stiffness.npz', mx.asformat('csr'))
+    np.save(f'{order}/matrices/stiffness-I.npy', I)
+    np.save(f'{order}/matrices/stiffness-J.npy', J)
+    np.save(f'{order}/matrices/stiffness-V.npy', V)
+
+
+def final_stiffness_ifem(order):
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    with open(f'{order}/stitched/nodeids.txt') as f:
+        nodeids = f.readlines()
+    nodeids = [list(map(int, line.split(','))) for line in nodeids]
+    ndofs = max(max(idmap) for idmap in nodeids) + 1
+
+    I = np.load(f'{order}/matrices/stiffness-I.npy')
+    J = np.load(f'{order}/matrices/stiffness-J.npy')
+    V = np.load(f'{order}/matrices/stiffness-V.npy')
+
+    mx = sparse.csr_matrix((V, (I, J)))
+    sparse.save_npz(f'{order}/matrices/stiffness.npz', mx)
+
+
+def make_load_ifem(order):
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    mx = sparse.load_npz(f'{order}/matrices/stiffness.npz')
+    gravity = np.load(f'{order}/matrices/gravity.npy')
+    for i in tqdm(range(50)):
+        lhs = np.load(f'{order}/stitched/{i:02}.npy')
+        residual = mx * lhs - gravity
+        np.save(f'{order}/stitched/{i:02}.load.npy', residual)
 
 
 def make_h1s(order):
@@ -137,6 +167,20 @@ def make_gravity(order):
     vec = integrate1(patches, nodeids, loc_source, npts=3, source=(lambda *args: -9.81))
     vec = np.hstack([np.zeros((ndofs,)), np.zeros((ndofs,)), vec])
     np.save(f'{order}/matrices/gravity.npy', vec)
+
+
+def make_gravity_ifem(order):
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    values = []
+    with open(f'{order}/stitched/rhs.out') as f:
+        next(f)
+        for line in tqdm(f):
+            values.extend(map(float, line.split()))
+    xvals = values[0::3]
+    yvals = values[1::3]
+    zvals = values[2::3]
+    values = np.hstack([xvals, yvals, zvals])
+    np.save(f'{order}/matrices/gravity.npy', values)
 
 
 def make_diffmatrix(order):
@@ -387,10 +431,12 @@ if __name__ == '__main__':
     # stitch_ensemble(order=3)
     # integrate(order=3)
     # make_stiffness(order=3)
-    # make_h1s(order=3)
+    make_h1s(order=3)
     # make_cons(order=3)
-    # make_gravity(order=3)
-    make_stiffness_ifem(order=3)
+    # make_gravity_ifem(order=3)
+    # make_stiffness_ifem(order=3)
+    # final_stiffness_ifem(order=3)
+    # make_load_ifem(order=3)
     # get_case(order=3)
 
     # get_reduced(10, 3)

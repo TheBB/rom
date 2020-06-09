@@ -83,7 +83,7 @@ def simple_loc2(func):
         for (wt, *pt) in zip(locwts, *locpts):
             jac = _jacobian(mesh, elt, *pt)
             jtinv = np.linalg.inv(jac.T)
-            func(bfuns, jtinv, V, wt * np.linalg.det(jac), *pt, **kwargs)
+            func(bfuns, jtinv, V, wt * abs(np.linalg.det(jac)), *pt, **kwargs)
 
         return I, J, V
     return inner
@@ -100,7 +100,7 @@ def simple_loc1(func):
             physpt = mesh(*pt)
             jac = _jacobian(mesh, elt, *pt)
             jtinv = np.linalg.inv(jac.T)
-            func(bfuns, jtinv, V, wt * np.linalg.det(jac), *pt, **kwargs, physpt=physpt)
+            func(bfuns, jtinv, V, wt * abs(np.linalg.det(jac)), *pt, **kwargs, physpt=physpt)
 
         return ids, V
     return inner
