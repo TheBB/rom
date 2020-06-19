@@ -331,6 +331,8 @@ def elasticity(case, mu):
     rhs = - case['stiffness'](mu, cont=(None, 'lift'))
     if 'forcing' in case:
         rhs += case['forcing'](mu)
+    if 'gravity' in case:
+        rhs += case['gravity'](mu)
 
     try:
         # lhs = solve(matrix, rhs, case.constraints, solver='spsolve', atol=1e-10, precon='SPLU')

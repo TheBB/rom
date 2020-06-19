@@ -13,6 +13,8 @@ from xml.etree import ElementTree
 import numpy as np
 import scipy.sparse as sparse
 import sys
+from functools import lru_cache
+from io import BytesIO
 
 from aroma import util, quadrature, case, ensemble as ens, cases, solvers, reduction
 from aroma.affine.integrands.lr import integrate1, loc_source, integrate2, loc_diff, LRZLoad
@@ -37,6 +39,75 @@ FUNDAMENT = [
 ]
 SUPPORT = [184, 185, 186, 194, 195, 196]
 SIDES = ['west', 'east', 'south', 'north', 'bottom', 'top']
+
+
+
+@lru_cache()
+def get_nodeids(order):
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    with open(f'{order}/stitched/nodeids.txt') as f:
+        nodeids = f.readlines()
+    nodeids = [list(map(int, line.split(','))) for line in nodeids]
+    return nodeids
+
+
+@lru_cache()
+def get_patches(order):
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    with open(f'{order}/stitched/geometry.lr', 'rb') as f:
+        patches = lr.LRSplineObject.read_many(f)
+    return patches
+
+
+def write_ifem(filename, coeffs, order=3):
+    nodeids = get_nodeids(order)
+    patches = get_patches(order)
+    with h5py.File(filename, 'w') as f:
+        elast = f.require_group('0/Elasticity-1')
+        basis = elast.require_group('basis')
+        displ = elast.require_group('fields/displacement')
+        for i, (patch, nodemap) in enumerate(zip(patches, nodeids)):
+            with BytesIO() as b:
+                patch.write(b)
+                b.seek(0)
+                basis[str(i+1)] = np.frombuffer(b.getvalue(), dtype=np.int8)
+            patchcoeffs = np.array([coeffs[j,:] for j in nodemap])
+            displ[str(i+1)] = patchcoeffs.flat
+
+
+def _permute_rows(test, control):
+    mismatches = [i for i, (testrow, controlrow) in enumerate(zip(test, control))
+                  if not np.allclose(testrow, controlrow)]
+    permutation = np.arange(len(test), dtype=np.int32)
+    for i in mismatches:
+        permutation[i] = next(j for j in mismatches if np.allclose(test[j], control[i]))
+    assert len(set(permutation)) == len(test) == len(control)
+    return permutation
+
+
+def make_dirnodes(order):
+    order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
+    with open(f'{order}/stitched/nodeids.txt') as f:
+        nodeids = f.readlines()
+    nodeids = [list(map(int, line.split(','))) for line in nodeids]
+    with open(f'{order}/stitched/geometry.lr', 'rb') as f:
+        patches = lr.LRSplineObject.read_many(f)
+    xfixed, yfixed, zfixed = [], [], []
+    for pid in SUPPORT:
+        patch = patches[pid]
+        for bf in patch.basis.edge('bottom'):
+            yfixed.append(nodeids[pid][bf.id])
+            zfixed.append(nodeids[pid][bf.id])
+    for pid in FUNDAMENT:
+        patch = patches[pid]
+        for bf in patch.basis.edge('bottom'):
+            xfixed.append(nodeids[pid][bf.id])
+            yfixed.append(nodeids[pid][bf.id])
+            zfixed.append(nodeids[pid][bf.id])
+
+    np.save(f'{order}/matrices/xfixed.npy', np.array(xfixed))
+    np.save(f'{order}/matrices/yfixed.npy', np.array(yfixed))
+    np.save(f'{order}/matrices/zfixed.npy', np.array(zfixed))
 
 
 def load(mu, x, y, z):
@@ -101,12 +172,8 @@ def make_stiffness_ifem(order):
             while line[-1] in ('\n', ';', ']'):
                 line = line[:-1]
             i, j, v = line.split()
-            inode = (int(i) - 1) // 3
-            jnode = (int(j) - 1) // 3
-            idir = (int(i) - 1) % 3
-            jdir = (int(j) - 1) % 3
-            I[n] = idir * ndofs + inode
-            J[n] = jdir * ndofs + jnode
+            I[n] = int(i) - 1
+            J[n] = int(j) - 1
             V[n] = float(v)
 
     np.save(f'{order}/matrices/stiffness-I.npy', I)
@@ -141,18 +208,15 @@ def make_load_ifem(order):
 
 def make_h1s(order):
     order = {2: 'linear', 3: 'quadratic', 4: 'cubic'}[order]
-    xx = sparse.load_npz(f'{order}/matrices/xx.npz')
-    yy = sparse.load_npz(f'{order}/matrices/yy.npz')
-    zz = sparse.load_npz(f'{order}/matrices/zz.npz')
-    dblock = xx + yy + zz
-    del xx, yy, zz
+    xx = sparse.load_npz(f'{order}/matrices/xx.npz').asformat('coo')
+    yy = sparse.load_npz(f'{order}/matrices/yy.npz').asformat('coo')
+    zz = sparse.load_npz(f'{order}/matrices/zz.npz').asformat('coo')
 
-    mx = sparse.bmat([
-        [dblock, None, None],
-        [None, dblock, None],
-        [None, None, dblock],
-    ])
+    I = np.hstack([3*xx.row, 3*yy.row + 1, 3*zz.row + 2])
+    J = np.hstack([3*xx.col, 3*yy.col + 1, 3*zz.col + 2])
+    V = np.hstack([xx.data, yy.data, zz.data])
 
+    mx = sparse.csr_matrix((V, (I, J)))
     sparse.save_npz(f'{order}/matrices/h1s.npz', mx)
 
 
@@ -176,11 +240,7 @@ def make_gravity_ifem(order):
         next(f)
         for line in tqdm(f):
             values.extend(map(float, line.split()))
-    xvals = values[0::3]
-    yvals = values[1::3]
-    zvals = values[2::3]
-    values = np.hstack([xvals, yvals, zvals])
-    np.save(f'{order}/matrices/gravity.npy', values)
+    np.save(f'{order}/matrices/gravity.npy', np.array(values))
 
 
 def make_diffmatrix(order):
@@ -209,15 +269,43 @@ class BridgeCase(case.LRCase):
 
         self['forcing'] = LRZLoad(ndofs, load, ROADIDS, 'loadpos')
 
+        gravity = np.load('quadratic/matrices/gravity.npy')
+        self['gravity'] = MuConstant(gravity)
+
         stiffness = sparse.load_npz('quadratic/matrices/stiffness.npz')
-        self['stiffness'] = MuConstant(stiffness.asformat('csr'))
+        self['stiffness'] = MuConstant(stiffness)
 
         h1s = sparse.load_npz('quadratic/matrices/h1s.npz')
-        self['u-h1s'] = MuConstant(stiffness.asformat('csr'))
+        # self['u-h1s'] = MuConstant(h1s.asformat('csr'))
+        self['u-h1s'] = MuConstant(sparse.eye(3*ndofs, 3*ndofs))
 
         self['lift'] = MuConstant(np.zeros((3*ndofs,)))
 
-        self.constrain(np.load('quadratic/stitched/constraints.npy'))
+
+def ifem_rhs(root, mu, i):
+    with open(f'rhs/bridge.xinp', 'r') as f:
+        template = Template(f.read())
+    with open(root / f'bridge.xinp', 'w') as f:
+        f.write(Template.render(**mu))
+
+    shutil.copy('rhs/bridge-topology.xinp', root / 'bridge-topology.xinp')
+    shutil.copy('rhs/bridge-topologysets.xinp', root / 'bridge-topologysets.xinp')
+    shutil.copy('rhs/geometry.lr', root / 'geometry.lr')
+
+    result = run([IFEM, 'bridge.xinp', '-LR'], cwd=root, stdout=PIPE, stderr=PIPE)
+    result.check_returncode()
+
+    with open(f'quadratic/rhs/{i:02}.out', 'wb') as f:
+        f.write(result.stdout)
+
+
+def compute_rhs(num: int, order: int):
+    scheme = quadrature.full([(LOWER, UPPER)], num)
+
+    for i, (_, *mu) in enumerate(tqdm(scheme)):
+        with TemporaryDirectory() as path:
+            mu = dict(zip(['center'], mu))
+            ifem_solve(Path(path), mu, i, order=order)
 
 
 def ifem_solve(root, mu, i, order):
@@ -323,9 +411,7 @@ def make_coeffvector(order: int, num: int):
         nodeids = f.readlines()
     nodeids = [list(map(int, line.split(','))) for line in nodeids]
     ndofs = max(max(idmap) for idmap in nodeids) + 1
-    xcoeffs = np.zeros((ndofs,))
-    ycoeffs = np.zeros((ndofs,))
-    zcoeffs = np.zeros((ndofs,))
+    coeffs = np.zeros((ndofs, 3))
 
     with open(f'{order}/stitched/geometry.lr', 'rb') as f:
         bigpatches = lr.LRSplineObject.read_many(f)
@@ -334,17 +420,22 @@ def make_coeffvector(order: int, num: int):
         group = f[str(len(f)-1)]['Elasticity-1']
         fgroup = group['fields']['displacement']
         bgroup = group['basis']
-        for patchid, bigpatch, idmap in zip(range(len(fgroup)), bigpatches, nodeids):
+        for patchid, bigpatch, idmap in tqdm(zip(range(len(fgroup)), bigpatches, nodeids)):
             patch = lr.LRSplineVolume(bgroup[str(patchid+1)][:].tobytes())
+            np.testing.assert_allclose(patch.start(), bigpatch.start())
+            np.testing.assert_allclose(patch.end(), bigpatch.end())
+
+            testpatch = patch.clone()
+            move_meshlines(bigpatch, testpatch)
+            perm = _permute_rows(testpatch.controlpoints, bigpatch.controlpoints)
+            np.testing.assert_allclose(bigpatch.controlpoints, testpatch.controlpoints[perm,:])
+
             patch.controlpoints = fgroup[str(patchid+1)][:].reshape((-1, 3))
             move_meshlines(bigpatch, patch)
-            pcoeffs = patch.controlpoints
-            xcoeffs[idmap] = pcoeffs[:,0]
-            ycoeffs[idmap] = pcoeffs[:,1]
-            zcoeffs[idmap] = pcoeffs[:,2]
+            pcoeffs = patch.controlpoints[perm,:]
+            coeffs[idmap,:] = pcoeffs
 
-    coeffs = np.hstack([xcoeffs, ycoeffs, zcoeffs])
-    np.save(f'{order}/stitched/{num:02}.npy', coeffs)
+    np.save(f'{order}/stitched/{num:02}.npy', coeffs.reshape((-1,)))
 
 
 def make_cons(order: int):
@@ -396,7 +487,7 @@ def get_reduced(nred: int = 10, order: int = 3):
     reducer = reduction.EigenReducer(case, ensemble)
     reducer.add_basis('u', parent='u', ensemble='solutions', ndofs=nred, norm='h1s')
     reducer.plot_spectra('spectrum', nvals=50)
-    return reducer()
+    return reducer(nrules=8, tol=100.0)
 
 
 def compare(nred: int = 10, order: int = 3):
@@ -408,14 +499,13 @@ def compare(nred: int = 10, order: int = 3):
 
     for i, (wt, *pt) in enumerate(scheme):
         mu = tcase.parameter(*pt)
-        tlhs = solvers.elasticity(tcase, mu)
-        print(tlhs.shape)
-        # rlhs = solvers.elasticity(rcase, mu)
-        # tlhs = rlhs.dot(rcase.projection)
+        rlhs = solvers.elasticity(rcase, mu)
+        tlhs = rlhs.dot(rcase.projection)
 
-        # h1s = tcase['u-h1s'](mu)
         ref = np.load(f'{order}/stitched/{i:02}.npy')
         print(np.mean(np.abs(tlhs - ref)))
+        print(np.mean(np.abs(tlhs)))
+        print(np.mean(np.abs(ref)))
         break
         # err = tlhs - ref
         # h1err = np.sqrt(err.dot(h1s.dot(err)))
@@ -431,16 +521,18 @@ if __name__ == '__main__':
     # stitch_ensemble(order=3)
     # integrate(order=3)
     # make_stiffness(order=3)
-    make_h1s(order=3)
+    # make_h1s(order=3)
     # make_cons(order=3)
     # make_gravity_ifem(order=3)
     # make_stiffness_ifem(order=3)
     # final_stiffness_ifem(order=3)
     # make_load_ifem(order=3)
+    # make_dirnodes(order=3)
     # get_case(order=3)
 
-    # get_reduced(10, 3)
-    # compare(10, 3)
+    # rcase = get_reduced(10, 3)
+    # for i, bfun in enumerate(rcase.projection):
+    #     write_ifem(f'vis/bfun-{i:02}.hdf5', bfun.reshape((-1,3)))
 
-    # for i in range(45, 50):
-    #     make_coeffvector(order=3, num=i)
+    compare(10, 3)
+    # make_coeffvector(order=3, num=int(sys.argv[1]))

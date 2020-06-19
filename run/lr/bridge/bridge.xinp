@@ -22,6 +22,7 @@
 
   <postprocessing>
     <projection type="cgl2" />
+    <dump_rhs_vector>rhs.out</dump_rhs_vector>
   </postprocessing>
 
   <adaptive>

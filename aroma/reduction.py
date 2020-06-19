@@ -76,7 +76,7 @@ class Reducer:
             ekwargs = {**kwargs, **overrides.get(name, {})}
 
             if name in ('geometry', 'lift') or name.endswith('-trf'):
-                rcase[name] = case.integrals[name]
+                # rcase[name] = case.integrals[name]
                 continue
 
             with log.context(name):

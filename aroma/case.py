@@ -333,9 +333,9 @@ class Case:
         if hasattr(self, 'extra_dofs'):
             group['extra_dofs'] = self.extra_dofs
 
-        self.bases.write(group.require_group('bases'))
 
         if not sparse:
+            self.bases.write(group.require_group('bases'))
             self.integrals.write(group.require_group('integrals'))
         # else:
         #     self.integrals.write(group.require_group('integrals'), only=('geometry', 'lift'))

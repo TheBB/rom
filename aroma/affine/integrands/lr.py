@@ -99,8 +99,10 @@ def simple_loc1(func):
         for (wt, *pt) in zip(locwts, *locpts):
             physpt = mesh(*pt)
             jac = _jacobian(mesh, elt, *pt)
+            # HACK: 2D surface integral, z kept constant
+            jacdet = abs(np.linalg.det(jac[:2,:2]))
             jtinv = np.linalg.inv(jac.T)
-            func(bfuns, jtinv, V, wt * abs(np.linalg.det(jac)), *pt, **kwargs, physpt=physpt)
+            func(bfuns, jtinv, V, wt * jacdet, *pt, **kwargs, physpt=physpt)
 
         return ids, V
     return inner
